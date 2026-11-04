@@ -1,0 +1,54 @@
+#!/bin/bash
+# [KiCad-IOS port] Stage: kicad-desktop.
+# Question it answers: does the ACTUAL KiCad 10.0.1 source CONFIGURE and
+# COMPILE against wxQt (desktop first — isolates "KiCad vs wxQt" problems
+# from "iOS cross-compile" problems)? Builds the `kicad` manager target.
+# Requires stage-wx-desktop to have run in the same workspace (re-runs it
+# if its build dir is missing).
+set -uo pipefail
+cd "$(dirname "$0")/.."
+source scripts/ci-common.sh
+
+if [ ! -f "$WORK/build-wx-desktop/wx-config" ]; then
+    bash scripts/stage-wx-desktop.sh || echo "wx desktop stage failed; continuing to capture KiCad configure behaviour anyway"
+fi
+fetch_kicad
+
+log "installing KiCad desktop build deps (brew)"
+brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew 2>&1 | tail -3
+
+WXCFG="$WORK/build-wx-desktop/wx-config"
+"$WXCFG" --selected-config || true
+
+BLD="$WORK/build-kicad-desktop"
+mkdir -p "$BLD"
+set -x
+cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_PREFIX_PATH="$(brew --prefix);$QT_ROOT/$QT_VERSION/macos;$QT_ROOT/$QT_VERSION/clang_64" \
+    -DwxWidgets_CONFIG_EXECUTABLE="$WXCFG" \
+    -DwxWidgets_CONFIG_OPTIONS="--toolkit=qt" \
+    -DKICAD_SCRIPTING_WXPYTHON=OFF \
+    -DKICAD_SPICE=OFF \
+    -DKICAD_USE_SENTRY=OFF \
+    -DKICAD_IPC_API=OFF \
+    -DKICAD_BUILD_QA_TESTS=OFF \
+    -DKICAD_BUILD_I18N=OFF \
+    -DKICAD_INSTALL_DEMOS=OFF \
+    2>&1 | tee "$WORK/logs/kicad-desktop-configure.log"
+CFG_RC=${PIPESTATUS[0]}
+set +x
+echo "KICAD_DESKTOP_CONFIGURE_RC=$CFG_RC"
+if [ "$CFG_RC" != "0" ]; then
+    echo "RESULT: KiCad configure against wxQt FAILED (see log)"; exit 2
+fi
+
+# Build the manager and everything it pulls in (common, gal, kifaces...).
+# Keep going on error (-k 0) so the log enumerates ALL failing units, not
+# just the first — this stage is a catalogue-generating machine.
+cmake --build "$BLD" -j"$(sysctl -n hw.ncpu)" -k 0 --target kicad 2>&1 | tee "$WORK/logs/kicad-desktop-build.log"
+BLD_RC=${PIPESTATUS[0]}
+echo "KICAD_DESKTOP_BUILD_RC=$BLD_RC"
+echo "--- error summary (unique errors) ---"
+grep -E "error:" "$WORK/logs/kicad-desktop-build.log" | sort | uniq -c | sort -rn | head -40 | tee "$WORK/logs/kicad-desktop-errors.txt" || true
+if [ "$BLD_RC" = "0" ]; then echo "RESULT: KiCad manager built against wxQt (desktop)"; else echo "RESULT: KiCad desktop build FAILED — see error catalogue"; exit 3; fi

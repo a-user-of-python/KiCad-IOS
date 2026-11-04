@@ -1,0 +1,70 @@
+name: Spike
+
+# Staged investigation of the ACTUAL KiCad 10.0.1 running on iPadOS.
+# Each job answers one question and always uploads its logs, pass or fail.
+# Free standard runners only (public repo).
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "Which stage to run"
+        type: choice
+        default: wx-desktop
+        options:
+          - wx-desktop
+          - wx-ios
+          - kicad-desktop
+          - all
+
+jobs:
+  wx-desktop:
+    if: ${{ inputs.stage == 'wx-desktop' || inputs.stage == 'all' }}
+    name: wx fork + wxQt backend (macOS desktop probe)
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage wx-desktop
+        run: bash scripts/stage-wx-desktop.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-wx-desktop
+          path: work/logs
+          if-no-files-found: ignore
+
+  wx-ios:
+    if: ${{ inputs.stage == 'wx-ios' || inputs.stage == 'all' }}
+    name: wx fork + wxQt backend (iOS arm64)
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage wx-ios
+        run: bash scripts/stage-wx-ios.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-wx-ios
+          path: work/logs
+          if-no-files-found: ignore
+
+  kicad-desktop:
+    if: ${{ inputs.stage == 'kicad-desktop' || inputs.stage == 'all' }}
+    name: KiCad 10.0.1 vs wxQt (desktop configure + manager build)
+    runs-on: macos-26
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage kicad-desktop
+        run: bash scripts/stage-kicad-desktop.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-kicad-desktop
+          path: work/logs
+          if-no-files-found: ignore

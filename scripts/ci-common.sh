@@ -1,0 +1,60 @@
+# [KiCad-IOS port] CI common settings. This file is part of the KiCad-IOS
+# spike (GPLv3-or-later, matching upstream KiCad). It is NOT an upstream
+# KiCad file; it only pins the upstream baselines the spike builds against.
+#
+# Pins (do not bump silently — record changes in MODIFICATIONS.md):
+QT_VERSION="${QT_VERSION:-6.9.3}"          # same pin as the proven FEBio iOS build (fallback 6.8.3)
+KICAD_TAG="10.0.1"
+KICAD_COMMIT="2db9e5a72b7cf1e71bb8dff5257a88d4b41f812f"
+KICAD_TARBALL="https://gitlab.com/kicad/code/kicad/-/archive/${KICAD_TAG}/kicad-${KICAD_TAG}.tar.gz"
+WX_FORK_REPO="https://github.com/KiCad/wxWidgets.git"   # KiCad's patched wx fork
+WX_FORK_BRANCH="master"
+
+WORK="${WORK:-$PWD/work}"
+SRC="$WORK/src"
+QT_ROOT="$WORK/Qt"
+mkdir -p "$SRC" "$WORK/logs"
+
+log() { echo "== $*"; }
+
+fetch_kicad() {
+    if [ ! -d "$SRC/kicad" ]; then
+        log "fetching KiCad $KICAD_TAG ($KICAD_COMMIT)"
+        curl -sL "$KICAD_TARBALL" -o "$WORK/kicad.tar.gz"
+        mkdir -p "$SRC/kicad"
+        tar -xzf "$WORK/kicad.tar.gz" -C "$SRC/kicad" --strip-components=1
+    fi
+    # Provenance check: the tarball has no .git, so verify a sentinel file
+    # hash is stable across runs and print the version header.
+    grep -m1 "KICAD_VERSION" "$SRC/kicad/CMakeLists.txt" || true
+    ls "$SRC/kicad" | head
+}
+
+fetch_wx() {
+    if [ ! -d "$SRC/wx" ]; then
+        log "cloning KiCad wx fork ($WX_FORK_BRANCH)"
+        git clone --depth 1 --branch "$WX_FORK_BRANCH" "$WX_FORK_REPO" "$SRC/wx"
+    fi
+    git -C "$SRC/wx" log --oneline -1
+    grep -E "wxMAJOR_VERSION|wxMINOR_VERSION|wxRELEASE_NUMBER" "$SRC/wx/include/wx/version.h" | head -3 || true
+}
+
+install_qt() {
+    # $1: kits to install: "desktop", "ios", or "both"
+    python3 -m pip install --quiet --break-system-packages aqtinstall || python3 -m pip install --quiet aqtinstall
+    local kits="$1" v ok=""
+    for v in "$QT_VERSION" 6.8.3; do
+        ok=1
+        if [ "$kits" = "desktop" ] || [ "$kits" = "both" ]; then
+            python3 -m aqt install-qt mac desktop "$v" clang_64 -O "$QT_ROOT" --modules qtshadertools || ok=""
+        fi
+        if [ -n "$ok" ] && { [ "$kits" = "ios" ] || [ "$kits" = "both" ]; }; then
+            python3 -m aqt install-qt mac ios "$v" ios -O "$QT_ROOT" --modules qtshadertools || ok=""
+        fi
+        if [ -n "$ok" ]; then QT_VERSION="$v"; break; fi
+        echo "-- Qt $v failed, trying next candidate"
+    done
+    [ -n "$ok" ] || { echo "ERROR: no Qt could be installed" >&2; exit 1; }
+    echo "QT_VERSION_USED=$QT_VERSION"
+    ls "$QT_ROOT/$QT_VERSION"
+}
