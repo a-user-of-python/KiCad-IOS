@@ -8,6 +8,7 @@ source scripts/ci-common.sh
 
 install_qt both
 fetch_wx
+apply_patches "$SRC/wx" wx
 
 QT_IOS="$QT_ROOT/$QT_VERSION/ios"
 QT_DESKTOP=""
