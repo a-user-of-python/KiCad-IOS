@@ -49,6 +49,8 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DNGSPICE_INCLUDE_PATH="$SYSROOT/include" \
     -DNGSPICE_LIBRARY_PATH="$SYSROOT/lib" \
     -DNGSPICE_LIB_NAME=ngspice \
+    -DOCC_INCLUDE_DIR="$SYSROOT/include/opencascade" \
+    -DOCC_LIBRARY_DIR="$SYSROOT/lib" \
     -DPYTHON_LIBRARY="$SYSROOT/lib/libpython3.13.a" \
     -DPYTHON_INCLUDE_DIR="$SYSROOT/include/python3.13" \
     -DProtobuf_PROTOC_EXECUTABLE="$WORK/host-tools/protoc" \
