@@ -11,7 +11,7 @@ set -ux
 
 NG_VER=44.2
 if [ ! -d "$SRC/ngspice" ]; then
-    ( cd "$WORK" && curl -sL "https://downloads.sourceforge.net/project/ng-spice-rework/$NG_VER/ngspice-$NG_VER.tar.gz" -o ngspice.tar.gz \
+    ( cd "$WORK" && curl -sL "https://distfiles.macports.org/ngspice/ngspice-$NG_VER.tar.gz" -o ngspice.tar.gz \
       && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
 fi
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
