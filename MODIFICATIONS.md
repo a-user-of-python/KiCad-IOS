@@ -205,3 +205,16 @@ Each modified upstream file also carries an in-file notice of the form:
   not — an upstream inconsistency that stays invisible in upstream builds
   (IPC always on there) but fails the `_pcbnew.kiface` link in IPC-off
   builds such as this port. Behaviour with IPC on is unchanged.
+
+### wx patch 0008 — glcanvas-opengles-wxqt-ios
+- **File:** `build/cmake/init.cmake` (wxWidgets 3.3.4)
+- **Change:** The OpenGL setup branch that special-cases the iPhone port
+  (`WXOSX_IPHONE`: OpenGLES/QuartzCore/GLKit frameworks, no desktop GL
+  search) is also taken for wxQt when `CMAKE_SYSTEM_NAME` is iOS.
+- **Why:** For wxQt-iOS, wx fell through to `find_package(OpenGL)`, which
+  fails on iOS (only OpenGLES exists), so wx silently disabled
+  wxGLCanvas and never built the `gl` library — but KiCad requires the
+  wx `gl` component. wxQt's glcanvas implementation itself is pure Qt
+  (QOpenGLContext/QOpenGLWidget) and works with a GLES context. The
+  stages additionally shim `<GL/gl.h>` to the OpenGLES ES3 headers for
+  the wx/KiCad compiles (stage-level include dir, no source change).
