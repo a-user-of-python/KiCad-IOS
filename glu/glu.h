@@ -81,6 +81,39 @@ void           gluTessEndContour( GLUtesselator* aTess );
 void           gluTessEndPolygon( GLUtesselator* aTess );
 const unsigned char* gluErrorString( GLenum aError );
 
+/* ---- Quadrics + perspective (implemented in glu_quadric_adapter.c) ---- */
+typedef struct GLUquadric GLUquadric;
+typedef GLUquadric GLUquadricObj;
+
+typedef float GLfloat;
+typedef int   GLint;
+
+#define GLU_POINT          100010
+#define GLU_LINE           100011
+#define GLU_FILL           100012
+#define GLU_SILHOUETTE     100013
+#define GLU_SMOOTH         100000
+#define GLU_FLAT           100001
+#define GLU_NONE           100002
+#define GLU_INSIDE         100020
+#define GLU_OUTSIDE        100021
+
+GLUquadricObj* gluNewQuadric( void );
+void           gluDeleteQuadric( GLUquadricObj* q );
+void           gluQuadricDrawStyle( GLUquadricObj* q, GLenum style );
+void           gluQuadricNormals( GLUquadricObj* q, GLenum normals );
+void           gluQuadricOrientation( GLUquadricObj* q, GLenum orientation );
+void           gluQuadricTexture( GLUquadricObj* q, GLboolean texture );
+void           gluQuadricCallback( GLUquadricObj* q, GLenum which, void (*fn)( void ) );
+void           gluSphere( GLUquadricObj* q, GLdouble radius, GLint slices, GLint stacks );
+void           gluCylinder( GLUquadricObj* q, GLdouble base, GLdouble top, GLdouble height,
+                            GLint slices, GLint stacks );
+void           gluDisk( GLUquadricObj* q, GLdouble inner, GLdouble outer, GLint slices,
+                        GLint loops );
+void           gluPartialDisk( GLUquadricObj* q, GLdouble inner, GLdouble outer, GLint slices,
+                               GLint loops, GLdouble start, GLdouble sweep );
+void           gluPerspective( GLdouble fovy, GLdouble aspect, GLdouble zNear, GLdouble zFar );
+
 #ifdef __cplusplus
 }
 #endif
