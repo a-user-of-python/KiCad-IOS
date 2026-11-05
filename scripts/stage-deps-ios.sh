@@ -148,7 +148,8 @@ build_meson() { # $1 srcdir, rest: options; returns nonzero on any step failure
     log "meson build $dir $*"
     rm -rf "$dir/build-ios"
     meson setup "$dir/build-ios" "$dir" --cross-file "$WORK/meson-ios-cross.txt" \
-        --prefix "$SYSROOT" --libdir lib --buildtype release -Ddefault_library=static "$@" >> "$LOG" 2>&1 || return 1
+        --prefix "$SYSROOT" --libdir lib --buildtype release -Ddefault_library=static \
+        --wrap-mode=nofallback "$@" >> "$LOG" 2>&1 || return 1
     meson compile -C "$dir/build-ios" >> "$LOG" 2>&1 || return 1
     meson install -C "$dir/build-ios" >> "$LOG" 2>&1 || return 1
 }
@@ -174,7 +175,7 @@ fetch_tar https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.1
 build_meson "$SRC/fontconfig" -Dtools=disabled -Dtests=disabled -Ddoc=disabled -Dcache-build=disabled || FAILED="$FAILED fontconfig-meson"
 
 fetch_tar https://www.cairographics.org/releases/cairo-1.18.2.tar.xz cairo
-build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Ddocumentation=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled || FAILED="$FAILED cairo-meson"
+build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled || FAILED="$FAILED cairo-meson"
 
 # Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
 # build time); it rides inside the sysroot artifact under host-tools/.
