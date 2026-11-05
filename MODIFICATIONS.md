@@ -95,3 +95,14 @@ Each modified upstream file also carries an in-file notice of the form:
    (minus `GetWebView()`) degrades template previews, PCM package pages
    and eeschema remote-symbol providers to a placeholder. In-file notice
    in webview_panel.h.
+
+3. **`cmake/FindwxWidgets.cmake`** — 2026-11-04 —
+   `patches/kicad/0003-findwxwidgets-dash-i-in-paths.patch`.
+   Fix an upstream bug: the module stripped the `-I` prefix from
+   wx-config's include list with a global `string(REPLACE "-I" "" ...)`,
+   which also eats `-I` inside directory names. A checkout path
+   containing `-I` — this repo's own name, `KiCad-IOS`, appears in every
+   CI path — was corrupted to `KiCadOS`, and configure failed with
+   "wxWidgets wx/version.h file not found". The patch strips `-I` only
+   at list-element starts; behaviour is unchanged for all other paths.
+   In-file notice included in the patch.
