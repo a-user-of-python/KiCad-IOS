@@ -109,6 +109,13 @@ for f in "$SYSROOT/bin/curl-config" "$SYSROOT/lib/pkgconfig/libcurl.pc" \
          "$SYSROOT/lib/cmake/CURL/CURLTargets.cmake"; do
     [ -f "$f" ] && sed -i '' -e 's/-lidn2//g' -e 's/-lsocket//g' "$f"
 done
+# The CMake target files record the same libraries as bare list items
+# (idn2, not -lidn2); strip those too. (Deps now also builds curl with
+# CURL_USE_LIBIDN2=OFF, so this is belt-and-braces for restored sysroots.)
+for f in "$SYSROOT/lib/cmake/CURL/CURLConfig.cmake" \
+         "$SYSROOT/lib/cmake/CURL/CURLTargets.cmake"; do
+    [ -f "$f" ] && sed -i '' -e 's/idn2//g' -e 's/socket//g' "$f"
+done
 [ -f "$SYSROOT/bin/wx-config" ] && sed -i '' 's/-framework AppKit//g' "$SYSROOT/bin/wx-config"
 grep -o 'framework AppKit' "$SYSROOT/bin/wx-config" | head -1 || true
 
