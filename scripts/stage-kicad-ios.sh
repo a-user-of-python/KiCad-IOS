@@ -188,8 +188,17 @@ CPPEOF
         -o "$WORK/glshim/qt_plugin_import.o"
     PLUGIN_RC=$?
     echo "PLUGIN_TU_RC=$PLUGIN_RC"
+    PLUGIN_ITEMS_CMAKE=""
+    PLUGIN_D_ARG=""
     if [ "$PLUGIN_RC" = "0" ]; then
         PLUGIN_ITEMS="$WORK/glshim/qt_plugin_import.o -Wl,-force_load,$QIOS_LIB $QGIF_LIB $QICO_LIB $QJPEG_LIB"
+        # Semicolon list for patch 0018's target_link_options; the
+        # trailing frameworks are the Qt iOS platform plugin's own
+        # dependencies (QuartzCore/Photos/AudioToolbox seen undefined
+        # in run 42086627018's lemon link, which received these items
+        # globally by mistake -- they are manager-exe-only now).
+        PLUGIN_ITEMS_CMAKE="$WORK/glshim/qt_plugin_import.o;-Wl,-force_load,$QIOS_LIB;$QGIF_LIB;$QICO_LIB;$QJPEG_LIB;-framework;QuartzCore;-framework;Photos;-framework;AudioToolbox"
+        PLUGIN_D_ARG="-DKICAD_IOS_PLUGIN_ITEMS=$PLUGIN_ITEMS_CMAKE"
     else
         echo "WARNING: Qt plugin import TU failed to compile"
     fi
@@ -212,6 +221,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DPYTHON_INCLUDE_DIR="$SYSROOT/include/python3.13" \
     -DProtobuf_PROTOC_EXECUTABLE="$WORK/host-tools/bin/protoc" \
     -DLEMON_EXE="$WORK/host-tools/bin/lemon" \
+    $PLUGIN_D_ARG \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
     -DKICAD_USE_SENTRY=OFF \
     -DKICAD_IPC_API=OFF \
@@ -222,7 +232,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES -DNANODBC_USE_IODBC_WIDE_STRINGS" \
     -DCMAKE_SHARED_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
     -DCMAKE_MODULE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
-    -DCMAKE_EXE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS $PLUGIN_ITEMS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
     -DOPENGL_INCLUDE_DIR="$OGL_FW/Headers" \
     -DOPENGL_opengl_LIBRARY="$OGL_FW" \
     -DOPENGL_gl_LIBRARY="$OGL_FW"
