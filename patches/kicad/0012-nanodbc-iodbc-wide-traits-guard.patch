@@ -1,0 +1,17 @@
+--- a/thirdparty/nanodbc/nanodbc/nanodbc.cpp
++++ b/thirdparty/nanodbc/nanodbc/nanodbc.cpp
+@@ -170,7 +170,13 @@
+  **********************************************************************************************************************/
+ 
+ #ifdef __APPLE__
+-#if __clang_major__ >= 17
++/* [KiCad-IOS port] With iODBC wide strings (NANODBC_USE_IODBC_WIDE_STRINGS,
++ * the only ODBC configuration available on iOS), NANODBC_SQLCHAR is
++ * SQLWCHAR == wchar_t, and libc++ already provides the standard
++ * char_traits<wchar_t> — KiCad's shim below then illegally redefines it.
++ * The shim is only needed (and only valid) for the non-wide SQLCHAR
++ * (unsigned char) configuration, so it is skipped when wide strings are on. */
++#if __clang_major__ >= 17 && !defined( NANODBC_USE_IODBC_WIDE_STRINGS )
+ 
+ template <>
+ struct std::char_traits<NANODBC_SQLCHAR>
