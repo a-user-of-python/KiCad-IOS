@@ -15,6 +15,7 @@ on:
           - wx-desktop
           - wx-ios
           - kicad-desktop
+          - deps-ios
           - all
 
 jobs:
@@ -50,6 +51,30 @@ jobs:
         with:
           name: logs-wx-ios
           path: work/logs
+          if-no-files-found: ignore
+
+  deps-ios:
+    if: ${{ inputs.stage == 'deps-ios' || inputs.stage == 'all' }}
+    name: iOS dependency sysroot (part 1, CMake deps)
+    runs-on: macos-26
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage deps-ios
+        run: bash scripts/stage-deps-ios.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-deps-ios
+          path: work/logs
+          if-no-files-found: ignore
+      - name: Upload sysroot
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot-ios-part1
+          path: work/sysroot-ios
           if-no-files-found: ignore
 
   kicad-desktop:
