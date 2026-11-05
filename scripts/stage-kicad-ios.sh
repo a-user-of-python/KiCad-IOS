@@ -80,6 +80,11 @@ export ODBC_PATH="$SYSROOT"
 
 BLD="$WORK/build-kicad-ios"
 mkdir -p "$BLD"
+# PYTHON_FRAMEWORK: kicad/CMakeLists.txt uses it unquoted in
+# set_target_properties(BUILD_RPATH) and KiCad only sets it for its own
+# macOS packaging; empty = arg-count configure error (same fix as the
+# desktop stage). On iOS there is no Python.framework bundle; the sysroot
+# path is an inert placeholder until the packaging stage sets real rpaths.
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -92,6 +97,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DOCC_INCLUDE_DIR="$SYSROOT/include/opencascade" \
     -DOCC_LIBRARY_DIR="$SYSROOT/lib" \
     -DPYTHON_LIBRARY="$SYSROOT/lib/libpython3.13.a" \
+    -DPYTHON_FRAMEWORK="$SYSROOT" \
     -DPYTHON_INCLUDE_DIR="$SYSROOT/include/python3.13" \
     -DProtobuf_PROTOC_EXECUTABLE="$WORK/host-tools/protoc" \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
