@@ -16,7 +16,18 @@ if [ ! -f "$WORK/build-wx-ios/wx-config" ]; then
 fi
 fetch_kicad
 apply_patches "$SRC/kicad" kicad
-brew install swig 2>&1 | tail -1
+
+# [KiCad-IOS port] KiCad 10.0.1's SWIG interface files use PyInt_*/PyString_* aliases
+# that SWIG >= 4.3 dropped from its Python runtime prelude; brew now ships
+# 4.5.1, whose generated pcbnew_wrap.cxx fails against Python 3 headers.
+# Build the SWIG KiCad 10 was written against (4.2.1) from source instead.
+if [ ! -x "$WORK/swig421/bin/swig" ]; then
+  ( cd "$WORK" && curl -sL "https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz" -o swig421.tgz && tar -xzf swig421.tgz )
+  ( cd "$WORK/swig-4.2.1" && ./autogen.sh >/dev/null 2>&1; ./configure --prefix="$WORK/swig421" --without-pcre >/dev/null && make -j8 >/dev/null && make install >/dev/null ) || echo "SWIG421 BUILD FAILED"
+fi
+export PATH="$WORK/swig421/bin:$PATH"
+swig -version | head -2
+
 
 # protoc fallback: normally restored from the deps artifact's stash;
 # build the host protoc in-job if it is missing.
