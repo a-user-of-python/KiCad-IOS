@@ -55,6 +55,12 @@ def main():
         data = get(a["archive_download_url"]).read()
         zipfile.ZipFile(io.BytesIO(data)).extractall("work/sysroot-ios")
         got.append(f"{name} ({a['size_in_bytes']} B, run {a['workflow_run']['id']})")
+    # zipfile does not restore unix exec bits: tools the build runs
+    # (iodbc-config for nanodbc, protoc, curl-config, ...) must be +x.
+    bindir = os.path.join("work/sysroot-ios", "bin")
+    if os.path.isdir(bindir):
+        for entry in os.listdir(bindir):
+            os.chmod(os.path.join(bindir, entry), 0o755)
     print("merged:", "; ".join(got))
     if len(got) != len(sys.argv[1:]):
         sys.exit("sysroot restore incomplete")
