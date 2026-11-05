@@ -26,6 +26,15 @@ from dynamic_credentials import (
 )
 
 API = "https://api.github.com"
+
+
+class _StripAuthRedirect(urllib.request.HTTPRedirectHandler):
+    """Artifact downloads 302 to signed storage URLs; forwarding the
+    Authorization header there makes the storage service reject (401)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = urllib.request.Request(newurl, method="GET")
+        return new
 ALLOWED = ["api.github.com"]
 
 
@@ -39,11 +48,13 @@ def req(method, path, data=None, raw_out=None):
     if body:
         r.add_header("Content-Type", "application/json")
     add_surrogate_to_request(r, "custom.github", allowed_hosts=ALLOWED)
-    resp = urllib.request.urlopen(r)
+    resp = urllib.request.build_opener(_StripAuthRedirect()).open(r)
     if raw_out:
         with open(raw_out, "wb") as f:
             f.write(resp.read())
         return {"saved": raw_out, "status": resp.status}
+    if resp.status == 204 or resp.headers.get("Content-Length") == "0":
+        return {"status": resp.status}
     return read_json_response(resp)
 
 
