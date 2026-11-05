@@ -26,6 +26,7 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DQT_HOST_PATH="$QT_DESKTOP" \
     -DCMAKE_BUILD_TYPE=Release \
     -DwxBUILD_TOOLKIT=qt \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DwxBUILD_SHARED=OFF \
     -DwxBUILD_SAMPLES=OFF \
     -DwxBUILD_TESTS=OFF \
