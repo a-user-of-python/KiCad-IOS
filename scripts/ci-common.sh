@@ -7,8 +7,12 @@ QT_VERSION="${QT_VERSION:-6.9.3}"          # same pin as the proven FEBio iOS bu
 KICAD_TAG="10.0.1"
 KICAD_COMMIT="2db9e5a72b7cf1e71bb8dff5257a88d4b41f812f"
 KICAD_TARBALL="https://gitlab.com/kicad/code/kicad/-/archive/${KICAD_TAG}/kicad-${KICAD_TAG}.tar.gz"
-WX_FORK_REPO="https://github.com/KiCad/wxWidgets.git"   # KiCad's patched wx fork
-WX_FORK_BRANCH="master"
+# wx source: KiCad 10 builds against stock wxWidgets 3.2.x. The historical
+# github.com/KiCad/wxWidgets fork's master is wx 3.1.1 (2017-era) — verified
+# in CI run 41937520855 — and is NOT KiCad 10's wx source. Any patches KiCad
+# packaging carries against 3.2.x are audited separately (see spike report).
+WX_FORK_REPO="https://github.com/wxWidgets/wxWidgets.git"
+WX_FORK_BRANCH="v3.2.8"
 
 WORK="${WORK:-$PWD/work}"
 SRC="$WORK/src"
@@ -32,7 +36,7 @@ fetch_kicad() {
 
 fetch_wx() {
     if [ ! -d "$SRC/wx" ]; then
-        log "cloning KiCad wx fork ($WX_FORK_BRANCH)"
+        log "cloning wxWidgets ($WX_FORK_BRANCH)"
         git clone --depth 1 --branch "$WX_FORK_BRANCH" "$WX_FORK_REPO" "$SRC/wx"
     fi
     git -C "$SRC/wx" log --oneline -1
