@@ -16,7 +16,7 @@ fetch_kicad
 apply_patches "$SRC/kicad" kicad
 
 log "installing KiCad desktop build deps (brew)"
-brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 2>&1 | tail -3
+brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 libmagic 2>&1 | tail -3
 
 WXCFG="$WORK/build-wx-desktop/wx-config"
 "$WXCFG" --selected-config || true
@@ -47,7 +47,7 @@ fi
 # Build the manager and everything it pulls in (common, gal, kifaces...).
 # Keep going on error (-k 0) so the log enumerates ALL failing units, not
 # just the first — this stage is a catalogue-generating machine.
-cmake --build "$BLD" -j"$(sysctl -n hw.ncpu)" -k 0 --target kicad 2>&1 | tee "$WORK/logs/kicad-desktop-build.log"
+cmake --build "$BLD" -j"$(sysctl -n hw.ncpu)" --target kicad eeschema_kiface pcbnew_kiface gerbview_kiface cvpcb_kiface pcb_calculator_kiface pl_editor_kiface scripting_kiface bitmap2component -- -k 0 2>&1 | tee "$WORK/logs/kicad-desktop-build.log"
 BLD_RC=${PIPESTATUS[0]}
 echo "KICAD_DESKTOP_BUILD_RC=$BLD_RC"
 echo "--- error summary (unique errors) ---"
