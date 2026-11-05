@@ -11,7 +11,7 @@
 +# it applies ONLY to the manager executable -- build tools (lemon) and
 +# the standalone utilities must not link the Qt plugin closure.
 +if( CMAKE_SYSTEM_NAME STREQUAL "iOS" AND KICAD_IOS_PLUGIN_ITEMS )
-+    target_link_libraries( kicad PRIVATE ${KICAD_IOS_PLUGIN_ITEMS} )
++    target_link_libraries( kicad ${KICAD_IOS_PLUGIN_ITEMS} )
 +endif()
 +
  add_executable( kicad-cli WIN32
