@@ -96,6 +96,22 @@ cc -O2 -o "$WORK/host-tools/bin/lemon" "$SRC/kicad/thirdparty/lemon/lemon.c" >> 
 
 BLD="$WORK/build-kicad-ios"
 mkdir -p "$BLD"
+# Scrub macOS-desktop-only link tokens baked into dependency metadata
+# during the cross builds (their configure probes ran on the macOS host):
+#  - curl records -lidn2 / -lsocket (no such libraries on iOS; IDN is not
+#    needed and socket lives in libSystem) in libcurl.pc / curl-config /
+#    its CMake config.
+#  - wx-config emits -framework AppKit for any Darwin build; AppKit does
+#    not exist on iOS (its role is UIKit's, already linked via Qt).
+# The kicommon link failed on exactly these (run 42027866119).
+for f in "$SYSROOT/bin/curl-config" "$SYSROOT/lib/pkgconfig/libcurl.pc" \
+         "$SYSROOT/lib/cmake/CURL/CURLConfig.cmake" \
+         "$SYSROOT/lib/cmake/CURL/CURLTargets.cmake"; do
+    [ -f "$f" ] && sed -i '' -e 's/-lidn2//g' -e 's/-lsocket//g' "$f"
+done
+[ -f "$SYSROOT/bin/wx-config" ] && sed -i '' 's/-framework AppKit//g' "$SYSROOT/bin/wx-config"
+grep -o 'framework AppKit' "$SYSROOT/bin/wx-config" | head -1 || true
+
 # PYTHON_FRAMEWORK: kicad/CMakeLists.txt uses it unquoted in
 # set_target_properties(BUILD_RPATH) and KiCad only sets it for its own
 # macOS packaging; empty = arg-count configure error (same fix as the
