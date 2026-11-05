@@ -31,6 +31,15 @@ Each modified upstream file also carries an in-file notice of the form:
    custom command ("$<TARGET_PROPERTY:prop> may only be used with binary
    targets"). In-file notice included in the patch.
 
+2. **`include/wx/osx/core/private.h`** — 2026-11-04 —
+   `patches/wx/0002-no-carbon-under-wxqt.patch`.
+   Skip the `<Carbon/Carbon.h>` include and the legacy Carbon helper
+   declarations when building the Qt port. Carbon does not exist in the
+   iOS SDK; under wxQt the helpers' implementations (wxOSX GUI sources)
+   are never built, but wxBase's CoreFoundation sources include this
+   header and failed with "'Carbon/Carbon.h' file not found"
+   (CI run 41944060930). In-file notice included in the patch.
+
 ### KiCad 10.0.1
 
 1. **`CMakeLists.txt`** — 2026-11-04 —
