@@ -184,3 +184,12 @@ Each modified upstream file also carries an in-file notice of the form:
   bit masks, so the cast is semantics-preserving. This was the single
   compile error in OCCT's 5561 build steps for iOS. OCCT is LGPL-2.1 with
   the Open CASCADE exception; the change is disclosed here per its terms.
+
+### KiCad patch 0009 — wx-static-on-ios
+- **File:** `CMakeLists.txt`
+- **Change:** The unconditional `--static=no` appended to
+  `wxWidgets_CONFIG_OPTIONS` is skipped when `CMAKE_SYSTEM_NAME` is iOS.
+- **Why:** The iOS wxWidgets build is static (`wxBUILD_SHARED=OFF`, the
+  only sensible form for an iOS app bundle); with `--static=no`,
+  wx-config reports no libraries and `find_package(wxWidgets)` fails at
+  CMakeLists.txt:1102. Desktop builds are unaffected.
