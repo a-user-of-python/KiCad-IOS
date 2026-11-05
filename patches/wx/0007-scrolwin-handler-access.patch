@@ -1,0 +1,14 @@
+--- a/include/wx/scrolwin.h
++++ b/include/wx/scrolwin.h
+@@ -409,6 +409,11 @@
+     // Calculate scroll increment
+     int CalcScrollInc(wxScrollWinEvent& event);
+ 
++public:
++    // [KiCad-IOS port] wx 3.3 moved these event-handler methods to private;
++    // they were public in wx 3.2, which KiCad 10.0.1 is written against
++    // (e.g. PANEL_PACKAGES_VIEW calls HandleOnMouseWheel on a
++    // wxScrolledWindow). Restore the wx 3.2 access for this block.
+     // the methods to be called from the window event handlers
+     void HandleOnScroll(wxScrollWinEvent& event);
+     void HandleOnSize(wxSizeEvent& event);
