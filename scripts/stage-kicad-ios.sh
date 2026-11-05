@@ -70,7 +70,13 @@ WXCFG="$SYSROOT/bin/wx-config"
 # OpenGL find presets: KiCad calls find_package(OpenGL REQUIRED), which
 # fails on iOS (no desktop GL framework); pre-seed it with OpenGLES.
 mkdir -p "$WORK/glshim/GL"
-printf '#pragma once\n#include <OpenGLES/ES3/gl.h>\n#include <OpenGLES/ES3/glext.h>\n' > "$WORK/glshim/GL/gl.h"
+# The guard: TUs that include KiCad's bundled glad first (kicad_gl) must
+# not see the real ES3 declarations afterwards (wx/qt/glcanvas.h pulls
+# this shim) -- glad #defines every gl* name to its glad_gl* pointer, so
+# the SDK prototypes would be rewritten into colliding declarations.
+# glad already provides all types/constants in that case, so the shim
+# defers to it; otherwise it forwards to the real ES3 headers.
+printf '#pragma once\n#ifndef GLAD_GL_H_\n#include <OpenGLES/ES3/gl.h>\n#include <OpenGLES/ES3/glext.h>\n#endif\n' > "$WORK/glshim/GL/gl.h"
 SDK_PATH_IOS="$(xcrun --sdk iphoneos --show-sdk-path)"
 OGL_FW="$SDK_PATH_IOS/System/Library/Frameworks/OpenGLES.framework"
 
