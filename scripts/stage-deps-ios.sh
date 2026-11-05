@@ -60,6 +60,7 @@ step freetype build_cmake_dep freetype  "$(get https://download.savannah.gnu.org
 step harfbuzz build_cmake_dep harfbuzz  "$(get https://github.com/harfbuzz/harfbuzz/releases/download/8.5.0/harfbuzz-8.5.0.tar.xz harfbuzz)" -DHB_HAVE_FREETYPE=ON -DHB_BUILD_SUBSET=OFF -DHB_BUILD_UTILS=OFF
 step expat build_cmake_dep expat     "$(get https://github.com/libexpat/libexpat/releases/download/R_2_6_3/expat-2.6.3.tar.gz expat)" -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_TESTS=OFF -DEXPAT_BUILD_TOOLS=OFF
 step curl build_cmake_dep curl      "$(get https://curl.se/download/curl-8.10.1.tar.gz curl)" -DCURL_USE_SECTRANSP=ON -DUSE_LIBIDN2=OFF -DCURL_USE_LIBSSH2=OFF -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF -DUSE_NGHTTP2=OFF -DCURL_ZLIB=ON
+step pcre2 build_cmake_dep pcre2     "$(get https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz pcre2)" -DPCRE2_BUILD_PCRE2_8=ON -DPCRE2_BUILD_PCRE2_16=ON -DPCRE2_BUILD_PCRE2_32=ON -DPCRE2_SUPPORT_JIT=OFF -DPCRE2_BUILD_TESTS=OFF -DPCRE2_BUILD_PCRE2GREP=OFF
 step libgit2 build_cmake_dep libgit2   "$(get_git libgit2/libgit2 v1.9.0 libgit2 "")" -DBUILD_CLI=OFF -DBUILD_TESTS=OFF -DUSE_HTTPS=OFF -DUSE_SSH=OFF -DREGEX_BACKEND=builtin
 
 # protobuf: host build first for protoc, then iOS lib with that protoc.
