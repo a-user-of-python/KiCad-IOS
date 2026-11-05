@@ -1,0 +1,22 @@
+# KiCad-IOS port patch 0005 (wxWidgets v3.3.4, wxWindows licence)
+# utilsunx.cpp: wxShutdown() must not call system() under wxQt on Apple
+# platforms — system() is unavailable in the iOS SDK. Mirror the wxOSX
+# iPhone behaviour (return false). Apply with: patch -p1 (wx root).
+# See MODIFICATIONS.md.
+#
+diff --git a/src/unix/utilsunx.cpp b/src/unix/utilsunx.cpp
+--- a/src/unix/utilsunx.cpp
++++ b/src/unix/utilsunx.cpp
+@@ -277,7 +277,11 @@ int wxKill(long pid, wxSignal sig, wxKillError *rc, int flags)
+ // Shutdown or reboot the PC
+ bool wxShutdown(int flags)
+ {
+-#if defined(__WXOSX__) && wxOSX_USE_IPHONE
++#if (defined(__WXOSX__) && wxOSX_USE_IPHONE) || (defined(__WXQT__) && defined(__APPLE__))
++// [KiCad-IOS port] Modified 2026-11-04: wxQt branch added — system() is
++// unavailable in the iOS SDK (and init(8) does not exist on Apple
++// platforms), so wxShutdown() reports failure, exactly as the wxOSX
++// iPhone port does. Change recorded in KiCad-IOS MODIFICATIONS.md.
+     wxUnusedVar(flags);
+     return false;
+ #else
