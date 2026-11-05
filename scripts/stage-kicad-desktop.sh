@@ -15,7 +15,7 @@ fi
 fetch_kicad
 
 log "installing KiCad desktop build deps (brew)"
-brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew 2>&1 | tail -3
+brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 2>&1 | tail -3
 
 WXCFG="$WORK/build-wx-desktop/wx-config"
 "$WXCFG" --selected-config || true
