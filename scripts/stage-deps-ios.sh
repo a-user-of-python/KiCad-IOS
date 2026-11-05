@@ -226,5 +226,56 @@ if [ -x "$WORK/deps-build-protobuf-host/protoc" ]; then
 fi
 
 probe "fontconfig/fontconfig.h" "cairo/cairo.h" "pixman-1/pixman.h"
+
+# ------------------------------------------------------------ part 3
+# GLM (header-only), Boost.Locale, iODBC — the remaining KiCad REQUIRED
+# finds not covered above (CMakeLists.txt:815 GLM, :863 Boost locale,
+# and the ODBC manager KiCad's bundled nanodbc insists on).
+log "part 3: glm, boost.locale, iodbc"
+
+GLM_SRC="$(get https://github.com/g-truc/glm/releases/download/1.0.1/glm-1.0.1.zip glm)"
+if [ -d "$GLM_SRC/glm" ]; then
+    rm -rf "$SYSROOT/include/glm"
+    cp -R "$GLM_SRC/glm" "$SYSROOT/include/glm"
+    echo "DEP_OK glm (headers)"
+else
+    FAILED="$FAILED glm"
+fi
+
+BOOST_SRC="$(get https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz boost)"
+if [ -n "$BOOST_SRC" ] && [ -d "$BOOST_SRC/libs/locale" ]; then
+    build_cmake_dep boost "$BOOST_SRC" -DBOOST_INCLUDE_LIBRARIES=locale -DBOOST_ENABLE_MPI=OFF -DBOOST_ENABLE_PYTHON=OFF \
+        || FAILED="$FAILED boost"
+else
+    FAILED="$FAILED boost-fetch"
+fi
+
+# iODBC via autotools with single-token compiler wrappers (same pattern
+# as the ngspice stage; libtool cannot parse a multi-word $CC).
+SDK_PATH_IOS="$(xcrun --sdk iphoneos --show-sdk-path)"
+cat > "$WORK/cc-ios.sh" <<WRAP
+#!/bin/sh
+exec clang -arch arm64 -target arm64-apple-ios16.0 -isysroot "$SDK_PATH_IOS" "\$@"
+WRAP
+cat > "$WORK/cxx-ios.sh" <<WRAP
+#!/bin/sh
+exec clang++ -arch arm64 -target arm64-apple-ios16.0 -isysroot "$SDK_PATH_IOS" "\$@"
+WRAP
+chmod +x "$WORK/cc-ios.sh" "$WORK/cxx-ios.sh"
+IODBC_SRC="$(get https://github.com/openlink/iODBC/releases/download/v3.52.16/libiodbc-3.52.16.tar.gz iodbc)"
+if [ -n "$IODBC_SRC" ] && [ -x "$IODBC_SRC/configure" ]; then
+    ( cd "$IODBC_SRC" \
+      && CC="$WORK/cc-ios.sh" CXX="$WORK/cxx-ios.sh" ./configure --host=arm64-apple-darwin --build=x86_64-apple-darwin \
+           --prefix="$SYSROOT" --enable-static --disable-shared --disable-gui --without-iodbcadm \
+      && make -j"$JOBS" && make install ) >> "$WORK/logs/dep-iodbc-build.log" 2>&1 \
+        || FAILED="$FAILED iodbc"
+else
+    FAILED="$FAILED iodbc-fetch"
+fi
+
+probe "glm/glm.hpp" "boost/version.hpp" "sql.h" "sqlext.h"
+[ -f "$SYSROOT/lib/libboost_locale.a" ] || FAILED="$FAILED libboost_locale"
+[ -f "$SYSROOT/lib/libiodbc.a" ] || FAILED="$FAILED libiodbc"
+
 echo "RESULT: iOS dependency sysroot stage complete (cmake set + meson set), failed:$FAILED"
 if [ -n "$FAILED" ]; then echo "RESULT: deps FAILED:$FAILED"; exit 3; fi
