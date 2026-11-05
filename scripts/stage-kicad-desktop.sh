@@ -16,7 +16,18 @@ fetch_kicad
 apply_patches "$SRC/kicad" kicad
 
 log "installing KiCad desktop build deps (brew)"
-brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 libmagic unixodbc 2>&1 | tail -3
+brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf fontconfig zstd libgit2 libmagic unixodbc 2>&1 | tail -3
+# [KiCad-IOS port] KiCad 10.0.1's SWIG interface files use PyInt_*/PyString_* aliases
+# that SWIG >= 4.3 dropped from its Python runtime prelude; brew now ships
+# 4.5.1, whose generated pcbnew_wrap.cxx fails against Python 3 headers.
+# Build the SWIG KiCad 10 was written against (4.2.1) from source instead.
+if [ ! -x "$WORK/swig421/bin/swig" ]; then
+  ( cd "$WORK" && curl -sL "https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz" -o swig421.tgz && tar -xzf swig421.tgz )
+  ( cd "$WORK/swig-4.2.1" && ./autogen.sh >/dev/null 2>&1; ./configure --prefix="$WORK/swig421" --without-pcre >/dev/null && make -j8 >/dev/null && make install >/dev/null ) || echo "SWIG421 BUILD FAILED"
+fi
+export PATH="$WORK/swig421/bin:$PATH"
+swig -version | head -2
+
 
 # brew's ngspice ships no libngspice (KiCad's Findngspice fails with
 # "NGSPICE library missing"); build it from the pinned source, the same
