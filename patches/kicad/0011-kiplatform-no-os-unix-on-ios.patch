@@ -1,0 +1,15 @@
+--- a/libs/kiplatform/CMakeLists.txt
++++ b/libs/kiplatform/CMakeLists.txt
+@@ -72,7 +72,11 @@
+         "imm32"
+         "windowsapp"
+         )
+-elseif( UNIX )
++# [KiCad-IOS port] CMake reports iOS as UNIX, but the os/unix sources and
++# their libsecret/Poppler requirements are Linux desktop facilities that
++# do not exist on iOS. iOS takes neither OS branch yet (see patch 0007);
++# the link catalogue will enumerate the OS functions to implement.
++elseif( UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" )
+     list( APPEND PLATFORM_SRCS
+         os/unix/app.cpp
+         os/unix/drivers.cpp
