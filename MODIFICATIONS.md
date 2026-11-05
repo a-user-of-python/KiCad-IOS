@@ -322,3 +322,16 @@ Each modified upstream file also carries an in-file notice of the form:
   while KiCad's consumers were not — eeschema referenced u16string
   nanodbc overloads the library does not provide. A global define makes
   the API uniform. No source change. (CI run 42065865033.)
+
+- `patches/kicad/0016-grid-checkbox-internal-linkage.patch` — KiCad's
+  grid_checkbox.cpp carries a verbatim copy of wx's private
+  wxGetContentRect (the file says so itself). Give the copy internal
+  linkage: with a static wxWidgets (iOS), wx's own copy inside
+  libwx_core collides with it; shared wx never exports the symbol.
+  (CI run 42075801437: duplicate symbol in _eeschema/_pcbnew links.)
+- `patches/kicad/0017-nanosvg-hidden-visibility.patch` — compile
+  KiCad's bundled nanosvg with -fvisibility=hidden. wxWidgets bundles
+  its own nanosvg (bmpsvg); with static wx the two copies' globals
+  (nsvg__colors, nsvg__parseXML) collide in the same links. Hidden
+  visibility makes KiCad's copy link-local while staying resolvable
+  inside each static link. (CI run 42075801437.)
