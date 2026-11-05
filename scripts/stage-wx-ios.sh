@@ -32,6 +32,7 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxUSE_MENUS=ON \
     -DwxUSE_MENUBAR=ON \
     -DwxUSE_SECRETSTORE=OFF \
+    -DwxUSE_MIMETYPE=OFF \
     -DwxBUILD_SAMPLES=OFF \
     -DwxBUILD_TESTS=OFF \
     -DwxBUILD_DEMOS=OFF \
