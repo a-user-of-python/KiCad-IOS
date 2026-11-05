@@ -59,7 +59,10 @@ if [ ! -x "$WORK/host-tools/protoc" ]; then
 fi
 ls -la "$WORK/host-tools/" || true
 
-WXCFG="$WORK/build-wx-ios/wx-config"
+# Prefer the sysroot-installed wx-config (see stage-wx-ios.sh: FindwxWidgets
+# can only verify libraries that live under a find-root path).
+WXCFG="$SYSROOT/bin/wx-config"
+[ -x "$WXCFG" ] || WXCFG="$WORK/build-wx-ios/wx-config"
 "$WXCFG" --selected-config || true
 
 # GL/gl.h shim for KiCad/wx headers under iOS (see stage-wx-ios.sh) and
