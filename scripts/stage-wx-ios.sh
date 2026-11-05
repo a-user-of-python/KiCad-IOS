@@ -33,6 +33,7 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$QT_IOS/lib/cmake/Qt6/qt.toolchain.cmake" \
     -DQT_HOST_PATH="$QT_DESKTOP" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX="$SYSROOT" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
     -DwxBUILD_TOOLKIT=qt \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
@@ -74,7 +75,7 @@ if [ "$BLD_RC" = "0" ]; then
     # FindwxWidgets verifies each -l with find_library, and the iOS
     # toolchain confines find_library to the find-root paths (the
     # sysroot) — a build-tree wx outside it can never verify.
-    cmake --install "$BLD" --prefix "$SYSROOT" 2>&1 | tail -2
+    cmake --install "$BLD" 2>&1 | tail -2
     ls "$SYSROOT/lib/" | grep '^libwx' | head -20
     find "$BLD" -name "libwx*" | head -30
     # sanity: the libs must be arm64 iOS objects
