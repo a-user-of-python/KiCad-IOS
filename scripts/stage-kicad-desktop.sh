@@ -22,10 +22,19 @@ brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngsp
 # 4.5.1, whose generated pcbnew_wrap.cxx fails against Python 3 headers.
 # Build the SWIG KiCad 10 was written against (4.2.1) from source instead.
 if [ ! -x "$WORK/swig421/bin/swig" ]; then
-  ( cd "$WORK" && curl -sL "https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz" -o swig421.tgz && tar -xzf swig421.tgz )
-  ( cd "$WORK/swig-4.2.1" && ./autogen.sh >/dev/null 2>&1; ./configure --prefix="$WORK/swig421" --without-pcre >/dev/null && make -j8 >/dev/null && make install >/dev/null ) || echo "SWIG421 BUILD FAILED"
+  # Official release tarball first (ships a generated configure).
+  ( cd "$WORK" && curl -sL "https://github.com/swig/swig/releases/download/v4.2.1/swig-4.2.1.tar.gz" -o swig421.tgz && tar -xzf swig421.tgz ) >> "$WORK/logs/swig421.log" 2>&1
+  if [ ! -x "$WORK/swig-4.2.1/configure" ]; then
+    ( cd "$WORK" && curl -sL "https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz" -o swig421.tgz && tar -xzf swig421.tgz ) >> "$WORK/logs/swig421.log" 2>&1
+  fi
+  ( cd "$WORK/swig-4.2.1" && { [ -x ./configure ] || ./autogen.sh; } && ./configure --prefix="$WORK/swig421" --without-pcre && make -j8 && make install ) >> "$WORK/logs/swig421.log" 2>&1 || echo "SWIG421 BUILD FAILED — see logs/swig421.log"
 fi
-export PATH="$WORK/swig421/bin:$PATH"
+if [ -x "$WORK/swig421/bin/swig" ]; then
+  export PATH="$WORK/swig421/bin:$PATH"
+else
+  echo "falling back to brew swig (known pcbnew_wrap issue) so the run still catalogues"
+  brew install swig 2>&1 | tail -1
+fi
 swig -version | head -2
 
 
