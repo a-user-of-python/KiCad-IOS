@@ -221,8 +221,16 @@ build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Dxcb=disabled -Dxl
 # Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
 # build time); it rides inside the sysroot artifact under host-tools/.
 if [ -x "$WORK/deps-build-protobuf-host/protoc" ]; then
-    mkdir -p "$SYSROOT/host-tools"
-    cp "$WORK/deps-build-protobuf-host/protoc" "$SYSROOT/host-tools/protoc"
+    # Mirror the official protoc distribution layout: a protoc in a bin/
+    # directory finds its well-known types in ../include. KiCad's api
+    # codegen passes only its own proto_path, so the bare binary alone
+    # fails with 'google/protobuf/any.proto: File not found'.
+    mkdir -p "$SYSROOT/host-tools/bin" "$SYSROOT/host-tools/include/google/protobuf"
+    cp "$WORK/deps-build-protobuf-host/protoc" "$SYSROOT/host-tools/bin/protoc"
+    cp "$PB_SRC/src/google/protobuf/"*.proto "$SYSROOT/host-tools/include/google/protobuf/" 2>/dev/null || true
+    mkdir -p "$SYSROOT/host-tools/include/google/protobuf/compiler"
+    cp "$PB_SRC/src/google/protobuf/compiler/plugin.proto" "$SYSROOT/host-tools/include/google/protobuf/compiler/" 2>/dev/null || true
+    ls "$SYSROOT/host-tools/include/google/protobuf/" | head -5
 fi
 
 probe "fontconfig/fontconfig.h" "cairo/cairo.h" "pixman-1/pixman.h"
