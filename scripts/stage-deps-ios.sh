@@ -276,6 +276,11 @@ BOOSTDRIVER
     BOOST_LIBS="algorithm;align;array;assert;atomic;bind;chrono;concept_check;config;container;container_hash;conversion;core;date_time;describe;detail;exception;function;function_types;functional;fusion;integer;io;iterator;lexical_cast;intrusive;locale;move;mp11;mpl;optional;predef;preprocessor;range;ratio;regex;smart_ptr;static_assert;system;thread;throw_exception;tokenizer;tuple;type_traits;typeof;unordered;utility;variant2;winapi"
     build_cmake_dep boost "$BOOST_SRC" "-DBOOST_SUBSET_LIBS=$BOOST_LIBS" \
         || FAILED="$FAILED boost"
+    # BoostInstall emits no install rules inside a hand-rolled
+    # superproject (verified: cmake --install copied 0 files), so land
+    # the built archives in the sysroot directly.
+    find "$WORK/deps-build-boost" -name 'libboost_*.a' -exec cp {} "$SYSROOT/lib/" \; 2>/dev/null || true
+    ls "$SYSROOT/lib/" | grep -c '^libboost' || true
 else
     FAILED="$FAILED boost-fetch"
 fi
