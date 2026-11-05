@@ -1,0 +1,16 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1091,7 +1091,12 @@
+ endif()
+ 
+ # See line 49 of cmake/FindwxWidgets.cmake
+-set( wxWidgets_CONFIG_OPTIONS ${wxWidgets_CONFIG_OPTIONS} --static=no )
++# [KiCad-IOS port] On iOS wxWidgets is built static (wxBUILD_SHARED=OFF);
++# forcing --static=no there makes wx-config report no libraries at all
++# and find_package(wxWidgets) fails. Only force shared wx elsewhere.
++if( NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    set( wxWidgets_CONFIG_OPTIONS ${wxWidgets_CONFIG_OPTIONS} --static=no )
++endif()
+ 
+ # [KiCad-IOS port] Modified 2026-11-04: the 'webview' component is dropped
+ # from this find_package call. The wxQt backend has no wxWebView
