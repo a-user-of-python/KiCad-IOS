@@ -191,6 +191,14 @@ fetch_tar https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.1
 build_meson "$SRC/fontconfig" -Dtools=disabled -Dtests=disabled -Ddoc=disabled -Dcache-build=disabled || FAILED="$FAILED fontconfig-meson"
 
 fetch_tar https://www.cairographics.org/releases/cairo-1.18.2.tar.xz cairo
+# Fetched-dep tweak (documented, cairo is a third-party dependency):
+# cairo 1.18.2's meson asks appleframeworks for ApplicationServices,
+# which does not exist in the iOS SDK; cairo's quartz sources actually
+# call CoreGraphics + CoreFoundation. Swap the framework list.
+if grep -q "'CoreFoundation', 'ApplicationServices'" "$SRC/cairo/meson.build"; then
+    sed -i '' "s/'CoreFoundation', 'ApplicationServices'/'CoreFoundation', 'CoreGraphics'/" "$SRC/cairo/meson.build"
+    echo "cairo appleframeworks list patched for iOS"
+fi
 build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled || FAILED="$FAILED cairo-meson"
 
 # Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
