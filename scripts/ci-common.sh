@@ -43,7 +43,7 @@ fetch_kicad() {
 fetch_wx() {
     if [ ! -d "$SRC/wx" ]; then
         log "cloning wxWidgets ($WX_FORK_BRANCH)"
-        git clone --depth 1 --branch "$WX_FORK_BRANCH" "$WX_FORK_REPO" "$SRC/wx"
+        git clone --depth 1 --recurse-submodules --shallow-submodules --branch "$WX_FORK_BRANCH" "$WX_FORK_REPO" "$SRC/wx"
     fi
     git -C "$SRC/wx" log --oneline -1
     grep -E "wxMAJOR_VERSION|wxMINOR_VERSION|wxRELEASE_NUMBER" "$SRC/wx/include/wx/version.h" | head -3 || true
