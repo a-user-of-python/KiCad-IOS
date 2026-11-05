@@ -15,8 +15,8 @@ Each modified upstream file also carries an in-file notice of the form:
 | Component | Source | Baseline |
 |---|---|---|
 | KiCad | gitlab.com/kicad/code/kicad | tag `10.0.1`, commit `2db9e5a72b7cf1e71bb8dff5257a88d4b41f812f` |
-| wxWidgets | github.com/KiCad/wxWidgets (KiCad's patched fork) | branch `master` (exact commit recorded when the build pins it) |
-| wxWidgets reference | github.com/wxWidgets/wxWidgets | tag `v3.2.8` (patch-audit baseline) |
+| wxWidgets | github.com/wxWidgets/wxWidgets | tag `v3.3.4` — see note below |
+| wxWidgets audited | github.com/wxWidgets/wxWidgets `v3.2.8`; github.com/KiCad/wxWidgets `master` | 3.2.8's wxQt is Qt5-only; the KiCad fork's master is wx 3.1.1 (2017) and is not KiCad 10's wx source |
 
 ## Changes
 
