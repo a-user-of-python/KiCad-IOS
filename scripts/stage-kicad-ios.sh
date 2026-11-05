@@ -197,7 +197,7 @@ CPPEOF
         # dependencies (QuartzCore/Photos/AudioToolbox seen undefined
         # in run 42086627018's lemon link, which received these items
         # globally by mistake -- they are manager-exe-only now).
-        PLUGIN_ITEMS_CMAKE="$WORK/glshim/qt_plugin_import.o;-Wl,-force_load,$QIOS_LIB;$QGIF_LIB;$QICO_LIB;$QJPEG_LIB;SHELL:-framework QuartzCore;SHELL:-framework Photos;SHELL:-framework AudioToolbox"
+        PLUGIN_ITEMS_CMAKE="$WORK/glshim/qt_plugin_import.o;-Wl,-force_load,$QIOS_LIB;$QGIF_LIB;$QICO_LIB;$QJPEG_LIB;-framework QuartzCore;-framework Photos;-framework AudioToolbox"
         PLUGIN_D_ARG="-DKICAD_IOS_PLUGIN_ITEMS=$PLUGIN_ITEMS_CMAKE"
     else
         echo "WARNING: Qt plugin import TU failed to compile"
