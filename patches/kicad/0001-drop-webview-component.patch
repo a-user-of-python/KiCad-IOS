@@ -1,0 +1,23 @@
+# KiCad-IOS port patch 0001 (KiCad 10.0.1, GPLv3-or-later)
+# Drop the 'webview' component from the wxWidgets find_package call:
+# wxQt provides no wxWebView backend, so the component cannot exist.
+# Apply with: patch -p1 (from the KiCad source root). See MODIFICATIONS.md.
+#
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1093,7 +1093,13 @@ endif()
+ # See line 49 of cmake/FindwxWidgets.cmake
+ set( wxWidgets_CONFIG_OPTIONS ${wxWidgets_CONFIG_OPTIONS} --static=no )
+ 
+-find_package( wxWidgets ${wxWidgets_REQ_VERSION} COMPONENTS gl aui adv html core net base propgrid xml stc richtext webview REQUIRED )
++# [KiCad-IOS port] Modified 2026-11-04: the 'webview' component is dropped
++# from this find_package call. The wxQt backend has no wxWebView
++# implementation (wxUSE_WEBVIEW is forced OFF under wxQt), so no
++# libwx_*_webview exists and the component check can never succeed.
++# KiCad features that use wxWebView are catalogued in the spike report;
++# this file is GPLv3-or-later, change recorded in MODIFICATIONS.md.
++find_package( wxWidgets ${wxWidgets_REQ_VERSION} COMPONENTS gl aui adv html core net base propgrid xml stc richtext REQUIRED )
+ 
+ # Include wxWidgets macros.
+ include( ${wxWidgets_USE_FILE} )
