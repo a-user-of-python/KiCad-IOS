@@ -244,17 +244,30 @@ fi
 
 BOOST_SRC="$(get https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz boost)"
 if [ -n "$BOOST_SRC" ] && [ -d "$BOOST_SRC/libs/locale" ]; then
-    # The release tarball omits the superproject root CMakeLists.txt
-    # (per-lib CMakeLists + tools/cmake ARE included). Recreate the
-    # standard 1.86 superproject driver in the extracted tree;
-    # BOOST_INCLUDE_LIBRARIES prunes to locale + its dependency closure.
+    # The release tarball omits the superproject root CMakeLists.txt and
+    # BoostRoot cannot scan the tarball layout ("Library 'locale' ...
+    # has not been found"). Two-part approach instead:
+    #  1. headers: the tarball's flattened boost/ tree is complete —
+    #     copy it wholesale into the sysroot (KiCad includes many
+    #     header-only Boost libraries beyond locale's closure).
+    rm -rf "$SYSROOT/include/boost"
+    cp -R "$BOOST_SRC/boost" "$SYSROOT/include/boost"
+    #  2. compiled libs: a small driver add_subdirectory's locale plus
+    #     its dependency closure from the per-lib CMakeLists (which the
+    #     tarball DOES ship, along with tools/cmake).
     cat > "$BOOST_SRC/CMakeLists.txt" <<'BOOSTDRIVER'
 cmake_minimum_required(VERSION 3.20)
-project(Boost VERSION 1.86.0 LANGUAGES CXX)
+project(boost_subset VERSION 1.86.0 LANGUAGES CXX)
+set(BOOST_SUPERPROJECT_VERSION "1.86.0")
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/tools/cmake/include)
-include(BoostRoot)
+foreach(lib IN LISTS BOOST_SUBSET_LIBS)
+  if(EXISTS ${PROJECT_SOURCE_DIR}/libs/${lib}/CMakeLists.txt)
+    add_subdirectory(libs/${lib} libs/${lib}/build-ios)
+  endif()
+endforeach()
 BOOSTDRIVER
-    build_cmake_dep boost "$BOOST_SRC" -DBOOST_INCLUDE_LIBRARIES=locale -DBOOST_ENABLE_MPI=OFF -DBOOST_ENABLE_PYTHON=OFF \
+    BOOST_LIBS="algorithm;align;assert;atomic;bind;chrono;config;container_hash;core;date_time;exception;integer;io;iterator;locale;move;mpl;predef;preprocessor;ratio;smart_ptr;static_assert;system;thread;throw_exception;tuple;type_traits;utility"
+    build_cmake_dep boost "$BOOST_SRC" "-DBOOST_SUBSET_LIBS=$BOOST_LIBS" \
         || FAILED="$FAILED boost"
 else
     FAILED="$FAILED boost-fetch"
