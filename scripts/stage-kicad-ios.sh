@@ -44,7 +44,7 @@ swig -version | head -2
 
 # protoc fallback: normally restored from the deps artifact's stash;
 # build the host protoc in-job if it is missing.
-if [ ! -x "$WORK/host-tools/protoc" ]; then
+if [ ! -x "$WORK/host-tools/bin/protoc" ]; then
     echo "building host protoc in-job (fallback)"
     PB_SRC_FB="$SRC/protobuf-fb"
     if [ ! -d "$PB_SRC_FB" ]; then
@@ -54,8 +54,9 @@ if [ ! -x "$WORK/host-tools/protoc" ]; then
     cmake -S "$PB_SRC_FB" -B "$WORK/build-protobuf-host-fb" -G Ninja \
         -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF >> "$WORK/logs/kicad-ios.log" 2>&1
     cmake --build "$WORK/build-protobuf-host-fb" -j4 --target protoc >> "$WORK/logs/kicad-ios.log" 2>&1
-    mkdir -p "$WORK/host-tools"
-    cp "$WORK/build-protobuf-host-fb/protoc" "$WORK/host-tools/protoc" || true
+    mkdir -p "$WORK/host-tools/bin" "$WORK/host-tools/include/google/protobuf"
+    cp "$WORK/build-protobuf-host-fb/protoc" "$WORK/host-tools/bin/protoc" || true
+    cp "$PB_SRC_FB/src/google/protobuf/"*.proto "$WORK/host-tools/include/google/protobuf/" 2>/dev/null || true
 fi
 ls -la "$WORK/host-tools/" || true
 
@@ -99,7 +100,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DPYTHON_LIBRARY="$SYSROOT/lib/libpython3.13.a" \
     -DPYTHON_FRAMEWORK="$SYSROOT" \
     -DPYTHON_INCLUDE_DIR="$SYSROOT/include/python3.13" \
-    -DProtobuf_PROTOC_EXECUTABLE="$WORK/host-tools/protoc" \
+    -DProtobuf_PROTOC_EXECUTABLE="$WORK/host-tools/bin/protoc" \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
     -DKICAD_USE_SENTRY=OFF \
     -DKICAD_IPC_API=OFF \
