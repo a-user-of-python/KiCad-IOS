@@ -1,0 +1,15 @@
+--- a/common/widgets/grid_checkbox.cpp
++++ b/common/widgets/grid_checkbox.cpp
+@@ -36,7 +36,11 @@
+ // the space between the cell edge and the checkbox mark
+ const int GRID_CELL_CHECKBOX_MARGIN = 2;
+ 
+-wxRect
++/* [KiCad-IOS port] Internal linkage for this verbatim wx copy: with a
++ * static wxWidgets build (iOS), wx's own private copy inside
++ * libwx_core collides with this one at link time. Shared wx builds
++ * never export the symbol, so it could stay global there. */
++static wxRect
+ wxGetContentRect(wxSize contentSize,
+                  const wxRect& cellRect,
+                  int hAlign,
