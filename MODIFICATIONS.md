@@ -277,3 +277,19 @@ Each modified upstream file also carries an in-file notice of the form:
     back to permanent deletion) and `PRINTING::PrintPDF` returns
     PRINT_RESULT::UNSUPPORTED (iOS printing is the asynchronous UIKit
     print controller, which does not fit this synchronous API).
+
+### Dependency note — libtess2 + GLU tessellator adapter (no KiCad source change)
+- iOS has no GLU; KiCad's OpenGL GAL uses the GLU tessellator
+  (gluNewTess/gluTess*) for polygon fills. The deps stage builds
+  **libtess2** (zlib licence) for iOS, with one disclosed fetched-tree
+  edit: `typedef float TESSreal;` → `typedef double TESSreal;` in its
+  tesselator.h, so tessellated vertices keep GLU's GLdouble precision.
+- The spike repo's `glu/` directory carries a small adapter
+  (glu.h + glu_tess_adapter.c, GPLv3) exposing the GLU tessellator
+  subset KiCad names, implemented over libtess2: contours are buffered
+  and tessellated at gluTessEndPolygon, and output vertices are
+  replayed through the registered VERTEX_DATA callback in triangle
+  order (the same stream GLU produces once an EDGE_FLAG callback is
+  registered, which is how KiCad configures it). Self-intersections
+  are computed inside libtess2's sweep, so COMBINE_DATA is accepted
+  but never invoked. KiCad sources are untouched.
