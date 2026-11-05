@@ -17,6 +17,11 @@ done
 echo "QT_DESKTOP=$QT_DESKTOP"
 command -v ninja >/dev/null || brew install ninja
 
+# wxQt's glcanvas.h includes <GL/gl.h> (desktop GL) which macOS lacks;
+# shim it to the framework header at build level (no source changes).
+mkdir -p "$WORK/glshim/GL"
+printf '#pragma once\n#include <OpenGL/gl.h>\n#include <OpenGL/glu.h>\n' > "$WORK/glshim/GL/gl.h"
+
 BLD="$WORK/build-wx-desktop"
 mkdir -p "$BLD"
 set -x
@@ -32,6 +37,8 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxUSE_WEBVIEW=ON \
     -DwxUSE_JOYSTICK=OFF \
     -DCMAKE_PREFIX_PATH="$QT_DESKTOP" \
+    -DCMAKE_C_FLAGS="-I$WORK/glshim" \
+    -DCMAKE_CXX_FLAGS="-I$WORK/glshim" \
     2>&1 | tee "$WORK/logs/wx-desktop-configure.log"
 CFG_RC=${PIPESTATUS[0]}
 set +x
