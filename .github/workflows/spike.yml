@@ -171,6 +171,9 @@ jobs:
           if-no-files-found: ignore
 
   kicad-ios:
+    permissions:
+      actions: read
+      contents: read
     if: ${{ inputs.stage == 'kicad-ios' }}
     name: KiCad 10.0.1 for iOS arm64
     runs-on: macos-26
@@ -178,11 +181,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Assemble sysroot from stage artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: sysroot-ios-*
-          path: work/sysroot-ios
-          merge-multiple: true
+        # download-artifact only sees artifacts from THIS run; the sysroot
+        # pieces were uploaded by earlier stage runs, so fetch the latest
+        # artifact of each name through the API instead. The download URL
+        # 302-redirects to blob storage, which rejects the Authorization
+        # header — strip it on redirect.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, sys, urllib.request, zipfile, io
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          class NoAuthRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  r = super().redirect_request(req, fp, code, msg, headers, newurl)
+                  if r is not None:
+                      r.remove_header("Authorization")
+                  return r
+          opener = urllib.request.build_opener(NoAuthRedirect)
+          def get(url):
+              req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json"})
+              return opener.open(req)
+          want = ["sysroot-ios-part1", "sysroot-ios-occ", "sysroot-ios-ngspice", "sysroot-ios-python"]
+          arts = json.load(get(f"https://api.github.com/repos/{repo}/actions/artifacts?per_page=100"))["artifacts"]
+          os.makedirs("work/sysroot-ios", exist_ok=True)
+          got = []
+          for name in want:
+              cands = [a for a in arts if a["name"] == name and not a["expired"]]
+              if not cands:
+                  print("MISSING artifact:", name); continue
+              a = cands[0]
+              data = get(a["archive_download_url"]).read()
+              zipfile.ZipFile(io.BytesIO(data)).extractall("work/sysroot-ios")
+              got.append(f"{name} ({a['size_in_bytes']} B, run {a['workflow_run']['id']})")
+          print("merged:", "; ".join(got))
+          if len(got) != len(want):
+              sys.exit("sysroot merge incomplete")
+          PYEOF
+          test -f work/sysroot-ios/include/glm/glm.hpp || { echo "MERGE BROKEN: glm missing"; exit 1; }
+          test -f work/sysroot-ios/lib/libboost_locale.a || { echo "MERGE BROKEN: boost missing"; exit 1; }
+          ls work/sysroot-ios/lib | head -30
       - name: Restore host tools
         run: |
           mkdir -p work/host-tools
