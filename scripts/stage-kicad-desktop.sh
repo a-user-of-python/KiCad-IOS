@@ -18,6 +18,22 @@ apply_patches "$SRC/kicad" kicad
 log "installing KiCad desktop build deps (brew)"
 brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 libmagic 2>&1 | tail -3
 
+# brew's ngspice ships no libngspice (KiCad's Findngspice fails with
+# "NGSPICE library missing"); build it from the pinned source, the same
+# remedy KiCad's own message suggests (get_libngspice_so.sh equivalent).
+NGH="$WORK/ngspice-host"
+if [ ! -f "$NGH/lib/libngspice.dylib" ]; then
+    log "building libngspice (host) from source"
+    if [ ! -d "$SRC/ngspice" ]; then
+        ( cd "$WORK" && curl -sL "https://downloads.sourceforge.net/project/ng-spice-rework/44.2/ngspice-44.2.tar.gz" -o ngspice.tar.gz \
+          && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
+    fi
+    ( cd "$SRC/ngspice" && ./configure --with-ngshared --without-x --disable-openmp --prefix="$NGH" >> "$WORK/logs/ngspice-host.log" 2>&1 \
+      && make -j"$(sysctl -n hw.ncpu)" >> "$WORK/logs/ngspice-host.log" 2>&1 \
+      && make install >> "$WORK/logs/ngspice-host.log" 2>&1 ) || echo "libngspice host build FAILED (see log)"
+fi
+ls "$NGH/lib/" | grep ngspice || true
+
 WXCFG="$WORK/build-wx-desktop/wx-config"
 "$WXCFG" --selected-config || true
 
@@ -29,6 +45,8 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_PREFIX_PATH="$(brew --prefix);$QT_ROOT/$QT_VERSION/macos;$QT_ROOT/$QT_VERSION/clang_64" \
     -DwxWidgets_CONFIG_EXECUTABLE="$WXCFG" \
     -DwxWidgets_CONFIG_OPTIONS="--toolkit=qt" \
+    -DNGSPICE_INCLUDE_PATH="$NGH/include" \
+    -DNGSPICE_LIBRARY_PATH="$NGH/lib" \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
     -DKICAD_SPICE=OFF \
     -DKICAD_USE_SENTRY=OFF \
