@@ -7,12 +7,18 @@ QT_VERSION="${QT_VERSION:-6.9.3}"          # same pin as the proven FEBio iOS bu
 KICAD_TAG="10.0.1"
 KICAD_COMMIT="2db9e5a72b7cf1e71bb8dff5257a88d4b41f812f"
 KICAD_TARBALL="https://gitlab.com/kicad/code/kicad/-/archive/${KICAD_TAG}/kicad-${KICAD_TAG}.tar.gz"
-# wx source: KiCad 10 builds against stock wxWidgets 3.2.x. The historical
-# github.com/KiCad/wxWidgets fork's master is wx 3.1.1 (2017-era) — verified
-# in CI run 41937520855 — and is NOT KiCad 10's wx source. Any patches KiCad
-# packaging carries against 3.2.x are audited separately (see spike report).
+# wx source: KiCad 10 requires wxWidgets >= 3.2.0 and its ecosystem builds
+# against stock wxWidgets. Notes from the spike's CI evidence:
+#  - github.com/KiCad/wxWidgets fork master is wx 3.1.1 (2017-era), verified
+#    in CI run 41937520855 — NOT KiCad 10's wx source.
+#  - wx 3.2.8's wxQt backend is Qt5-only (build/cmake/toolkit.cmake does
+#    find_package(Qt5)), verified in CI run 41938271757; Qt5-for-iOS is a
+#    dead toolchain on modern Xcode. wxQt+Qt6 support exists in wx >= 3.3.
+#  - Therefore the spike pins wx v3.3.4 (satisfies KiCad's >= 3.2.0 check).
+#    Any resulting KiCad-vs-wx3.3 API drift is a spike finding, logged in
+#    the report. KiCad packaging patches vs stock wx are audited separately.
 WX_FORK_REPO="https://github.com/wxWidgets/wxWidgets.git"
-WX_FORK_BRANCH="v3.2.8"
+WX_FORK_BRANCH="v3.3.4"
 
 WORK="${WORK:-$PWD/work}"
 SRC="$WORK/src"
