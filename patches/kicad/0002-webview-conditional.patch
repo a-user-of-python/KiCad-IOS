@@ -1,0 +1,280 @@
+# KiCad-IOS port patch 0002 (KiCad 10.0.1, GPLv3-or-later)
+# Make WEBVIEW_PANEL and its consumers conditional on wxUSE_WEBVIEW.
+# The wxQt port provides no wxWebView backend, so wxWebView/wxWebViewEvent
+# do not exist; upstream KiCad uses them unconditionally. With this patch,
+# builds without a webview backend get a stub WEBVIEW_PANEL (same public
+# API minus GetWebView) that shows a placeholder, and the consumers'
+# webview-only code paths (loaded-event binding, cookie extraction) are
+# compiled out. Features affected: project-template HTML previews, the
+# PCM package browser pages, eeschema remote-symbol providers. Apply
+# with: patch -p1 (KiCad source root). See MODIFICATIONS.md.
+#
+diff --git a/include/widgets/webview_panel.h b/include/widgets/webview_panel.h
+--- a/include/widgets/webview_panel.h
++++ b/include/widgets/webview_panel.h
+@@ -44,6 +44,16 @@ T* GetLiveWindow( const wxWeakRef<T>& aWindowRef )
+ }
+ } // namespace WEBVIEW_PANEL_DETAIL
+ 
++// [KiCad-IOS port] Modified 2026-11-04: WEBVIEW_PANEL is only available
++// when wx provides a wxWebView backend (wxUSE_WEBVIEW). The wxQt port has
++// no wxWebView implementation, so without this guard the class references
++// a non-existent wxWebView type and every consumer fails to compile. In
++// the #else branch below, a stub panel with the same public API (minus
++// GetWebView) degrades the affected features — template previews, the
++// package browser and remote-symbol providers — to a placeholder instead
++// of breaking the build. Change recorded in KiCad-IOS MODIFICATIONS.md.
++#if wxUSE_WEBVIEW
++
+ class WEBVIEW_PANEL : public wxPanel
+ {
+ public:
+@@ -100,4 +110,43 @@ private:
+     wxTimer                             m_initRetryTimer;
+ };
+ 
++#else // !wxUSE_WEBVIEW
++
++// Stub used when the wx port has no wxWebView backend (see note above).
++// Same construction and content API; nothing is ever loaded, so
++// HasLoadError() reports true and consumers simply show no preview.
++class WEBVIEW_PANEL : public wxPanel
++{
++public:
++    using MESSAGE_HANDLER = std::function<void( const wxString& )>;
++
++    explicit WEBVIEW_PANEL( wxWindow* parent, wxWindowID id = wxID_ANY, const wxPoint& pos = wxDefaultPosition,
++                            const wxSize& size = wxDefaultSize, const int style = 0,
++                            TOOL_MANAGER* aToolManager = nullptr, TOOL_BASE* aTool = nullptr );
++    ~WEBVIEW_PANEL() override;
++
++    const wxString& GetBackend() const { return m_backend; }
++
++    void LoadURL( const wxString& url );
++    void SetPage( const wxString& htmlContent );
++
++    bool AddMessageHandler( const wxString& name, MESSAGE_HANDLER handler );
++    void ClearMessageHandlers();
++
++    void SetHandleExternalLinks( bool aHandle ) { m_handleExternalLinks = aHandle; }
++    bool GetHandleExternalLinks() const { return m_handleExternalLinks; }
++
++    void RunScriptAsync( const wxString& aScript, void* aClientData = nullptr ) const {}
++
++    bool HasLoadError() const { return true; }
++
++    void BindLoadedEvent();
++
++private:
++    bool     m_handleExternalLinks = false;
++    wxString m_backend;
++};
++
++#endif // wxUSE_WEBVIEW
++
+ #endif // WEBVIEW_PANEL_H
+diff --git a/common/widgets/webview_panel.cpp b/common/widgets/webview_panel.cpp
+--- a/common/widgets/webview_panel.cpp
++++ b/common/widgets/webview_panel.cpp
+@@ -36,6 +36,8 @@
+ #endif
+ 
+ 
++#if wxUSE_WEBVIEW
++
+ WEBVIEW_PANEL::WEBVIEW_PANEL( wxWindow* aParent, wxWindowID aId, const wxPoint& aPos, const wxSize& aSize,
+                               const int aStyle, TOOL_MANAGER* aToolManager, TOOL_BASE* aTool ) :
+         wxPanel( aParent, aId, aPos, aSize, aStyle ),
+@@ -342,3 +344,53 @@ void WEBVIEW_PANEL::OnError( wxWebViewEvent& aEvt )
+     m_loadError = true;
+     wxLogTrace( "webview", "WebView error: %s", aEvt.GetString() );
+ }
++
++#else // !wxUSE_WEBVIEW
++
++// [KiCad-IOS port] Stub implementation (see webview_panel.h note).
++
++#include <wx/stattext.h>
++
++WEBVIEW_PANEL::WEBVIEW_PANEL( wxWindow* aParent, wxWindowID aId, const wxPoint& aPos, const wxSize& aSize,
++                              const int aStyle, TOOL_MANAGER* aToolManager, TOOL_BASE* aTool ) :
++        wxPanel( aParent, aId, aPos, aSize, aStyle )
++{
++    wxSizer* sizer = new wxBoxSizer( wxVERTICAL );
++    sizer->Add( new wxStaticText( this, wxID_ANY,
++                                  _( "Web content is not available in this build." ) ),
++                1, wxEXPAND | wxALL, 10 );
++    SetSizer( sizer );
++}
++
++
++WEBVIEW_PANEL::~WEBVIEW_PANEL()
++{
++}
++
++
++void WEBVIEW_PANEL::LoadURL( const wxString& url )
++{
++}
++
++
++void WEBVIEW_PANEL::SetPage( const wxString& htmlContent )
++{
++}
++
++
++bool WEBVIEW_PANEL::AddMessageHandler( const wxString& name, MESSAGE_HANDLER handler )
++{
++    return false;
++}
++
++
++void WEBVIEW_PANEL::ClearMessageHandlers()
++{
++}
++
++
++void WEBVIEW_PANEL::BindLoadedEvent()
++{
++}
++
++#endif // wxUSE_WEBVIEW
+diff --git a/kicad/dialogs/dialog_template_selector.h b/kicad/dialogs/dialog_template_selector.h
+--- a/kicad/dialogs/dialog_template_selector.h
++++ b/kicad/dialogs/dialog_template_selector.h
+@@ -145,7 +145,9 @@ protected:
+ 
+     void OnSearchTimer( wxTimerEvent& event );
+     void OnRefreshTimer( wxTimerEvent& event );
++#if wxUSE_WEBVIEW
+     void OnWebViewLoaded( wxWebViewEvent& event );
++#endif
+     void OnScrolledTemplatesSize( wxSizeEvent& event );
+ 
+     void OnFileSystemEvent( wxFileSystemWatcherEvent& event );
+diff --git a/kicad/dialogs/dialog_template_selector.cpp b/kicad/dialogs/dialog_template_selector.cpp
+--- a/kicad/dialogs/dialog_template_selector.cpp
++++ b/kicad/dialogs/dialog_template_selector.cpp
+@@ -947,11 +947,13 @@ void DIALOG_TEMPLATE_SELECTOR::EnsureWebViewCreated()
+ 
+     m_webviewPanel->BindLoadedEvent();
+ 
++#if wxUSE_WEBVIEW
+     if( m_webviewPanel->GetWebView() )
+     {
+         Bind( wxEVT_WEBVIEW_LOADED, &DIALOG_TEMPLATE_SELECTOR::OnWebViewLoaded, this,
+               m_webviewPanel->GetWebView()->GetId() );
+     }
++#endif
+ }
+ 
+ 
+@@ -1096,6 +1098,7 @@ void DIALOG_TEMPLATE_SELECTOR::OnScrolledTemplatesSize( wxSizeEvent& event )
+ }
+ 
+ 
++#if wxUSE_WEBVIEW
+ void DIALOG_TEMPLATE_SELECTOR::OnWebViewLoaded( wxWebViewEvent& event )
+ {
+     event.Skip();
+@@ -1124,6 +1127,7 @@ void DIALOG_TEMPLATE_SELECTOR::OnWebViewLoaded( wxWebViewEvent& event )
+ #endif
+     }
+ }
++#endif // wxUSE_WEBVIEW
+ 
+ 
+ void DIALOG_TEMPLATE_SELECTOR::RefreshTemplateList()
+diff --git a/eeschema/widgets/panel_remote_symbol.h b/eeschema/widgets/panel_remote_symbol.h
+--- a/eeschema/widgets/panel_remote_symbol.h
++++ b/eeschema/widgets/panel_remote_symbol.h
+@@ -68,7 +68,9 @@ private:
+     void onDataSourceChanged( wxCommandEvent& aEvent );
+     void onConfigure( wxCommandEvent& aEvent );
+     void onRefresh( wxCommandEvent& aEvent );
++#if wxUSE_WEBVIEW
+     void onWebViewLoaded( wxWebViewEvent& aEvent );
++#endif
+     void onDarkModeToggle( wxSysColourChangedEvent& aEvent );
+     void onOAuthLoopback( wxCommandEvent& aEvent );
+ 
+diff --git a/eeschema/widgets/panel_remote_symbol.cpp b/eeschema/widgets/panel_remote_symbol.cpp
+--- a/eeschema/widgets/panel_remote_symbol.cpp
++++ b/eeschema/widgets/panel_remote_symbol.cpp
+@@ -298,8 +298,10 @@ void PANEL_REMOTE_SYMBOL::ensureWebView()
+     m_webView->SetHandleExternalLinks( true );
+     m_webView->BindLoadedEvent();
+ 
++#if wxUSE_WEBVIEW
+     if( wxWebView* browser = m_webView->GetWebView() )
+         browser->Bind( wxEVT_WEBVIEW_LOADED, &PANEL_REMOTE_SYMBOL::onWebViewLoaded, this );
++#endif
+ 
+     GetSizer()->Add( m_webView, 1, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, FromDIP( 2 ) );
+     Layout();
+@@ -308,8 +310,10 @@ void PANEL_REMOTE_SYMBOL::ensureWebView()
+ 
+ void PANEL_REMOTE_SYMBOL::BindWebViewLoaded()
+ {
++#if wxUSE_WEBVIEW
+     if( wxWebView* browser = m_webView ? m_webView->GetWebView() : nullptr )
+         browser->Bind( wxEVT_WEBVIEW_LOADED, &PANEL_REMOTE_SYMBOL::onWebViewLoaded, this );
++#endif
+ }
+ 
+ 
+@@ -328,11 +332,13 @@ void PANEL_REMOTE_SYMBOL::SaveCookies()
+     if( !m_webView || m_selectedProviderIndex == wxNOT_FOUND || m_selectedProviderIndex >= static_cast<int>( m_providerEntries.size() ) )
+         return;
+ 
++#if wxUSE_WEBVIEW
+     if( wxWebView* browser = m_webView->GetWebView() )
+     {
+         const wxFileName cookieFile = cookieFilePath( m_providerEntries[m_selectedProviderIndex].provider_id );
+         KIPLATFORM::WEBVIEW::SaveCookies( browser, cookieFile.GetFullPath() );
+     }
++#endif
+ }
+ 
+ 
+@@ -341,6 +347,7 @@ void PANEL_REMOTE_SYMBOL::LoadCookies()
+     if( !m_webView || m_selectedProviderIndex == wxNOT_FOUND || m_selectedProviderIndex >= static_cast<int>( m_providerEntries.size() ) )
+         return;
+ 
++#if wxUSE_WEBVIEW
+     if( wxWebView* browser = m_webView->GetWebView() )
+     {
+         const wxFileName cookieFile = cookieFilePath( m_providerEntries[m_selectedProviderIndex].provider_id );
+@@ -348,13 +355,16 @@ void PANEL_REMOTE_SYMBOL::LoadCookies()
+         if( cookieFile.FileExists() )
+             KIPLATFORM::WEBVIEW::LoadCookies( browser, cookieFile.GetFullPath() );
+     }
++#endif
+ }
+ 
+ 
+ void PANEL_REMOTE_SYMBOL::clearCookies( bool aDeleteSavedCookieFile )
+ {
++#if wxUSE_WEBVIEW
+     if( wxWebView* browser = m_webView ? m_webView->GetWebView() : nullptr )
+         KIPLATFORM::WEBVIEW::DeleteCookies( browser );
++#endif
+ 
+     if( aDeleteSavedCookieFile && m_selectedProviderIndex != wxNOT_FOUND
+         && m_selectedProviderIndex < static_cast<int>( m_providerEntries.size() ) )
+@@ -541,6 +551,7 @@ void PANEL_REMOTE_SYMBOL::showMessage( const wxString& aMessage )
+ }
+ 
+ 
++#if wxUSE_WEBVIEW
+ void PANEL_REMOTE_SYMBOL::onWebViewLoaded( wxWebViewEvent& aEvent )
+ {
+     if( m_pendingHandshake )
+@@ -559,6 +570,7 @@ void PANEL_REMOTE_SYMBOL::onWebViewLoaded( wxWebViewEvent& aEvent )
+ 
+     aEvent.Skip();
+ }
++#endif // wxUSE_WEBVIEW
+ 
+ 
+ void PANEL_REMOTE_SYMBOL::beginSessionHandshake()
