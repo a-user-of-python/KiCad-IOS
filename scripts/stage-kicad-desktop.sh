@@ -60,6 +60,8 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DNGSPICE_INCLUDE_PATH="$NGH/include" \
     -DNGSPICE_LIBRARY_PATH="$NGH/lib" \
     -DNGSPICE_LIB_NAME=ngspice \
+    -DOCC_INCLUDE_DIR="$(brew --prefix opencascade)/include/opencascade" \
+    -DOCC_LIBRARY_DIR="$(brew --prefix opencascade)/lib" \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
     -DKICAD_SPICE=OFF \
     -DKICAD_USE_SENTRY=OFF \
