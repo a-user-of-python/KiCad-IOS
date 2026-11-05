@@ -22,6 +22,7 @@ mkdir -p "$BLD"
 set -x
 cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
     -DwxBUILD_TOOLKIT=qt \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DwxBUILD_SHARED=ON \
