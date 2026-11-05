@@ -1,0 +1,29 @@
+# KiCad-IOS port patch 0006 (wxWidgets v3.3.4, wxWindows licence)
+# wx/osx/chkconf.h: do not apply the native wxOSX/iPhone port's feature
+# restrictions (no wxMenuBar/wxStatusBar/tooltips/combobox/scrollbar/
+# drag-and-drop/MDI) to the Qt port on iOS. Qt implements all of these
+# on iOS; wxQt's own headers assume them (wx/qt/frame.h SetMenuBar,
+# wx/qt/menu.h wxMenuBar) and fail to compile when they are force-
+# disabled via TARGET_OS_IPHONE -> __WXDARWIN_IPHONE__ -> this header.
+# Apply with: patch -p1 (wx source root). See MODIFICATIONS.md.
+#
+diff --git a/include/wx/osx/chkconf.h b/include/wx/osx/chkconf.h
+--- a/include/wx/osx/chkconf.h
++++ b/include/wx/osx/chkconf.h
+@@ -73,7 +73,16 @@
+ #endif
+ 
+ #ifdef __WXDARWIN_IPHONE__
++#    ifndef __WXQT__
++// [KiCad-IOS port] Modified 2026-11-04: the iPhone chkconf list force-
++// disables wxMenuBar, wxStatusBar, tooltips, combo boxes, scroll bars,
++// drag-and-drop, MDI and more, because the *native* wxOSX/iPhone port
++// cannot provide them. The Qt port can — Qt on iOS implements all of
++// these widgets — and KiCad requires several of them, so do not apply
++// the native port's restrictions to wxQt. Change recorded in the
++// KiCad-IOS MODIFICATIONS.md.
+     #include "wx/osx/iphone/chkconf.h"
++#    endif
+ #elif defined(__WXDARWIN_OSX__)
+     #include "wx/osx/cocoa/chkconf.h"
+ #endif
