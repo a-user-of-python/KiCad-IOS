@@ -29,6 +29,8 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxBUILD_TOOLKIT=qt \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DwxBUILD_SHARED=OFF \
+    -DwxUSE_MENUS=ON \
+    -DwxUSE_MENUBAR=ON \
     -DwxBUILD_SAMPLES=OFF \
     -DwxBUILD_TESTS=OFF \
     -DwxBUILD_DEMOS=OFF \
