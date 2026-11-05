@@ -16,7 +16,7 @@ fi
 cmake -S "$SRC/occt" -B "$WORK/build-occ-ios" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_INSTALL_PREFIX="$SYSROOT" \
+    -DCMAKE_INSTALL_PREFIX="$WORK/sysroot-occ" \
     -DBUILD_LIBRARY_TYPE=Static \
     -DBUILD_MODULE_Draw=OFF \
     -DBUILD_DOC_Overview=OFF \
@@ -45,6 +45,6 @@ echo "OCC_INSTALL_RC=$?"
 # Honest gate (a config-file-only check previously passed a build that had
 # died at step 2344/5561 with only libTKernel.a installed): require clean
 # build+install RCs and a real toolkit census incl. the libs KiCad links.
-TK_COUNT=$(ls "$SYSROOT/lib/" 2>/dev/null | grep -c '^libTK.*\.a$' || true)
+TK_COUNT=$(ls "$WORK/sysroot-occ/lib/" 2>/dev/null | grep -c '^libTK.*\.a$' || true)
 echo "OCC toolkits installed: $TK_COUNT"
-if [ "$OCC_BUILD_RC" = "0" ] && [ -f "$SYSROOT/lib/libTKBinL.a" ] && [ -f "$SYSROOT/lib/libTKSTEP.a" ] && [ "$TK_COUNT" -ge 50 ]; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
+if [ "$OCC_BUILD_RC" = "0" ] && [ -f "$WORK/sysroot-occ/lib/libTKBinL.a" ] && [ -f "$WORK/sysroot-occ/lib/libTKSTEP.a" ] && [ "$TK_COUNT" -ge 50 ]; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
