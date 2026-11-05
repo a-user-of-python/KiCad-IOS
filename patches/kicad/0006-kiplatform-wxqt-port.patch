@@ -1,0 +1,342 @@
+[KiCad-IOS port] kiplatform: add the wxQt port implementation
+
+kiplatform selects its UI/WEBVIEW implementation by KICAD_WX_PORT
+(osx/msw/gtk). For "qt" it selected nothing, so every KIPLATFORM::UI
+symbol (IsDarkTheme, ForceFocus, GetContentScaleFactor, ...) was
+undefined when linking libkicommon — the only link error class in the
+desktop wxQt catalogue once compilation was clean.
+
+This patch adds the missing port:
+- libs/kiplatform/CMakeLists.txt: qt branch selecting the new files.
+- libs/kiplatform/port/wxqt/ui.cpp (new): KIPLATFORM::UI implemented
+  wx-generically on top of Qt-backed wxWidgets — system colours and
+  scale factors from wxSystemSettings/wxWindow, focus via SetFocus +
+  Raise. macOS/GTK-only workarounds (child-window ordering, cmd-key
+  collisions, cell-layout hacks, Wayland confinement, overlay
+  scrolling, IME fixups) are no-ops, mirroring how the existing ports
+  no-op each other's platform hacks.
+- libs/kiplatform/port/wxqt/webview.cpp (new): cookie functions report
+  failure — wxQt has no wxWebView backend (wxUSE_WEBVIEW is OFF).
+
+New files carry the standard KiCad GPL header. Modified/new files
+(GPL-3.0-or-later, same license as upstream):
+  libs/kiplatform/CMakeLists.txt (modified)
+  libs/kiplatform/port/wxqt/ui.cpp (new)
+  libs/kiplatform/port/wxqt/webview.cpp (new)
+
+--- a/libs/kiplatform/CMakeLists.txt
++++ b/libs/kiplatform/CMakeLists.txt
+@@ -11,6 +11,14 @@
+         port/wxmsw/ui.cpp
+         port/wxmsw/webview.cpp
+         )
++elseif( KICAD_WX_PORT STREQUAL qt )
++    # [KiCad-IOS port] wxQt port implementation (wx-generic, via Qt):
++    # without this branch no KIPLATFORM::UI/WEBVIEW symbols are built
++    # for the qt port at all and every KiCad library fails to link.
++    set( PLATFORM_SRCS
++        port/wxqt/ui.cpp
++        port/wxqt/webview.cpp
++        )
+ elseif( KICAD_WX_PORT STREQUAL gtk )
+     set( PLATFORM_SRCS
+         port/wxgtk/ui.cpp
+--- /dev/null
++++ b/libs/kiplatform/port/wxqt/ui.cpp
+@@ -0,0 +1,239 @@
++/*
++ * This program source code file is part of KiCad, a free EDA CAD application.
++ *
++ * Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++ *
++ * This program is free software: you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the
++ * Free Software Foundation, either version 3 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * [KiCad-IOS port] New file: KIPLATFORM::UI implementation for the wxQt
++ * port (wxWidgets on Qt). KiCad's kiplatform layer ships per-port UI
++ * implementations (wxosx, wxmsw, wxgtk); without one for "qt" every
++ * KIPLATFORM::UI symbol is undefined at link time.
++ *
++ * Qt provides these facilities through wxWidgets itself, so this
++ * implementation is deliberately wx-generic: it uses wxSystemSettings,
++ * wxWindow and wxTopLevelWindow only. Functions that exist solely to
++ * work around native-toolkit behaviour on macOS/GTK (child-window
++ * ordering, cmd-key collisions, cell-layout hacks, Wayland pointer
++ * confinement, overlay scrolling, IME fixups) are no-ops here, exactly
++ * as the GTK port no-ops the macOS ones and vice versa.
++ */
++
++#include <kiplatform/ui.h>
++
++#include <wx/choice.h>
++#include <wx/dialog.h>
++#include <wx/nonownedwnd.h>
++#include <wx/settings.h>
++#include <wx/toplevel.h>
++#include <wx/utils.h>
++#include <wx/window.h>
++
++
++bool KIPLATFORM::UI::IsDarkTheme()
++{
++    wxColour bg = wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOW );
++
++    // Weighted W3C formula (same computation as the GTK port)
++    double brightness = ( bg.Red() / 255.0 ) * 0.299 +
++                        ( bg.Green() / 255.0 ) * 0.587 +
++                        ( bg.Blue() / 255.0 ) * 0.117;
++
++    return brightness < 0.5;
++}
++
++
++wxColour KIPLATFORM::UI::GetDialogBGColour()
++{
++    return wxSystemSettings::GetColour( wxSYS_COLOUR_BTNFACE );
++}
++
++
++void KIPLATFORM::UI::GetInfoBarColours( wxColour& aFgColour, wxColour& aBgColour )
++{
++    aBgColour = wxSystemSettings::GetColour( wxSYS_COLOUR_INFOBK );
++    aFgColour = wxSystemSettings::GetColour( wxSYS_COLOUR_INFOTEXT );
++}
++
++
++void KIPLATFORM::UI::ForceFocus( wxWindow* aWindow )
++{
++    aWindow->SetFocus();
++
++    // Present the containing top-level window so it actually receives
++    // keyboard events (the wx-generic equivalent of the GTK port's
++    // gtk_window_present call).
++    wxTopLevelWindow* tlw = wxGetTopLevelParent( aWindow );
++
++    if( tlw )
++        tlw->Raise();
++}
++
++
++bool KIPLATFORM::UI::IsWindowActive( wxWindow* aWindow )
++{
++    if( !aWindow )
++        return false;
++
++    wxTopLevelWindow* tlw = wxGetTopLevelParent( aWindow );
++
++    return tlw && tlw->IsActive();
++}
++
++
++void KIPLATFORM::UI::EnsureVisible( wxWindow* aWindow )
++{
++    // macOS Spaces workaround; not needed under Qt
++}
++
++
++void KIPLATFORM::UI::ReparentModal( wxNonOwnedWindow* aWindow )
++{
++    // macOS child-window ordering only; not needed under Qt
++}
++
++
++void KIPLATFORM::UI::ReparentWindow( wxNonOwnedWindow* aWindow, wxTopLevelWindow* aParent )
++{
++    // macOS child-window ordering only; not needed under Qt
++}
++
++
++void KIPLATFORM::UI::FixupCancelButtonCmdKeyCollision( wxWindow* aWindow )
++{
++    // macOS cmd-key accelerator collision only; not applicable under Qt
++}
++
++
++bool KIPLATFORM::UI::IsStockCursorOk( wxStockCursor aCursor )
++{
++    switch( aCursor )
++    {
++    case wxCURSOR_BULLSEYE:
++    case wxCURSOR_HAND:
++    case wxCURSOR_ARROW:
++    case wxCURSOR_BLANK:
++        return true;
++    default:
++        return false;
++    }
++}
++
++
++void KIPLATFORM::UI::LargeChoiceBoxHack( wxChoice* aChoice )
++{
++    // GTK cell-layout performance hack; QComboBox handles large lists
++    // natively, nothing to do under Qt
++}
++
++
++void KIPLATFORM::UI::EllipsizeChoiceBox( wxChoice* aChoice )
++{
++    // QComboBox ellipsizes its button text itself; nothing to do
++}
++
++
++double KIPLATFORM::UI::GetPixelScaleFactor( const wxWindow* aWindow )
++{
++    // Under wxQt the content scale factor is the widget's device pixel
++    // ratio, which is exactly the pixel scale KiCad asks for.
++    return aWindow->GetContentScaleFactor();
++}
++
++
++double KIPLATFORM::UI::GetContentScaleFactor( const wxWindow* aWindow )
++{
++    return aWindow->GetContentScaleFactor();
++}
++
++
++wxSize KIPLATFORM::UI::GetUnobscuredSize( const wxWindow* aWindow )
++{
++    return wxSize( aWindow->GetSize().GetX() - wxSystemSettings::GetMetric( wxSYS_VSCROLL_X ),
++                   aWindow->GetSize().GetY() - wxSystemSettings::GetMetric( wxSYS_HSCROLL_Y ) );
++}
++
++
++void KIPLATFORM::UI::SetOverlayScrolling( const wxWindow* aWindow, bool overlay )
++{
++    // Implemented only on GTK (see ui.h)
++}
++
++
++bool KIPLATFORM::UI::AllowIconsInMenus()
++{
++    // No system-wide "no icons in menus" setting exists under Qt
++    return true;
++}
++
++
++wxPoint KIPLATFORM::UI::GetMousePosition()
++{
++    return wxGetMousePosition();
++}
++
++
++bool KIPLATFORM::UI::WarpPointer( wxWindow* aWindow, int aX, int aY )
++{
++    aWindow->WarpPointer( aX, aY );
++    return true;
++}
++
++
++void KIPLATFORM::UI::ImmControl( wxWindow* aWindow, bool aEnable )
++{
++    // Qt routes IME through wxQt's input-method handling; no per-window
++    // fixup needed
++}
++
++
++void KIPLATFORM::UI::ImeNotifyCancelComposition( wxWindow* aWindow )
++{
++    // See ImmControl
++}
++
++
++bool KIPLATFORM::UI::InfiniteDragPrepareWindow( wxWindow* aWindow )
++{
++    // No pointer confinement protocol to set up (that is a Wayland/GTK
++    // concern); warping alone drives infinite panning, as on X11.
++    return true;
++}
++
++
++void KIPLATFORM::UI::InfiniteDragReleaseWindow()
++{
++    // Nothing was prepared, nothing to release
++}
++
++
++void KIPLATFORM::UI::SetFloatLevel( wxWindow* aWindow )
++{
++    // macOS window levels only; not applicable under Qt
++}
++
++
++void KIPLATFORM::UI::ReleaseChildWindow( wxNonOwnedWindow* aWindow )
++{
++    // macOS modal child-window relationship only; not applicable
++}
++
++
++void KIPLATFORM::UI::AllowNetworkFileSystems( wxDialog* aDialog )
++{
++    // Qt file dialogs show network and virtual filesystems by default
++    // (and the in-app file lists used on iOS do too)
++}
+--- /dev/null
++++ b/libs/kiplatform/port/wxqt/webview.cpp
+@@ -0,0 +1,54 @@
++/*
++ * This program source code file is part of KiCad, a free EDA CAD application.
++ *
++ * Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++ *
++ * This program is free software: you can redistribute it and/or modify it
++ * under the terms of the GNU General Public License as published by the
++ * Free Software Foundation, either version 3 of the License, or (at your
++ * option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License along
++ * with this program.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * [KiCad-IOS port] New file: KIPLATFORM::WEBVIEW cookie functions for
++ * the wxQt port. wxQt has no wxWebView backend (wxUSE_WEBVIEW is OFF),
++ * so there is no cookie store to read or write; the functions report
++ * failure, matching how the rest of the port behaves when the webview
++ * feature is compiled out (see patches/kicad/0002-webview-conditional).
++ */
++
++#include <kiplatform/webview.h>
++
++#include <wx/string.h>
++
++class wxWebView;
++
++namespace KIPLATFORM::WEBVIEW
++{
++
++bool SaveCookies( wxWebView* aWebView, const wxString& aTargetFile )
++{
++    return false;
++}
++
++
++bool LoadCookies( wxWebView* aWebView, const wxString& aSourceFile )
++{
++    return false;
++}
++
++
++bool DeleteCookies( wxWebView* aWebView )
++{
++    return false;
++}
++
++} // namespace KIPLATFORM::WEBVIEW
