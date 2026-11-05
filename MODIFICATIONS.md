@@ -150,3 +150,14 @@ Each modified upstream file also carries an in-file notice of the form:
   `PyInt_*`/`PyString_*` aliases that SWIG >= 4.3 removed from its generated
   Python runtime prelude, so 4.5-generated `pcbnew_wrap.cxx` does not
   compile. No KiCad or wx source is modified for this.
+
+### KiCad patch 0007 — kiplatform-no-os-apple-on-ios
+- **File:** `libs/kiplatform/CMakeLists.txt`
+- **Change:** The macOS OS-source block (`os/apple/*.mm` + Cocoa/AppKit/
+  PDFKit/WebKit framework links) is skipped when `CMAKE_SYSTEM_NAME` is
+  iOS, with an in-file notice.
+- **Why:** Those sources are written against AppKit, which does not exist
+  on iOS. Skipping them lets the iOS link catalogue show exactly which
+  `KIPLATFORM` OS functions the editors reference; those will get
+  UIKit/POSIX implementations under `os/ios/` in a follow-up patch.
+  Desktop macOS builds are unaffected (system name is Darwin there).
