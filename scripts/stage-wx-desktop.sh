@@ -30,6 +30,7 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxBUILD_TESTS=OFF \
     -DwxBUILD_DEMOS=OFF \
     -DwxUSE_WEBVIEW=ON \
+    -DwxUSE_JOYSTICK=OFF \
     -DCMAKE_PREFIX_PATH="$QT_DESKTOP" \
     2>&1 | tee "$WORK/logs/wx-desktop-configure.log"
 CFG_RC=${PIPESTATUS[0]}
