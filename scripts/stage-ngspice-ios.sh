@@ -15,6 +15,19 @@ if [ ! -d "$SRC/ngspice" ]; then
     ( cd "$WORK" && curl -sL "https://distfiles.macports.org/ngspice/ngspice-$NG_VER.tar.gz" -o ngspice.tar.gz \
       && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
 fi
+NGDUAL_HDR="$SRC/ngspice/src/include/cppduals/duals/dual"
+# Xcode 26 libc++ forbids user specialization of std::is_compound
+# (it is builtin-backed; dual<T> is compound anyway). Remove the
+# redundant specialization from the fetched cppduals header.
+python3 - "$NGDUAL_HDR" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+block = "/// Duals are compound types.\ntemplate <class T>\nstruct is_compound<duals::dual<T>> : true_type {};\n"
+assert block in s, "cppduals block not found"
+open(p, "w").write(s.replace(block, "", 1))
+print("cppduals is_compound specialization removed")
+PYEOF
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
 # iOS compat shim: ngspice's frontend calls system() in seven places
 # (shell command, hardcopy via external tools, gnuplot launch). system()
