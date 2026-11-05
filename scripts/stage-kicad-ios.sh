@@ -77,6 +77,19 @@ mkdir -p "$WORK/glshim/GL"
 # glad already provides all types/constants in that case, so the shim
 # defers to it; otherwise it forwards to the real ES3 headers.
 printf '#pragma once\n#ifndef GLAD_GL_H_\n#include <OpenGLES/ES3/gl.h>\n#include <OpenGLES/ES3/glext.h>\n#endif\n' > "$WORK/glshim/GL/gl.h"
+# KiCad's kiglu.h uses the macOS framework include style on __APPLE__:
+# <OpenGL/gl.h> gets the same glad-aware shim, and <OpenGL/glu.h> is our
+# GLU-tessellator subset header (glu/glu.h in this repo), implemented by
+# glu/glu_tess_adapter.c over libtess2 (deps stage) — iOS has no GLU.
+mkdir -p "$WORK/glshim/OpenGL"
+cp "$WORK/glshim/GL/gl.h" "$WORK/glshim/OpenGL/gl.h"
+cp "$PWD/glu/glu.h" "$WORK/glshim/OpenGL/glu.h"
+xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
+    -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -O2 \
+    -I"$SYSROOT/include" -c "$PWD/glu/glu_tess_adapter.c" \
+    -o "$WORK/glshim/glu_tess_adapter.o" >> "$WORK/logs/kicad-ios.log" 2>&1 \
+    && ar rcs "$WORK/glshim/libgluadapter.a" "$WORK/glshim/glu_tess_adapter.o" \
+    || echo "WARNING: GLU tess adapter failed to build"
 SDK_PATH_IOS="$(xcrun --sdk iphoneos --show-sdk-path)"
 OGL_FW="$SDK_PATH_IOS/System/Library/Frameworks/OpenGLES.framework"
 
@@ -138,7 +151,7 @@ echo "AppKit remaining in sysroot metadata: $(grep -rl 'AppKit' "$SYSROOT/lib" "
 QT_PCRE2="$(find "$WORK/Qt" -name 'libQtBundledPcre2*.a' 2>/dev/null | head -1)"
 echo "Qt bundled pcre2: ${QT_PCRE2:-NOT FOUND}"
 IOS_FW="-framework CoreFoundation -framework Foundation -framework UIKit -framework Metal -framework IOKit -framework CoreGraphics -framework CoreText -framework CoreServices -framework UniformTypeIdentifiers"
-IOS_EXTRA_LIBS="-lpng16 -lpcre2-16 $QT_PCRE2"
+IOS_EXTRA_LIBS="-lpng16 -lpcre2-16 $WORK/glshim/libgluadapter.a -ltess2 $QT_PCRE2"
 
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
