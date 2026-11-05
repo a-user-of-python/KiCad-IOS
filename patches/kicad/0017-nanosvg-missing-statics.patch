@@ -1,0 +1,24 @@
+--- a/thirdparty/nanosvg/nanosvg.cpp
++++ b/thirdparty/nanosvg/nanosvg.cpp
+@@ -226,7 +226,10 @@
+ }
+ 
+ 
+-int nsvg__parseXML( char* input,
++/* [KiCad-IOS port] Internal linkage, like every other nsvg__ helper in
++ * this file: wxWidgets bundles its own nanosvg copy (bmpsvg), and with
++ * a static wx (iOS) the two global definitions collide at link time. */
++static int nsvg__parseXML( char* input,
+         void (* startelCb)( void* ud, const char* el, const char** attr ),
+         void (* endelCb)( void* ud, const char* el ),
+         void (* contentCb)( void* ud, const char* s ),
+@@ -1447,7 +1450,8 @@
+     unsigned int color;
+ } NSVGNamedColor;
+ 
+-NSVGNamedColor nsvg__colors[] =
++/* [KiCad-IOS port] Internal linkage: see nsvg__parseXML above. */
++static NSVGNamedColor nsvg__colors[] =
+ {
+     { "red",                  NSVG_RGB( 255,                                         0,   0 ) },
+     { "green",                NSVG_RGB( 0,                                         128,   0 ) },
