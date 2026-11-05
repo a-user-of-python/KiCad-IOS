@@ -1,0 +1,20 @@
+--- a/pagelayout_editor/dialogs/design_inspector.cpp
++++ b/pagelayout_editor/dialogs/design_inspector.cpp
+@@ -23,6 +23,7 @@
+  */
+ 
+ #include <wx/dc.h>
++#include <wx/filename.h> // [KiCad-IOS port] wxFileName is used below; wxMac/wxGTK headers pull it in transitively, wxQt does not.
+ #include <wx/imaglist.h>
+ #include <wx/wupdlock.h>
+ 
+--- a/gerbview/dialogs/dialog_draw_layers_settings.cpp
++++ b/gerbview/dialogs/dialog_draw_layers_settings.cpp
+@@ -27,6 +27,7 @@
+ #include <gerber_file_image_list.h>
+ #include <dialog_draw_layers_settings.h>
+ #include <widgets/wx_grid.h>
++#include <wx/filename.h> // [KiCad-IOS port] wxFileName is used below; wxMac/wxGTK headers pull it in transitively, wxQt does not.
+ 
+ 
+ DIALOG_DRAW_LAYERS_SETTINGS::DIALOG_DRAW_LAYERS_SETTINGS( GERBVIEW_FRAME* aParent ) :
