@@ -75,3 +75,71 @@ echo "--- sysroot contents ---"
 find "$SYSROOT" -name "*.a" | sort | tee "$WORK/logs/sysroot-libs.txt"
 if [ -n "$FAILED" ]; then echo "RESULT: deps part 1 PARTIAL — failed:$FAILED"; exit 3; fi
 echo "RESULT: deps part 1 OK"
+
+# ---------------------------------------------------------------- meson
+# pixman / cairo / fontconfig are meson projects. One generated cross file.
+SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+export PKG_CONFIG_PATH="$SYSROOT/lib/pkgconfig"
+export PKG_CONFIG_LIBDIR="$SYSROOT/lib/pkgconfig"
+
+cat > "$WORK/meson-ios-cross.txt" <<EOF2
+[binaries]
+c = 'clang'
+cpp = 'clang++'
+objc = 'clang'
+objcpp = 'clang++'
+ar = 'ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[properties]
+needs_exe_wrapper = true
+
+[built-in options]
+c_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+cpp_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+c_link_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+cpp_link_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+objc_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+objcpp_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+objc_link_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+objcpp_link_args = ['-arch', 'arm64', '-target', 'arm64-apple-ios16.0', '-isysroot', '$SDK_PATH']
+
+[host_machine]
+system = 'darwin'
+cpu_family = 'aarch64'
+cpu = 'arm64'
+endian = 'little'
+EOF2
+
+fetch_tar() { # $1 url, $2 dest dir name
+    local url="$1" name="$2"
+    if [ ! -d "$SRC/$name" ]; then
+        log "fetch $url"
+        ( cd "$WORK" && curl -sL "$url" -o "$name.tar" && mkdir -p "$SRC/$name" && tar -xf "$name.tar" -C "$SRC/$name" --strip-components=1 ) >> "$LOG" 2>&1
+    fi
+}
+
+build_meson() { # $1 srcdir, rest: options
+    local dir="$1"; shift
+    log "meson build $dir $*"
+    rm -rf "$dir/build-ios"
+    meson setup "$dir/build-ios" "$dir" --cross-file "$WORK/meson-ios-cross.txt" \
+        --prefix "$SYSROOT" --libdir lib --buildtype release -Ddefault_library=static "$@" >> "$LOG" 2>&1
+    meson compile -C "$dir/build-ios" >> "$LOG" 2>&1
+    meson install -C "$dir/build-ios" >> "$LOG" 2>&1
+}
+
+command -v meson >/dev/null || pip3 install --quiet meson
+
+fetch_tar https://www.cairographics.org/releases/pixman-0.44.2.tar.gz pixman
+build_meson "$SRC/pixman" -Dtests=disabled -Ddemos=disabled -Dgtk=disabled; mark pixman-meson
+
+fetch_tar https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.xz fontconfig
+build_meson "$SRC/fontconfig" -Dtools=disabled -Dtests=disabled -Ddoc=disabled -Dcache-build=disabled; mark fontconfig-meson
+
+fetch_tar https://www.cairographics.org/releases/cairo-1.18.2.tar.xz cairo
+build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Ddocumentation=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled; mark cairo-meson
+
+probe "fontconfig/fontconfig.h" "cairo/cairo.h" "pixman-1/pixman.h"
+echo "RESULT: iOS dependency sysroot stage complete (cmake set + meson set), failed:$FAILED"
