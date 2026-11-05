@@ -218,3 +218,15 @@ Each modified upstream file also carries an in-file notice of the form:
   (QOpenGLContext/QOpenGLWidget) and works with a GLES context. The
   stages additionally shim `<GL/gl.h>` to the OpenGLES ES3 headers for
   the wx/KiCad compiles (stage-level include dir, no source change).
+
+### KiCad patch 0011 — kiplatform-no-os-unix-on-ios
+- **File:** `libs/kiplatform/CMakeLists.txt`
+- **Change:** The `os/unix` branch is skipped when `CMAKE_SYSTEM_NAME`
+  is iOS (one condition plus an in-file notice).
+- **Why:** CMake reports iOS as `UNIX`, so the iOS configure took the
+  Linux branch, which hard-requires libsecret-1 and Poppler (GNOME /
+  Linux printing facilities that do not exist on iOS) and would compile
+  the Linux OS sources. Together with patch 0007 (which skips the macOS
+  branch), iOS now selects no OS source set; the link catalogue will
+  enumerate exactly which `KIPLATFORM` OS functions need iOS
+  implementations under `os/ios/`.
