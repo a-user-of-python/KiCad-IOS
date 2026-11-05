@@ -138,7 +138,7 @@ echo "AppKit remaining in sysroot metadata: $(grep -rl 'AppKit' "$SYSROOT/lib" "
 QT_PCRE2="$(find "$WORK/Qt" -name 'libQtBundledPcre2*.a' 2>/dev/null | head -1)"
 echo "Qt bundled pcre2: ${QT_PCRE2:-NOT FOUND}"
 IOS_FW="-framework CoreFoundation -framework Foundation -framework UIKit -framework Metal -framework IOKit -framework CoreGraphics -framework CoreText -framework CoreServices -framework UniformTypeIdentifiers"
-IOS_EXTRA_LIBS="-lpng16 $QT_PCRE2"
+IOS_EXTRA_LIBS="-lpng16 -lpcre2-16 $QT_PCRE2"
 
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
