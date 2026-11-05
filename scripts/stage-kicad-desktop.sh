@@ -60,6 +60,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DNGSPICE_INCLUDE_PATH="$NGH/include" \
     -DNGSPICE_LIBRARY_PATH="$NGH/lib" \
     -DNGSPICE_LIB_NAME=ngspice \
+    -DPYTHON_FRAMEWORK="$(ls -d "$(brew --prefix)"/opt/python@3.*/Frameworks/Python.framework 2>/dev/null | sort -V | tail -1)" \
     -DPYTHON_LIBRARY="$(ls "$(brew --prefix)"/opt/python@3.*/Frameworks/Python.framework/Versions/3.*/lib/libpython3.*.dylib 2>/dev/null | sort -V | tail -1)" \
     -DPYTHON_INCLUDE_DIR="$(ls -d "$(brew --prefix)"/opt/python@3.*/Frameworks/Python.framework/Versions/3.*/include/python3.* 2>/dev/null | sort -V | tail -1)" \
     -DOCC_INCLUDE_DIR="$(brew --prefix opencascade)/include/opencascade" \
