@@ -143,26 +143,38 @@ fetch_tar() { # $1 url, $2 dest dir name
     fi
 }
 
-build_meson() { # $1 srcdir, rest: options
+build_meson() { # $1 srcdir, rest: options; returns nonzero on any step failure
     local dir="$1"; shift
     log "meson build $dir $*"
     rm -rf "$dir/build-ios"
     meson setup "$dir/build-ios" "$dir" --cross-file "$WORK/meson-ios-cross.txt" \
-        --prefix "$SYSROOT" --libdir lib --buildtype release -Ddefault_library=static "$@" >> "$LOG" 2>&1
-    meson compile -C "$dir/build-ios" >> "$LOG" 2>&1
-    meson install -C "$dir/build-ios" >> "$LOG" 2>&1
+        --prefix "$SYSROOT" --libdir lib --buildtype release -Ddefault_library=static "$@" >> "$LOG" 2>&1 || return 1
+    meson compile -C "$dir/build-ios" >> "$LOG" 2>&1 || return 1
+    meson install -C "$dir/build-ios" >> "$LOG" 2>&1 || return 1
 }
 
-command -v meson >/dev/null || pip3 install --quiet meson
+# pip's script dir is not reliably on PATH in the CI shell (a previous run
+# silently lost the whole meson section to "meson: command not found",
+# masked by undefined mark/probe helpers). Invoke meson as a module.
+pip3 install --quiet --break-system-packages meson || pip3 install --quiet meson
+meson() { python3 -m mesonbuild.mesonmain "$@"; }
+meson --version >> "$LOG" 2>&1 || { echo "RESULT: meson unavailable"; exit 3; }
+
+probe() { # headers that must exist in the sysroot afterwards
+    local h
+    for h in "$@"; do
+        [ -f "$SYSROOT/include/$h" ] || FAILED="$FAILED probe:$h"
+    done
+}
 
 fetch_tar https://www.cairographics.org/releases/pixman-0.44.2.tar.gz pixman
-build_meson "$SRC/pixman" -Dtests=disabled -Ddemos=disabled -Dgtk=disabled; mark pixman-meson
+build_meson "$SRC/pixman" -Dtests=disabled -Ddemos=disabled -Dgtk=disabled || FAILED="$FAILED pixman-meson"
 
 fetch_tar https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.xz fontconfig
-build_meson "$SRC/fontconfig" -Dtools=disabled -Dtests=disabled -Ddoc=disabled -Dcache-build=disabled; mark fontconfig-meson
+build_meson "$SRC/fontconfig" -Dtools=disabled -Dtests=disabled -Ddoc=disabled -Dcache-build=disabled || FAILED="$FAILED fontconfig-meson"
 
 fetch_tar https://www.cairographics.org/releases/cairo-1.18.2.tar.xz cairo
-build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Ddocumentation=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled; mark cairo-meson
+build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Ddocumentation=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled || FAILED="$FAILED cairo-meson"
 
 # Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
 # build time); it rides inside the sysroot artifact under host-tools/.
@@ -173,3 +185,4 @@ fi
 
 probe "fontconfig/fontconfig.h" "cairo/cairo.h" "pixman-1/pixman.h"
 echo "RESULT: iOS dependency sysroot stage complete (cmake set + meson set), failed:$FAILED"
+if [ -n "$FAILED" ]; then echo "RESULT: deps FAILED:$FAILED"; exit 3; fi
