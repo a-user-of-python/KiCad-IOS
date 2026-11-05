@@ -1,0 +1,25 @@
+# KiCad-IOS port patch 0002 (wxWidgets v3.3.4, wxWindows licence)
+# Do not include <Carbon/Carbon.h> (or declare the legacy Carbon helpers)
+# under wxQt: Carbon does not exist in the iOS SDK, and the helpers'
+# implementations are wxOSX GUI sources that wxQt never builds. Without
+# this, wxBase's CoreFoundation sources fail to compile for iOS.
+# Apply with: patch -p1 (from the wx source root). See MODIFICATIONS.md.
+#
+diff --git a/include/wx/osx/core/private.h b/include/wx/osx/core/private.h
+--- a/include/wx/osx/core/private.h
++++ b/include/wx/osx/core/private.h
+@@ -39,7 +39,13 @@
+ #   endif
+ #endif
+ 
+-#if ( !wxUSE_GUI && !defined(__WXOSX_IPHONE__) ) || defined(__WXOSX_COCOA__)
++// [KiCad-IOS port] Modified 2026-11-04: under wxQt the legacy Carbon
++// helpers declared below are never compiled (their implementations live
++// in the wxOSX GUI sources, which wxQt does not build), and Carbon does
++// not exist in the iOS SDK at all, so including <Carbon/Carbon.h> makes
++// the wxBase CoreFoundation sources unbuildable for iOS. Skip the whole
++// block for the Qt port. Change recorded in KiCad-IOS MODIFICATIONS.md.
++#if ( ( !wxUSE_GUI && !defined(__WXOSX_IPHONE__) ) || defined(__WXOSX_COCOA__) ) && !defined(__WXQT__)
+ 
+ // Carbon functions are currently still used in wxOSX/Cocoa too (including
+ // wxBase part of it).
