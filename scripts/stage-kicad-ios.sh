@@ -117,7 +117,14 @@ for f in "$SYSROOT/lib/cmake/CURL/CURLConfig.cmake" \
     [ -f "$f" ] && sed -i '' -e 's/idn2//g' -e 's/socket//g' "$f"
 done
 [ -f "$SYSROOT/bin/wx-config" ] && sed -i '' 's/-framework AppKit//g' "$SYSROOT/bin/wx-config"
-grep -o 'framework AppKit' "$SYSROOT/bin/wx-config" | head -1 || true
+# AppKit also rides in wx's CMake config package (lib/cmake/wxWidgets/*),
+# which CMake's find_package prefers over the FindwxWidgets module.
+# Scrub the token from every sysroot metadata file that carries it.
+grep -rl 'AppKit' "$SYSROOT/lib" "$SYSROOT/bin" 2>/dev/null | while read -r f; do
+    echo "scrubbing AppKit from $f"
+    sed -i '' 's/-framework AppKit//g; s/AppKit//g' "$f"
+done
+echo "AppKit remaining in sysroot metadata: $(grep -rl 'AppKit' "$SYSROOT/lib" "$SYSROOT/bin" 2>/dev/null | wc -l)"
 
 # PYTHON_FRAMEWORK: kicad/CMakeLists.txt uses it unquoted in
 # set_target_properties(BUILD_RPATH) and KiCad only sets it for its own
