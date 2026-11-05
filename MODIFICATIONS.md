@@ -335,3 +335,12 @@ Each modified upstream file also carries an in-file notice of the form:
   (nsvg__colors, nsvg__parseXML) collide in the same links. Hidden
   visibility makes KiCad's copy link-local while staying resolvable
   inside each static link. (CI run 42075801437.)
+
+- `patches/kicad/0018-kicad-exe-qt-plugin-items.patch` — kicad
+  executable only: apply the stage-provided KICAD_IOS_PLUGIN_ITEMS
+  link options (Qt static plugin import object + force-loaded
+  libqios + image-format plugin archives + their frameworks). Qt for
+  iOS is fully static, so the plugins register only if the host
+  executable imports them; scoping this to the manager executable
+  keeps build tools (lemon) and standalone utilities out of the Qt
+  plugin closure. (CI run 42086627018.)
