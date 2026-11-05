@@ -1,0 +1,16 @@
+--- a/thirdparty/nanosvg/CMakeLists.txt
++++ b/thirdparty/nanosvg/CMakeLists.txt
+@@ -4,6 +4,13 @@
+ 
+ add_library(nanosvg STATIC ${NANOSVG_SRCS})
+ 
++# [KiCad-IOS port] wxWidgets bundles its own nanosvg copy (bmpsvg).
++# With a static wx (iOS), the two copies' global symbols collide in
++# the kiface links. Hidden visibility makes this copy link-local
++# (private extern): still resolvable inside each static link, never
++# exported dynamically, and no longer a duplicate.
++target_compile_options(nanosvg PRIVATE -fvisibility=hidden)
++
+ target_include_directories( nanosvg
+     PUBLIC
+     ${CMAKE_CURRENT_SOURCE_DIR}
