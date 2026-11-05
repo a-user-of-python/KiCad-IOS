@@ -23,6 +23,8 @@ WX_FORK_BRANCH="v3.3.4"
 WORK="${WORK:-$PWD/work}"
 SYSROOT="$WORK/sysroot-ios"
 export SYSROOT
+LOG="${LOG:-$WORK/logs/stage-detail.log}"
+mkdir -p "$WORK/logs" "$SYSROOT"
 SRC="$WORK/src"
 QT_ROOT="$WORK/Qt"
 mkdir -p "$SRC" "$WORK/logs"
