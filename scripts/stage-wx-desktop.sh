@@ -9,6 +9,7 @@ source scripts/ci-common.sh
 
 install_qt desktop
 fetch_wx
+apply_patches "$SRC/wx" wx
 
 QT_DESKTOP=""
 for d in "$QT_ROOT/$QT_VERSION/macos" "$QT_ROOT/$QT_VERSION/clang_64"; do
