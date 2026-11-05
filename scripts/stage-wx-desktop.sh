@@ -36,7 +36,7 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxBUILD_TESTS=OFF \
     -DwxBUILD_DEMOS=OFF \
     -DwxUSE_WEBVIEW=ON \
-    -DwxUSE_JOYSTICK=OFF \
+    -DwxUSE_JOYSTICK=OFF -DwxUSE_MIMETYPE=OFF \
     -DCMAKE_PREFIX_PATH="$QT_DESKTOP" \
     -DCMAKE_C_FLAGS="-I$WORK/glshim" \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim" \
