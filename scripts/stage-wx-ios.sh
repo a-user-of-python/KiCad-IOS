@@ -37,6 +37,8 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
 CFG_RC=${PIPESTATUS[0]}
 set +x
 echo "WX_IOS_CONFIGURE_RC=$CFG_RC"
+echo "--- generated wx setup.h feature values (diagnostic) ---"
+grep -h 'define wxUSE_MENUS\|define wxUSE_MENUBAR\|define wxUSE_WEBVIEW' "$WORK"/build-wx-ios/lib/wx/include/*/wx/setup.h | sort -u || true
 if [ "$CFG_RC" != "0" ]; then
     echo "RESULT: wx iOS CMake configure FAILED (see log)"; exit 2
 fi
