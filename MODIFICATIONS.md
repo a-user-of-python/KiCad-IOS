@@ -82,3 +82,16 @@ Each modified upstream file also carries an in-file notice of the form:
    wxQt), so no `libwx_*_webview` exists and the required-component check
    can never pass (minimal repro in the spike report). In-file notice
    included in the patch.
+
+2. **`include/widgets/webview_panel.h`, `common/widgets/webview_panel.cpp`,
+   `kicad/dialogs/dialog_template_selector.{h,cpp}`,
+   `eeschema/widgets/panel_remote_symbol.{h,cpp}`** — 2026-11-04 —
+   `patches/kicad/0002-webview-conditional.patch`.
+   Make WEBVIEW_PANEL and its consumers conditional on `wxUSE_WEBVIEW`.
+   wxQt has no wxWebView backend, so the types do not exist; upstream
+   uses them unconditionally (this was the *only* KiCad-code error class
+   in the desktop wxQt compile catalogue: ~100 diagnostics, one root
+   cause). Without a backend, a stub panel with the same public API
+   (minus `GetWebView()`) degrades template previews, PCM package pages
+   and eeschema remote-symbol providers to a placeholder. In-file notice
+   in webview_panel.h.
