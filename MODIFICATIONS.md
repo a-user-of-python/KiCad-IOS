@@ -293,3 +293,32 @@ Each modified upstream file also carries an in-file notice of the form:
   registered, which is how KiCad configures it). Self-intersections
   are computed inside libtess2's sweep, so COMBINE_DATA is accepted
   but never invoked. KiCad sources are untouched.
+
+- `patches/kicad/0014-findocc-tkvcaf-static.patch` — FindOCC: add TKVCAF
+  to the searched OCC toolkits. The OCE 3D plugin uses TPrsStd drivers;
+  with a shared OCC they resolve transitively, with the static iOS OCC
+  they must be named. (Found in CI run 42065865033: 4 undefined
+  TPrsStd_* symbols in libs3d_plugin_oce.so.)
+- `patches/kicad/0015-wxfilename-includes.patch` — add the missing
+  `<wx/filename.h>` include to pagelayout_editor's design_inspector.cpp
+  and gerbview's dialog_draw_layers_settings.cpp. Both use wxFileName;
+  wxMac/wxGTK headers provide it transitively, wxQt does not. (CI run
+  42065865033.)
+- Correction to patch 0013: the iOS `PRINTING::PrintPDF` definition
+  originally carried a second `bool fit_to_page` parameter that the
+  KiCad 10.0.1 header does not declare (it came from a newer KiCad's
+  macOS implementation); the definition now matches the header exactly.
+  (CI run 42065865033: undefined PrintPDF in _eeschema.kiface.)
+- GLU adapter extended: `glu/glu_quadric_adapter.c` implements the GLU
+  quadric subset KiCad's 3D viewer uses (gluNewQuadric/gluDeleteQuadric/
+  gluQuadricNormals/gluQuadricDrawStyle/gluSphere/gluCylinder/gluDisk/
+  gluPartialDisk) plus gluPerspective, emitted as triangles through
+  KiCad's own glad pointers with a null-guard (no legacy GL entry
+  points exist under OpenGL ES, so the calls no-op there rather than
+  crash). Same licence and disclosure terms as the tessellator adapter.
+- Build-flag note: the iOS stage defines NANODBC_USE_IODBC_WIDE_STRINGS
+  globally. Bundled nanodbc's CMake sets it directory-locally (iODBC
+  only), so on iOS the library was compiled with the wide-string API
+  while KiCad's consumers were not — eeschema referenced u16string
+  nanodbc overloads the library does not provide. A global define makes
+  the API uniform. No source change. (CI run 42065865033.)
