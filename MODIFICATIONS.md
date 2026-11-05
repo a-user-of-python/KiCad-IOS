@@ -123,3 +123,13 @@ Each modified upstream file also carries an in-file notice of the form:
    port builds wx with wxUSE_MIMETYPE=OFF. Without it the function
    takes its existing "Unknown MIME type" path; PDFs (OpenPDF) are
    unaffected. In-file notice included in the patch.
+
+6. **`libs/kiplatform/CMakeLists.txt`, `libs/kiplatform/port/wxqt/ui.cpp`
+   (new), `libs/kiplatform/port/wxqt/webview.cpp` (new)** — 2026-11-04 —
+   `patches/kicad/0006-kiplatform-wxqt-port.patch`.
+   kiplatform had no `qt` branch, so no KIPLATFORM::UI/WEBVIEW
+   implementation was built for wxQt and libkicommon failed to link
+   (the last error class in the desktop catalogue). Adds a wx-generic
+   Qt-backed port implementation; macOS/GTK-only workarounds are
+   no-ops, cookie functions report failure (no wxWebView backend).
+   In-file notices included in the patch.
