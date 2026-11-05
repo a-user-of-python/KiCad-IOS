@@ -16,7 +16,7 @@ fetch_kicad
 apply_patches "$SRC/kicad" kicad
 
 log "installing KiCad desktop build deps (brew)"
-brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 libmagic 2>&1 | tail -3
+brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 libmagic unixodbc 2>&1 | tail -3
 
 # brew's ngspice ships no libngspice (KiCad's Findngspice fails with
 # "NGSPICE library missing"); build it from the pinned source, the same
