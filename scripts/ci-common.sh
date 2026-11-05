@@ -49,6 +49,16 @@ fetch_wx() {
     grep -E "wxMAJOR_VERSION|wxMINOR_VERSION|wxRELEASE_NUMBER" "$SRC/wx/include/wx/version.h" | head -3 || true
 }
 
+apply_patches() {
+    # $1 = source dir, $2 = patch group dir under patches/
+    local dir="$1" group="$2" pf
+    for pf in "$PWD/patches/$group"/*.patch; do
+        [ -e "$pf" ] || continue
+        log "applying patch $pf to $dir"
+        ( cd "$dir" && patch -p1 --forward < "$pf" ) || { echo "PATCH FAILED: $pf"; return 1; }
+    done
+}
+
 install_qt() {
     # $1: kits to install: "desktop", "ios", or "both"
     python3 -m pip install --quiet --break-system-packages aqtinstall || python3 -m pip install --quiet aqtinstall
