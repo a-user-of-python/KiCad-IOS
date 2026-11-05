@@ -1,13 +1,14 @@
 # KiCad-IOS port patch 0003 (wxWidgets v3.3.4, wxWindows licence)
 # wx/osx/private.h: give wxQt its own branch so the header dispatch does
 # not fall through to <ApplicationServices/ApplicationServices.h>, which
-# does not exist in the iOS SDK. Apply with: patch -p1 (wx source root).
-# See MODIFICATIONS.md.
+# does not exist in the iOS SDK; import Foundation for Objective-C
+# sources, which is all the wxBase CoreFoundation files need. Apply
+# with: patch -p1 (wx source root). See MODIFICATIONS.md.
 #
 diff --git a/include/wx/osx/private.h b/include/wx/osx/private.h
 --- a/include/wx/osx/private.h
 +++ b/include/wx/osx/private.h
-@@ -5,6 +5,13 @@
+@@ -5,6 +5,18 @@
  
  #ifdef __WXOSX_IPHONE__
      #include "wx/osx/iphone/private.h"
@@ -17,7 +18,12 @@ diff --git a/include/wx/osx/private.h b/include/wx/osx/private.h
 +    // includes <ApplicationServices/ApplicationServices.h>, which does
 +    // not exist in the iOS SDK. wx/osx/core/private.h (included above)
 +    // is all the wxBase CoreFoundation sources need; Qt provides the
-+    // platform layer. Change recorded in KiCad-IOS MODIFICATIONS.md.
++    // platform layer; the wxBase CoreFoundation sources only need
++    // Foundation, which exists on iOS. Change recorded in KiCad-IOS
++    // MODIFICATIONS.md.
++    #ifdef __OBJC__
++        #import <Foundation/Foundation.h>
++    #endif
  #elif defined(__WXOSX_COCOA__)
      #include "wx/osx/cocoa/private.h"
  #elif wxUSE_GUI && defined(__WXOSX__)
