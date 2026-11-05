@@ -48,6 +48,13 @@ Each modified upstream file also carries an in-file notice of the form:
    `<ApplicationServices/ApplicationServices.h>` — absent from the iOS
    SDK (CI run 41944760546). In-file notice included in the patch.
 
+4. **`src/osx/cocoa/utils_base.mm`** — 2026-11-04 —
+   `patches/wx/0004-nsprocessinfo-for-wxqt.patch`.
+   Extend the `wxHAS_NSPROCESSINFO` gate to `__WXQT__` so
+   `wxGetOsVersion` uses `NSProcessInfo.operatingSystemVersion` under
+   wxQt instead of falling back to Carbon's `Gestalt()`, which does not
+   exist on iOS (CI run 41946411983). In-file notice included.
+
 ### KiCad 10.0.1
 
 1. **`CMakeLists.txt`** — 2026-11-04 —
