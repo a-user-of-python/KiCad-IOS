@@ -1,0 +1,984 @@
+--- a/libs/kiplatform/CMakeLists.txt
++++ b/libs/kiplatform/CMakeLists.txt
+@@ -37,6 +37,27 @@
+ # iOS build skips them for now; the link catalogue will show exactly
+ # which KIPLATFORM OS functions the editors actually reference, and
+ # those get UIKit/POSIX implementations under os/ios/.
++# [KiCad-IOS port] iOS OS layer (os/ios, patch 0013): KiCad's own
++# Apple/POSIX implementations ported to the APIs iOS provides. The macOS
++# and UNIX branches below already exclude iOS (patches 0007 and 0011).
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    list( APPEND PLATFORM_SRCS
++        os/ios/app.cpp
++        os/ios/drivers.cpp
++        os/ios/environment.mm
++        os/ios/io.cpp
++        os/ios/policy.cpp
++        os/ios/printing.cpp
++        os/ios/secrets.cpp
++        os/ios/sysinfo.cpp
++        )
++
++    list( APPEND PLATFORM_LIBS
++        "-framework Security"
++        "-framework CFNetwork"
++        )
++endif()
++
+ if( APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS" )
+     list( APPEND PLATFORM_SRCS
+         os/apple/app.mm
+--- a/libs/kiplatform/os/ios/app.cpp
++++ b/libs/kiplatform/os/ios/app.cpp
+@@ -0,0 +1,96 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <kiplatform/app.h>
++
++#include <wx/string.h>
++
++
++bool KIPLATFORM::APP::Init()
++{
++    return true;
++}
++
++
++void KIPLATFORM::APP::EnableDarkMode( bool aForce )
++{
++}
++
++
++bool KIPLATFORM::APP::AttachConsole( bool aTryAlloc )
++{
++    // Not implemented on this platform
++    return true;
++}
++
++
++bool KIPLATFORM::APP::IsOperatingSystemUnsupported()
++{
++    // Not implemented on this platform
++    return false;
++}
++
++
++bool KIPLATFORM::APP::RegisterApplicationRestart( const wxString& aCommandLine )
++{
++    // Not implemented on this platform
++    return true;
++}
++
++
++bool KIPLATFORM::APP::UnregisterApplicationRestart()
++{
++    // Not implemented on this platform
++    return true;
++}
++
++
++bool KIPLATFORM::APP::SupportsShutdownBlockReason()
++{
++    return false;
++}
++
++
++void KIPLATFORM::APP::RemoveShutdownBlockReason( wxWindow* aWindow )
++{
++}
++
++
++void KIPLATFORM::APP::SetShutdownBlockReason( wxWindow* aWindow, const wxString& aReason )
++{
++}
++
++
++void KIPLATFORM::APP::ForceTimerMessagesToBeCreatedIfNecessary()
++{
++}
++
++
++void KIPLATFORM::APP::AddDynamicLibrarySearchPath( const wxString& aPath )
++{
++    // iOS apps cannot extend the dynamic library search path at runtime;
++    // all libraries ship inside the signed app bundle. Same behaviour as
++    // the (empty) macOS implementation.
++}
+--- a/libs/kiplatform/os/ios/drivers.cpp
++++ b/libs/kiplatform/os/ios/drivers.cpp
+@@ -0,0 +1,33 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <kiplatform/drivers.h>
++
++
++bool KIPLATFORM::DRIVERS::Valid3DConnexionDriverVersion()
++{
++    // 3Dconnexion devices/drivers do not exist on iOS.
++    return false;
++}
+--- a/libs/kiplatform/os/ios/environment.mm
++++ b/libs/kiplatform/os/ios/environment.mm
+@@ -0,0 +1,354 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <kiplatform/environment.h>
++
++#include <vector>
++
++#include <wx/filefn.h>
++#include <wx/stdpaths.h>
++#include <wx/string.h>
++
++#import <Foundation/Foundation.h>
++#include <CFNetwork/CFNetwork.h>
++#include <CoreFoundation/CoreFoundation.h>
++
++
++namespace
++{
++
++// wxCFStringRef (used by the macOS implementation) is a wxOSX-only
++// helper; these two conversions replace it under wxQt.
++wxString wxStringFromCF( CFStringRef aStr )
++{
++    if( !aStr )
++        return wxEmptyString;
++
++    CFIndex length = CFStringGetLength( aStr );
++    CFIndex maxSize = CFStringGetMaximumSizeForEncoding( length, kCFStringEncodingUTF8 ) + 1;
++    std::vector<char> buffer( maxSize );
++
++    if( CFStringGetCString( aStr, buffer.data(), maxSize, kCFStringEncodingUTF8 ) )
++        return wxString::FromUTF8( buffer.data() );
++
++    return wxEmptyString;
++}
++
++
++CFStringRef CFStringFromWx( const wxString& aStr )
++{
++    wxScopedCharBuffer utf8 = aStr.utf8_str();
++    return CFStringCreateWithCString( nullptr, utf8.data(), kCFStringEncodingUTF8 );
++}
++
++
++// Helper to extract proxy config from a resolved proxy dictionary.
++// Ported from the macOS implementation (os/apple/environment.mm);
++// CFNetwork proxy dictionaries have the same keys on iOS.
++bool extractProxyFromDict( CFDictionaryRef aProxy, KIPLATFORM::ENV::PROXY_CONFIG& aCfg )
++{
++    CFStringRef proxyType = (CFStringRef) CFDictionaryGetValue( aProxy, kCFProxyTypeKey );
++
++    if( !proxyType )
++        return false;
++
++    // Skip direct connections
++    if( CFEqual( proxyType, kCFProxyTypeNone ) )
++        return false;
++
++    // Get proxy host
++    CFStringRef host = (CFStringRef) CFDictionaryGetValue( aProxy, kCFProxyHostNameKey );
++
++    if( !host )
++        return false;
++
++    // Clear any stale data from previous lookups
++    aCfg.host.clear();
++    aCfg.username.clear();
++    aCfg.password.clear();
++
++    // Determine scheme based on proxy type
++    wxString scheme;
++
++    if( CFEqual( proxyType, kCFProxyTypeHTTP ) )
++        scheme = wxT( "http" );
++    else if( CFEqual( proxyType, kCFProxyTypeHTTPS ) )
++        scheme = wxT( "https" );
++    else if( CFEqual( proxyType, kCFProxyTypeSOCKS ) )
++        scheme = wxT( "socks5" );
++
++    // Build scheme://host:port string
++    if( !scheme.IsEmpty() )
++        aCfg.host = scheme + wxT( "://" );
++
++    wxString hostStr = wxStringFromCF( host );
++
++    // Get port if present
++    CFNumberRef port = (CFNumberRef) CFDictionaryGetValue( aProxy, kCFProxyPortNumberKey );
++    int         portNum = 0;
++
++    if( port )
++        CFNumberGetValue( port, kCFNumberIntType, &portNum );
++
++    // Bracket IPv6 addresses when port will be appended
++    bool isIPv6 = hostStr.Contains( wxT( ":" ) );
++
++    if( isIPv6 && portNum > 0 )
++        aCfg.host += wxT( "[" ) + hostStr + wxT( "]" );
++    else
++        aCfg.host += hostStr;
++
++    if( portNum > 0 )
++        aCfg.host += wxString::Format( wxT( ":%d" ), portNum );
++
++    // Get credentials if present
++    CFStringRef username = (CFStringRef) CFDictionaryGetValue( aProxy, kCFProxyUsernameKey );
++    CFStringRef password = (CFStringRef) CFDictionaryGetValue( aProxy, kCFProxyPasswordKey );
++
++    if( username )
++        aCfg.username = wxStringFromCF( username );
++
++    if( password )
++        aCfg.password = wxStringFromCF( password );
++
++    return true;
++}
++
++
++// Evaluate a PAC script and extract proxy configuration.
++// Ported from the macOS implementation; NSURLSession and
++// CFNetworkCopyProxiesForAutoConfigurationScript both exist on iOS.
++bool evaluatePACScript( CFURLRef aPacUrl, CFURLRef aTargetUrl, KIPLATFORM::ENV::PROXY_CONFIG& aCfg )
++{
++    // Synchronously fetch the PAC script
++    NSURLRequest* request = [NSURLRequest requestWithURL:(__bridge NSURL*) aPacUrl
++                                             cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
++                                         timeoutInterval:10.0];
++
++    __block NSData*  scriptData = nil;
++    __block NSError* fetchError = nil;
++
++    dispatch_semaphore_t semaphore = dispatch_semaphore_create( 0 );
++
++    NSURLSessionDataTask* task =
++            [[NSURLSession sharedSession] dataTaskWithRequest:request
++                                            completionHandler:^( NSData* data, NSURLResponse* response,
++                                                                 NSError* error ) {
++                                                scriptData = data;
++                                                fetchError = error;
++                                                dispatch_semaphore_signal( semaphore );
++                                            }];
++
++    [task resume];
++    dispatch_semaphore_wait( semaphore, dispatch_time( DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC ) );
++
++    if( fetchError || !scriptData )
++        return false;
++
++    NSString* scriptString = [[NSString alloc] initWithData:scriptData encoding:NSUTF8StringEncoding];
++
++    if( !scriptString )
++        return false;
++
++    CFErrorRef  error = nullptr;
++    CFArrayRef  pacProxies = CFNetworkCopyProxiesForAutoConfigurationScript(
++            (__bridge CFStringRef) scriptString, aTargetUrl, &error );
++
++    if( error )
++    {
++        CFRelease( error );
++        return false;
++    }
++
++    if( !pacProxies )
++        return false;
++
++    bool success = false;
++
++    for( CFIndex i = 0; i < CFArrayGetCount( pacProxies ) && !success; i++ )
++    {
++        CFDictionaryRef proxy = (CFDictionaryRef) CFArrayGetValueAtIndex( pacProxies, i );
++        success = extractProxyFromDict( proxy, aCfg );
++    }
++
++    CFRelease( pacProxies );
++
++    return success;
++}
++
++} // anonymous namespace
++
++
++void KIPLATFORM::ENV::Init()
++{
++    // No tasks for this platform (the macOS implementation only disables
++    // AppKit window tabbing, which does not exist on iOS).
++}
++
++
++bool KIPLATFORM::ENV::MoveToTrash( const wxString& aPath, wxString& aError )
++{
++    // iOS has no Trash / Recently Deleted location exposed to apps
++    // (NSFileManager has no trashItemAtURL on iOS). Report the platform
++    // gap honestly; KiCad's callers fall back to permanent deletion.
++    aError = wxT( "Moving files to the trash is not supported on iOS" );
++    return false;
++}
++
++
++bool KIPLATFORM::ENV::IsNetworkPath( const wxString& aPath )
++{
++    // placeholder, we "nerf" behavior if its a network path so return false by default
++    return false;
++}
++
++
++wxString KIPLATFORM::ENV::GetDocumentsPath()
++{
++    return wxStandardPaths::Get().GetDocumentsDir();
++}
++
++
++wxString KIPLATFORM::ENV::GetUserConfigPath()
++{
++    return wxStandardPaths::Get().GetUserConfigDir();
++}
++
++
++wxString KIPLATFORM::ENV::GetUserDataPath()
++{
++    return wxStandardPaths::Get().GetUserDataDir();
++}
++
++
++wxString KIPLATFORM::ENV::GetUserLocalDataPath()
++{
++    return wxStandardPaths::Get().GetUserLocalDataDir();
++}
++
++
++wxString KIPLATFORM::ENV::GetUserCachePath()
++{
++    NSURL* url = [[NSFileManager defaultManager] URLForDirectory:NSCachesDirectory
++                                                 inDomain:NSUserDomainMask
++                                                 appropriateForURL:nil
++                                                 create:NO error:nil];
++
++    return wxString::FromUTF8( [url.path UTF8String] );
++}
++
++
++bool KIPLATFORM::ENV::GetSystemProxyConfig( const wxString& aURL, PROXY_CONFIG& aCfg )
++{
++    // CFNetworkCopySystemProxySettings + CFNetworkCopyProxiesForURL are
++    // available on iOS (unlike the macOS-only SCDynamicStore API, which
++    // this implementation does not use).
++    CFStringRef urlStr = CFStringFromWx( aURL );
++
++    if( !urlStr )
++        return false;
++
++    CFURLRef url = CFURLCreateWithString( kCFAllocatorDefault, urlStr, nullptr );
++    CFRelease( urlStr );
++
++    if( !url )
++        return false;
++
++    CFDictionaryRef proxySettings = CFNetworkCopySystemProxySettings();
++
++    if( !proxySettings )
++    {
++        CFRelease( url );
++        return false;
++    }
++
++    CFArrayRef proxies = CFNetworkCopyProxiesForURL( url, proxySettings );
++    CFRelease( proxySettings );
++
++    if( !proxies )
++    {
++        CFRelease( url );
++        return false;
++    }
++
++    bool success = false;
++
++    for( CFIndex i = 0; i < CFArrayGetCount( proxies ) && !success; i++ )
++    {
++        CFDictionaryRef proxy = (CFDictionaryRef) CFArrayGetValueAtIndex( proxies, i );
++        CFStringRef     proxyType = (CFStringRef) CFDictionaryGetValue( proxy, kCFProxyTypeKey );
++
++        if( !proxyType )
++            continue;
++
++        // Handle PAC (Proxy Auto-Configuration) URLs
++        if( CFEqual( proxyType, kCFProxyTypeAutoConfigurationURL ) )
++        {
++            CFURLRef pacUrl = (CFURLRef) CFDictionaryGetValue( proxy,
++                                                               kCFProxyAutoConfigurationURLKey );
++
++            if( pacUrl )
++                success = evaluatePACScript( pacUrl, url, aCfg );
++
++            continue;
++        }
++
++        success = extractProxyFromDict( proxy, aCfg );
++    }
++
++    CFRelease( proxies );
++    CFRelease( url );
++
++    return success;
++}
++
++
++bool KIPLATFORM::ENV::VerifyFileSignature( const wxString& aPath )
++{
++    return true;
++}
++
++
++wxString KIPLATFORM::ENV::GetAppUserModelId()
++{
++    return wxEmptyString;
++}
++
++
++void KIPLATFORM::ENV::SetAppDetailsForWindow( wxWindow* aWindow, const wxString& aRelaunchCommand,
++                                              const wxString& aRelaunchDisplayName )
++{
++}
++
++
++wxString KIPLATFORM::ENV::GetCommandLineStr()
++{
++    return wxEmptyString;
++}
++
++
++void KIPLATFORM::ENV::AddToRecentDocs( const wxString& aPath )
++{
++}
+--- a/libs/kiplatform/os/ios/io.cpp
++++ b/libs/kiplatform/os/ios/io.cpp
+@@ -0,0 +1,203 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <kiplatform/io.h>
++
++#include <wx/crt.h>
++#include <wx/string.h>
++#include <wx/filename.h>
++
++#include <climits>
++#include <cstdint>
++#include <cstring>
++#include <dirent.h>
++#include <fcntl.h>
++#include <fnmatch.h>
++#include <stdexcept>
++#include <string>
++#include <sys/mman.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++
++FILE* KIPLATFORM::IO::SeqFOpen( const wxString& aPath, const wxString& aMode )
++{
++    // Same as the macOS implementation: POSIX fadvise does not exist on
++    // Darwin-family systems, so this is a plain fopen.
++    return wxFopen( aPath, aMode );
++}
++
++
++bool KIPLATFORM::IO::DuplicatePermissions( const wxString& aSrc, const wxString& aDest )
++{
++    struct stat sourceStat;
++
++    if( stat( aSrc.fn_str(), &sourceStat ) == 0 )
++    {
++        mode_t permissions = sourceStat.st_mode & ( S_IRWXU | S_IRWXG | S_IRWXO );
++
++        return chmod( aDest.fn_str(), permissions ) == 0;
++    }
++
++    return false;
++}
++
++
++bool KIPLATFORM::IO::MakeWriteable( const wxString& aFilePath )
++{
++    struct stat fileStat;
++
++    if( stat( aFilePath.fn_str(), &fileStat ) == 0 )
++    {
++        // Add user write permission to existing permissions
++        mode_t newPermissions = fileStat.st_mode | S_IWUSR;
++
++        return chmod( aFilePath.fn_str(), newPermissions ) == 0;
++    }
++
++    return false;
++}
++
++
++bool KIPLATFORM::IO::IsFileHidden( const wxString& aFileName )
++{
++    wxFileName fn( aFileName );
++
++    return fn.GetName().StartsWith( wxT( "." ) );
++}
++
++
++void KIPLATFORM::IO::LongPathAdjustment( wxFileName& aFilename )
++{
++    // no-op
++}
++
++
++long long KIPLATFORM::IO::TimestampDir( const wxString& aDirPath, const wxString& aFilespec )
++{
++    long long timestamp = 0;
++
++    std::string pattern( aFilespec.fn_str() );
++    std::string dir_path( aDirPath.fn_str() );
++
++    DIR* dir = opendir( dir_path.c_str() );
++
++    if( dir )
++    {
++        for( dirent* dir_entry = readdir( dir ); dir_entry; dir_entry = readdir( dir ) )
++        {
++            // FNM_PERIOD skips dotfiles (hidden files), FNM_CASEFOLD for case-insensitive match
++            if( fnmatch( pattern.c_str(), dir_entry->d_name, FNM_CASEFOLD | FNM_PERIOD ) != 0 )
++                continue;
++
++            std::string entry_path = dir_path + '/' + dir_entry->d_name;
++            struct stat entry_stat;
++
++            if( lstat( entry_path.c_str(), &entry_stat ) == 0 )
++            {
++                // Follow symlinks to get the actual file's timestamp
++                if( S_ISLNK( entry_stat.st_mode ) )
++                {
++                    char    buffer[PATH_MAX + 1];
++                    ssize_t pathLen = readlink( entry_path.c_str(), buffer, PATH_MAX );
++
++                    if( pathLen > 0 )
++                    {
++                        struct stat linked_stat;
++                        buffer[pathLen] = '\0';
++                        std::string linked_path = dir_path + '/' + buffer;
++
++                        if( lstat( linked_path.c_str(), &linked_stat ) == 0 )
++                            entry_stat = linked_stat;
++                    }
++                }
++
++                if( S_ISREG( entry_stat.st_mode ) )
++                {
++                    timestamp += entry_stat.st_mtime * 1000;
++                    timestamp += entry_stat.st_size;
++                }
++            }
++            else
++            {
++                // If we couldn't stat the file, use the name hash
++                timestamp += (signed) std::hash<std::string>{}( std::string( dir_entry->d_name ) );
++            }
++        }
++
++        closedir( dir );
++    }
++
++    return timestamp;
++}
++
++
++KIPLATFORM::IO::MAPPED_FILE::MAPPED_FILE( const wxString& aFileName )
++{
++    int fd = open( aFileName.fn_str(), O_RDONLY );
++
++    if( fd < 0 )
++    {
++        throw std::runtime_error( std::string( "Cannot open file: " )
++                                  + aFileName.ToStdString() );
++    }
++
++    struct stat st;
++
++    if( fstat( fd, &st ) != 0 )
++    {
++        close( fd );
++        throw std::runtime_error( std::string( "Cannot stat file: " )
++                                  + aFileName.ToStdString() );
++    }
++
++    m_size = static_cast<size_t>( st.st_size );
++
++    if( m_size == 0 )
++    {
++        close( fd );
++        return;
++    }
++
++    void* ptr = mmap( nullptr, m_size, PROT_READ, MAP_PRIVATE, fd, 0 );
++    close( fd );
++
++    if( ptr == MAP_FAILED )
++    {
++        readIntoBuffer( aFileName );
++        return;
++    }
++
++    madvise( ptr, m_size, MADV_SEQUENTIAL );
++    m_data = static_cast<const uint8_t*>( ptr );
++    m_isMapped = true;
++}
++
++
++KIPLATFORM::IO::MAPPED_FILE::~MAPPED_FILE()
++{
++    if( m_isMapped && m_data )
++        munmap( const_cast<uint8_t*>( m_data ), m_size );
++}
+--- a/libs/kiplatform/os/ios/policy.cpp
++++ b/libs/kiplatform/os/ios/policy.cpp
+@@ -0,0 +1,42 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <kiplatform/policy.h>
++
++#include <wx/string.h>
++
++
++KIPLATFORM::POLICY::PBOOL KIPLATFORM::POLICY::GetPolicyBool( const wxString& aKey )
++{
++    // iOS has no enterprise policy store readable by apps; same answer
++    // as the macOS implementation.
++    return PBOOL::NOT_CONFIGURED;
++}
++
++
++std::uint32_t KIPLATFORM::POLICY::GetPolicyEnumUInt( const wxString& aKey )
++{
++    return 0;
++}
+--- a/libs/kiplatform/os/ios/printing.cpp
++++ b/libs/kiplatform/os/ios/printing.cpp
+@@ -0,0 +1,44 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <printing.h>
++
++
++namespace KIPLATFORM
++{
++namespace PRINTING
++{
++
++PRINT_RESULT PrintPDF( const std::string& aFile, bool fit_to_page )
++{
++    // The macOS implementation drives NSPrintOperation (AppKit/PDFKit).
++    // iOS printing is the asynchronous UIKit UIPrintInteractionController,
++    // which does not fit this synchronous API; report the platform gap
++    // honestly instead of pretending to print.
++    return PRINT_RESULT::UNSUPPORTED;
++}
++
++} // namespace PRINTING
++} // namespace KIPLATFORM
+--- a/libs/kiplatform/os/ios/secrets.cpp
++++ b/libs/kiplatform/os/ios/secrets.cpp
+@@ -0,0 +1,107 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++#include <kiplatform/secrets.h>
++
++#include <Security/Security.h>
++#include <CoreFoundation/CoreFoundation.h>
++
++bool KIPLATFORM::SECRETS::StoreSecret(const wxString& aService, const wxString& aKey, const wxString& aValue)
++{
++    // Store UTF-8 strings in variables to keep them alive during API calls
++    wxScopedCharBuffer utf8Service = aService.utf8_str();
++    wxScopedCharBuffer utf8Key = aKey.utf8_str();
++    wxScopedCharBuffer utf8Value = aValue.utf8_str();
++
++    // Create a query for the secret
++    CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
++    CFDictionarySetValue(query, kSecAttrService, CFStringCreateWithCString(NULL, utf8Service.data(), kCFStringEncodingUTF8));
++    CFDictionarySetValue(query, kSecAttrAccount, CFStringCreateWithCString(NULL, utf8Key.data(), kCFStringEncodingUTF8));
++
++    // Try to find the existing item
++    OSStatus status = SecItemCopyMatching(query, NULL);
++
++    if (status == errSecItemNotFound)
++    {
++        // Add the new secret to the keychain
++        CFDictionarySetValue(query, kSecValueData, CFDataCreate(NULL, (const UInt8*)utf8Value.data(), utf8Value.length()));
++        status = SecItemAdd(query, NULL);
++    }
++    else if (status == errSecSuccess)
++    {
++        // Update the existing secret in the keychain
++        CFMutableDictionaryRef updateQuery = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++        CFDictionarySetValue(updateQuery, kSecValueData, CFDataCreate(NULL, (const UInt8*)utf8Value.data(), utf8Value.length()));
++        status = SecItemUpdate(query, updateQuery);
++        CFRelease(updateQuery);
++    }
++
++    CFRelease(query);
++    return status == errSecSuccess;
++}
++
++
++bool KIPLATFORM::SECRETS::GetSecret(const wxString& aService, const wxString& aKey, wxString& aValue)
++{
++    // Store UTF-8 strings in variables to keep them alive during API calls
++    wxScopedCharBuffer utf8Service = aService.utf8_str();
++    wxScopedCharBuffer utf8Key = aKey.utf8_str();
++
++    // Create a query for the secret
++    CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
++    CFDictionarySetValue(query, kSecAttrService, CFStringCreateWithCString(NULL, utf8Service.data(), kCFStringEncodingUTF8));
++    CFDictionarySetValue(query, kSecAttrAccount, CFStringCreateWithCString(NULL, utf8Key.data(), kCFStringEncodingUTF8));
++    CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue); // Return the secret data
++
++    // Retrieve the secret from the keychain
++    CFDataRef secretData = NULL;
++    OSStatus status = SecItemCopyMatching(query, (CFTypeRef*)&secretData);
++
++    if (status == errSecSuccess)
++    {
++        aValue = wxString::FromUTF8((const char*)CFDataGetBytePtr(secretData), CFDataGetLength(secretData));
++        CFRelease(secretData);
++    }
++
++    CFRelease(query);
++    return status == errSecSuccess;
++}
++
++
++bool KIPLATFORM::SECRETS::DeleteSecret(const wxString& aService, const wxString& aKey)
++{
++    wxScopedCharBuffer utf8Service = aService.utf8_str();
++    wxScopedCharBuffer utf8Key = aKey.utf8_str();
++
++    CFMutableDictionaryRef query = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++    CFDictionarySetValue(query, kSecClass, kSecClassGenericPassword);
++    CFDictionarySetValue(query, kSecAttrService, CFStringCreateWithCString(NULL, utf8Service.data(), kCFStringEncodingUTF8));
++    CFDictionarySetValue(query, kSecAttrAccount, CFStringCreateWithCString(NULL, utf8Key.data(), kCFStringEncodingUTF8));
++
++    OSStatus status = SecItemDelete(query);
++    CFRelease(query);
++    return status == errSecSuccess || status == errSecItemNotFound;
++}
+--- a/libs/kiplatform/os/ios/sysinfo.cpp
++++ b/libs/kiplatform/os/ios/sysinfo.cpp
+@@ -0,0 +1,51 @@
++/*
++* This program source code file is part of KiCad, a free EDA CAD application.
++*
++* Copyright The KiCad Developers, see AUTHORS.txt for contributors.
++*
++* This program is free software: you can redistribute it and/or modify it
++* under the terms of the GNU General Public License as published by the
++* Free Software Foundation, either version 3 of the License, or (at your
++* option) any later version.
++*
++* This program is distributed in the hope that it will be useful, but
++* WITHOUT ANY WARRANTY; without even the implied warranty of
++* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++* General Public License for more details.
++*
++* You should have received a copy of the GNU General Public License along
++* with this program.  If not, see <http://www.gnu.org/licenses/>.
++*/
++
++/*
++ * [KiCad-IOS port] iOS implementation of the KIPLATFORM OS layer.
++ * Modelled directly on KiCad's own os/apple and os/unix implementations
++ * (same GPLv3 project), reduced to the APIs iOS actually provides.
++ */
++
++#include <kiplatform/sysinfo.h>
++
++namespace KIPLATFORM {
++    SYSINFO::SYSINFO()
++    {
++    }
++
++    SYSINFO::~SYSINFO()
++    {
++    }
++
++    bool SYSINFO::GetMemoryInfo( MEMORY_INFO& aMemoryInfo )
++    {
++        return false;
++    }
++
++    bool SYSINFO::GetCPUInfo( std::vector<CPU_INFO>& aCpuInfos )
++    {
++        return false;
++    }
++
++    bool SYSINFO::GetGPUInfo( std::vector<GPU_INFO>& aGpuInfos )
++    {
++        return false;
++    }
++}
