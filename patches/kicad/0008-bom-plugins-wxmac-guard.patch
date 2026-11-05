@@ -1,0 +1,16 @@
+--- a/eeschema/bom_plugins.cpp
++++ b/eeschema/bom_plugins.cpp
+@@ -76,7 +76,12 @@
+ #else
+ // For macOS, we want to use the Python we bundle along, rather than just PYTHON_EXECUTABLE.
+ // For non-Windows, non-macOS, we can call out to PYTHON_EXECUTABLE.
+-#ifdef __APPLE__
++// [KiCad-IOS port] Guard was __APPLE__: PATHS::GetOSXKicadDataDir is only
++// declared/defined under __WXMAC__, so under wxQt (where __APPLE__ is set
++// but __WXMAC__ is not) this block referenced a nonexistent member. Every
++// other GetOSX* call site in the tree guards with __WXMAC__; match them —
++// wxQt builds take the generic PYTHON_EXECUTABLE command, as on Linux.
++#ifdef __WXMAC__
+         // python is at Contents/Frameworks/Python.framework/Versions/Current/bin/python3
+ 
+         // Of course, for macOS, it's not quite that simple, since the relative path
