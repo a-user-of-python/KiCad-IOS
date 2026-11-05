@@ -20,7 +20,23 @@ Each modified upstream file also carries an in-file notice of the form:
 
 ## Changes
 
-_None yet._ The spike is at the audit/first-build stage: upstream files are so
-far used only unmodified (fetched fresh in CI, never vendored-and-edited
-silently). Entries will appear here — path, date, what, why — the moment the
-first patch lands.
+### wxWidgets v3.3.4
+
+1. **`build/cmake/toolkit.cmake`** — 2026-11-04 —
+   `patches/wx/0001-filter-qt-test-genex-definitions.patch`.
+   Filter compile definitions containing `TARGET_PROPERTY` out of the set wx
+   exports via wx-config. Qt6::Test's exported testcase definitions
+   (`QT_TESTCASE_BUILDDIR=...` generator expressions) otherwise leak into
+   every wx consumer; KiCad's CMake generation then fails in pcbnew's SWIG
+   custom command ("$<TARGET_PROPERTY:prop> may only be used with binary
+   targets"). In-file notice included in the patch.
+
+### KiCad 10.0.1
+
+1. **`CMakeLists.txt`** — 2026-11-04 —
+   `patches/kicad/0001-drop-webview-component.patch`.
+   Drop `webview` from the `find_package(wxWidgets ... COMPONENTS ...)`
+   call. wxQt has no wxWebView backend (wxUSE_WEBVIEW is forced OFF under
+   wxQt), so no `libwx_*_webview` exists and the required-component check
+   can never pass (minimal repro in the spike report). In-file notice
+   included in the patch.
