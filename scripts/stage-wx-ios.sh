@@ -41,6 +41,13 @@ set +x
 echo "WX_IOS_CONFIGURE_RC=$CFG_RC"
 echo "--- generated wx setup.h feature values (diagnostic) ---"
 grep -h 'define wxUSE_MENUS\|define wxUSE_MENUBAR\|define wxUSE_WEBVIEW' "$WORK"/build-wx-ios/lib/wx/include/*/wx/setup.h | sort -u || true
+echo "--- macro probe (defs.h in the iOS wx environment) ---"
+SETUP_DIR=$(echo "$WORK"/build-wx-ios/lib/wx/include/*/ | awk '{print $1}')
+SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+printf '#include "wx/defs.h"\n' > "$WORK/probe.cpp"
+clang++ -target arm64-apple-ios16.0 -isysroot "$SDK_PATH" -D__WXQT__ -DWXBUILDING \
+    -I"${SETUP_DIR%/}" -I"$SRC/wx/include" -dM -E "$WORK/probe.cpp" 2>/dev/null | \
+    grep -E 'define (wxUSE_MENUBAR|wxUSE_MENUS|__WXOSX|__WXDARWIN|__WXQT__)' | sort -u || true
 if [ "$CFG_RC" != "0" ]; then
     echo "RESULT: wx iOS CMake configure FAILED (see log)"; exit 2
 fi
