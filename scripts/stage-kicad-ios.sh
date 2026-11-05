@@ -131,6 +131,15 @@ echo "AppKit remaining in sysroot metadata: $(grep -rl 'AppKit' "$SYSROOT/lib" "
 # macOS packaging; empty = arg-count configure error (same fix as the
 # desktop stage). On iOS there is no Python.framework bundle; the sysroot
 # path is an inert placeholder until the packaging stage sets real rpaths.
+# Qt's static frameworks are linked by KiCad as bare paths, so their own
+# transitive deps must be named explicitly (run 42037298290 catalogue:
+# 159 undefined symbols, all in these buckets). Qt bundles pcre2 for
+# QRegularExpression inside the kit; locate it.
+QT_PCRE2="$(find "$WORK/Qt" -name 'libQtBundledPcre2*.a' 2>/dev/null | head -1)"
+echo "Qt bundled pcre2: ${QT_PCRE2:-NOT FOUND}"
+IOS_FW="-framework CoreFoundation -framework Foundation -framework UIKit -framework Metal -framework IOKit -framework CoreGraphics -framework CoreText -framework CoreServices -framework UniformTypeIdentifiers"
+IOS_EXTRA_LIBS="-lpng16 $QT_PCRE2"
+
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -155,9 +164,9 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DKICAD_INSTALL_DEMOS=OFF \
     -DCMAKE_C_FLAGS="-I$WORK/glshim" \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES" \
-    -DCMAKE_SHARED_LINKER_FLAGS="-framework CoreFoundation" \
-    -DCMAKE_MODULE_LINKER_FLAGS="-framework CoreFoundation" \
-    -DCMAKE_EXE_LINKER_FLAGS="-framework CoreFoundation" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
+    -DCMAKE_MODULE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
+    -DCMAKE_EXE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
     -DOPENGL_INCLUDE_DIR="$OGL_FW/Headers" \
     -DOPENGL_opengl_LIBRARY="$OGL_FW" \
     -DOPENGL_gl_LIBRARY="$OGL_FW"
