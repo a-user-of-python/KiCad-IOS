@@ -16,6 +16,9 @@ on:
           - wx-ios
           - kicad-desktop
           - deps-ios
+          - occ-ios
+          - ngspice-ios
+          - python-ios
           - all
 
 jobs:
@@ -92,4 +95,76 @@ jobs:
         with:
           name: logs-kicad-desktop
           path: work/logs
+          if-no-files-found: ignore
+
+  occ-ios:
+    if: ${{ inputs.stage == 'occ-ios' || inputs.stage == 'all' }}
+    name: OpenCascade 7.8.1 for iOS
+    runs-on: macos-26
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage occ-ios
+        run: bash scripts/stage-occ-ios.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-occ-ios
+          path: work/logs
+          if-no-files-found: ignore
+      - name: Upload sysroot
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot-ios-occ
+          path: work/sysroot-ios
+          if-no-files-found: ignore
+
+  ngspice-ios:
+    if: ${{ inputs.stage == 'ngspice-ios' || inputs.stage == 'all' }}
+    name: ngspice 44.2 for iOS
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage ngspice-ios
+        run: bash scripts/stage-ngspice-ios.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-ngspice-ios
+          path: work/logs
+          if-no-files-found: ignore
+      - name: Upload sysroot
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot-ios-ngspice
+          path: work/sysroot-ios
+          if-no-files-found: ignore
+
+  python-ios:
+    if: ${{ inputs.stage == 'python-ios' || inputs.stage == 'all' }}
+    name: CPython (BeeWare 3.13) for iOS sysroot
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage python-ios
+        run: bash scripts/stage-python-ios.sh
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-python-ios
+          path: work/logs
+          if-no-files-found: ignore
+      - name: Upload sysroot
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sysroot-ios-python
+          path: work/sysroot-ios
           if-no-files-found: ignore
