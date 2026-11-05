@@ -19,6 +19,11 @@ echo "QT_IOS=$QT_IOS QT_DESKTOP=$QT_DESKTOP"
 test -f "$QT_IOS/lib/cmake/Qt6/qt.toolchain.cmake" || { echo "Qt iOS toolchain file missing"; exit 2; }
 command -v ninja >/dev/null || brew install ninja
 
+# wx/qt/glcanvas.h includes <GL/gl.h>; iOS has no such header. Shim it to
+# the OpenGLES ES3 headers (same trick as the desktop stage's OpenGL shim).
+mkdir -p "$WORK/glshim/GL"
+printf '#pragma once\n#include <OpenGLES/ES3/gl.h>\n#include <OpenGLES/ES3/glext.h>\n' > "$WORK/glshim/GL/gl.h"
+
 BLD="$WORK/build-wx-ios"
 mkdir -p "$BLD"
 set -x
@@ -40,6 +45,8 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxBUILD_TESTS=OFF \
     -DwxBUILD_DEMOS=OFF \
     -DCMAKE_PREFIX_PATH="$QT_IOS" \
+    -DCMAKE_C_FLAGS="-I$WORK/glshim" \
+    -DCMAKE_CXX_FLAGS="-I$WORK/glshim" \
     2>&1 | tee "$WORK/logs/wx-ios-configure.log"
 CFG_RC=${PIPESTATUS[0]}
 set +x
