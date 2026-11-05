@@ -109,6 +109,9 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DKICAD_INSTALL_DEMOS=OFF \
     -DCMAKE_C_FLAGS="-I$WORK/glshim" \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-framework CoreFoundation" \
+    -DCMAKE_MODULE_LINKER_FLAGS="-framework CoreFoundation" \
+    -DCMAKE_EXE_LINKER_FLAGS="-framework CoreFoundation" \
     -DOPENGL_INCLUDE_DIR="$OGL_FW/Headers" \
     -DOPENGL_opengl_LIBRARY="$OGL_FW" \
     -DOPENGL_gl_LIBRARY="$OGL_FW"
