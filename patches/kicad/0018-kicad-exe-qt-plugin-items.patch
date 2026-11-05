@@ -1,0 +1,19 @@
+--- a/kicad/CMakeLists.txt
++++ b/kicad/CMakeLists.txt
+@@ -117,6 +117,16 @@
+     ${KICAD_RESOURCES}
+     )
+ 
++# [KiCad-IOS port] Qt for iOS is fully static: the platform and
++# image-format plugins exist only as static archives that the host
++# executable must import (Q_IMPORT_PLUGIN) and force-load. The build
++# stage passes the exact object/archive list in KICAD_IOS_PLUGIN_ITEMS;
++# it applies ONLY to the manager executable -- build tools (lemon) and
++# the standalone utilities must not link the Qt plugin closure.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" AND KICAD_IOS_PLUGIN_ITEMS )
++    target_link_options( kicad PRIVATE ${KICAD_IOS_PLUGIN_ITEMS} )
++endif()
++
+ add_executable( kicad-cli WIN32
+     kicad_cli.cpp
+     ${KICAD_CLI_SRCS}
