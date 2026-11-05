@@ -1,0 +1,48 @@
+[KiCad-IOS port] eda_doc.cpp: guard MIME-manager use on wxUSE_MIMETYPE
+
+GetAssociatedDocument() resolves non-PDF documentation files through
+wxMimeTypesManager. Under wxQt there is no wxMimeTypesManager backend
+(wx's only implementation uses macOS LaunchServices/legacy UTI APIs,
+absent on iOS), so this port builds wx with wxUSE_MIMETYPE=OFF and the
+types do not exist. Guard the fallback table and the lookup block on
+wxUSE_MIMETYPE; without it the function takes its existing failure
+path ("Unknown MIME type for documentation file") — PDF documents,
+the common case, are handled separately by OpenPDF() and unaffected.
+
+Modified file (GPL-3.0-or-later, same license as upstream):
+  common/eda_doc.cpp
+
+--- a/common/eda_doc.cpp
++++ b/common/eda_doc.cpp
+@@ -38,6 +38,7 @@
+ 
+ 
+ //  Mime type extensions (PDF files are not considered here)
++#if wxUSE_MIMETYPE
+ static wxMimeTypesManager*  mimeDatabase;
+ static const wxFileTypeInfo EDAfallbacks[] =
+ {
+@@ -58,6 +59,7 @@
+     // must terminate the table with this!
+     wxFileTypeInfo()
+ };
++#endif // wxUSE_MIMETYPE
+ 
+ 
+ bool GetAssociatedDocument( wxWindow* aParent, const wxString& aDocName, PROJECT* aProject,
+@@ -179,6 +181,7 @@
+         return success;
+     }
+ 
++#if wxUSE_MIMETYPE
+     /* Try to launch some browser (useful under linux) */
+     wxFileType* filetype;
+ 
+@@ -204,6 +207,7 @@
+         if( success )
+             success = wxExecute( command );
+     }
++#endif // wxUSE_MIMETYPE
+ 
+     if( !success )
+     {
