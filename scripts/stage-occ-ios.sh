@@ -15,6 +15,7 @@ fi
 
 cmake -S "$SRC/occt" -B "$WORK/build-occ-ios" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
     -DCMAKE_INSTALL_PREFIX="$SYSROOT" \
     -DBUILD_LIBRARY_TYPE=Static \
     -DBUILD_MODULE_Draw=OFF \
