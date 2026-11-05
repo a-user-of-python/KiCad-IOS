@@ -16,13 +16,24 @@ if [ ! -d "$SRC/ngspice" ]; then
       && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
 fi
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
+# iOS compat shim: ngspice's frontend calls system() in seven places
+# (shell command, hardcopy via external tools, gnuplot launch). system()
+# is marked unavailable in the iOS SDK and process spawning is impossible
+# on iOS, so map those calls to a no-op returning failure. Forced-include
+# runs before any TU code: it pulls in the real stdlib.h first, then
+# defines the macro, so no upstream file is modified.
+cat > "$WORK/ngspice-ios-compat.h" <<'COMPAT'
+#include <stdlib.h>
+static int ngspice_ios_system(const char *cmd) { (void) cmd; return -1; }
+#define system ngspice_ios_system
+COMPAT
 cat > "$WORK/cc-ios.sh" <<WRAP
 #!/bin/sh
-exec clang -arch arm64 -target arm64-apple-ios16.0 -isysroot "$SDK_PATH" "\$@"
+exec clang -arch arm64 -target arm64-apple-ios16.0 -isysroot "$SDK_PATH" -include "$WORK/ngspice-ios-compat.h" "\$@"
 WRAP
 cat > "$WORK/cxx-ios.sh" <<WRAP
 #!/bin/sh
-exec clang++ -arch arm64 -target arm64-apple-ios16.0 -isysroot "$SDK_PATH" "\$@"
+exec clang++ -arch arm64 -target arm64-apple-ios16.0 -isysroot "$SDK_PATH" -include "$WORK/ngspice-ios-compat.h" "\$@"
 WRAP
 chmod +x "$WORK/cc-ios.sh" "$WORK/cxx-ios.sh"
 export CC="$WORK/cc-ios.sh"
