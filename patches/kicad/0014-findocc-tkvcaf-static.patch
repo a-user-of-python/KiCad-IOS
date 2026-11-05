@@ -1,0 +1,13 @@
+--- a/cmake/FindOCC.cmake
++++ b/cmake/FindOCC.cmake
+@@ -56,6 +56,10 @@
+     TKTObj
+     TKTopAlgo
+     TKV3d
++    # [KiCad-IOS port] TKVCAF provides the TPrsStd drivers the OCE 3D
++    # plugin links. Shared OCC builds resolve it transitively; a static
++    # OCC (the iOS sysroot) needs it named explicitly.
++    TKVCAF
+     TKXCAF
+     TKXMesh
+     TKXmlL
