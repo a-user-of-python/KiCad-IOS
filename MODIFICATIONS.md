@@ -62,6 +62,17 @@ Each modified upstream file also carries an in-file notice of the form:
    early-return branch to wxQt-on-Apple (CI run 41947031204). In-file
    notice included.
 
+6. **`include/wx/osx/chkconf.h`** — 2026-11-04 —
+   `patches/wx/0006-wxqt-ios-no-iphone-chkconf.patch`.
+   Do not include the native wxOSX/iPhone port's `chkconf.h` when the
+   toolkit is Qt. That header force-disables wxMenuBar, wxStatusBar,
+   tooltips, combo boxes, scroll bars, drag-and-drop, MDI and more
+   (because the native UIKit port lacks them); it is pulled in for ANY
+   Darwin build, and under wxQt on iOS it made wxQt's own headers fail
+   to compile (wxMenuBarBase incomplete; CI runs 41948131700 /
+   41949832814, macro probe: wxUSE_MENUBAR 0 despite setup.h = 1). Qt
+   on iOS provides all of these widgets. In-file notice included.
+
 ### KiCad 10.0.1
 
 1. **`CMakeLists.txt`** — 2026-11-04 —
