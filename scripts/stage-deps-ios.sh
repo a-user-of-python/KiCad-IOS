@@ -266,7 +266,7 @@ foreach(lib IN LISTS BOOST_SUBSET_LIBS)
   endif()
 endforeach()
 BOOSTDRIVER
-    BOOST_LIBS="algorithm;align;assert;atomic;bind;chrono;config;container_hash;core;date_time;exception;integer;io;iterator;locale;move;mpl;predef;preprocessor;ratio;smart_ptr;static_assert;system;thread;throw_exception;tuple;type_traits;utility"
+    BOOST_LIBS="algorithm;align;array;assert;atomic;bind;chrono;concept_check;config;container_hash;core;date_time;describe;exception;integer;io;iterator;lexical_cast;locale;move;mpl;predef;preprocessor;ratio;smart_ptr;static_assert;system;thread;throw_exception;tuple;type_traits;typeof;utility;variant2"
     build_cmake_dep boost "$BOOST_SRC" "-DBOOST_SUBSET_LIBS=$BOOST_LIBS" \
         || FAILED="$FAILED boost"
 else
