@@ -64,4 +64,4 @@ echo "OCC_INSTALL_RC=$?"
 # build+install RCs and a real toolkit census incl. the libs KiCad links.
 TK_COUNT=$(ls "$WORK/sysroot-occ/lib/" 2>/dev/null | grep -c '^libTK.*\.a$' || true)
 echo "OCC toolkits installed: $TK_COUNT"
-if [ "$OCC_BUILD_RC" = "0" ] && [ -f "$WORK/sysroot-occ/lib/libTKBinL.a" ] && [ -f "$WORK/sysroot-occ/lib/libTKSTEP.a" ] && [ "$TK_COUNT" -ge 50 ]; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
+if [ "$OCC_BUILD_RC" = "0" ] && [ -f "$WORK/sysroot-occ/lib/libTKBinL.a" ] && [ -f "$WORK/sysroot-occ/lib/libTKDESTEP.a" ] && [ "$TK_COUNT" -ge 50 ]; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
