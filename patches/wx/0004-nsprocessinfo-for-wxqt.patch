@@ -1,0 +1,23 @@
+# KiCad-IOS port patch 0004 (wxWidgets v3.3.4, wxWindows licence)
+# utils_base.mm: let the wxQt port use the NSProcessInfo OS-version path
+# instead of Gestalt() (Carbon, absent on iOS). Apply with: patch -p1
+# (wx source root). See MODIFICATIONS.md.
+#
+diff --git a/src/osx/cocoa/utils_base.mm b/src/osx/cocoa/utils_base.mm
+--- a/src/osx/cocoa/utils_base.mm
++++ b/src/osx/cocoa/utils_base.mm
+@@ -34,7 +34,13 @@ wxSocketManager *wxOSXSocketManagerCF = nullptr;
+ #endif // wxUSE_SOCKETS
+ 
+ #if (defined(__APPLE__) && __MAC_OS_X_VERSION_MAX_ALLOWED >= 101000) \
+-    || (defined(__WXOSX_IPHONE__) && defined(__IPHONE_8_0))
++    || (defined(__WXOSX_IPHONE__) && defined(__IPHONE_8_0)) \
++    || defined(__WXQT__)
++// [KiCad-IOS port] Modified 2026-11-04: wxQt branch added above — under
++// wxQt neither the macOS SDK version macro nor the iPhone port macros
++// are defined, so wxGetOsVersion fell back to Gestalt(), which does not
++// exist on iOS. NSProcessInfo.operatingSystemVersion is available on
++// iOS 8+. Change recorded in KiCad-IOS MODIFICATIONS.md.
+     #define wxHAS_NSPROCESSINFO 1
+ #endif
+ 
