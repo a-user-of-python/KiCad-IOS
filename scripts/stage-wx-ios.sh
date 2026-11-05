@@ -70,6 +70,12 @@ cmake --build "$BLD" -j"$(sysctl -n hw.ncpu)" 2>&1 | tee "$WORK/logs/wx-ios-buil
 BLD_RC=${PIPESTATUS[0]}
 echo "WX_IOS_BUILD_RC=$BLD_RC"
 if [ "$BLD_RC" = "0" ]; then
+    # Install wx into the sysroot like every other dependency: KiCad's
+    # FindwxWidgets verifies each -l with find_library, and the iOS
+    # toolchain confines find_library to the find-root paths (the
+    # sysroot) — a build-tree wx outside it can never verify.
+    cmake --install "$BLD" --prefix "$SYSROOT" 2>&1 | tail -2
+    ls "$SYSROOT/lib/" | grep '^libwx' | head -20
     find "$BLD" -name "libwx*" | head -30
     # sanity: the libs must be arm64 iOS objects
     LIB=$(find "$BLD" -name "libwx_baseu-*.a" | head -1)
