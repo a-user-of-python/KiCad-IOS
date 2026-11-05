@@ -28,6 +28,18 @@ if [ ! -f "$NGH/lib/libngspice.dylib" ]; then
         ( cd "$WORK" && curl -sL "https://distfiles.macports.org/ngspice/ngspice-44.2.tar.gz" -o ngspice.tar.gz \
           && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
     fi
+    # Xcode 26 libc++ forbids user specialization of std::is_compound
+    # (builtin-backed; dual<T> is compound anyway). Remove the redundant
+    # specialization from the fetched cppduals header (ngspice dep tree).
+    python3 - "$SRC/ngspice/src/include/cppduals/duals/dual" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+block = "/// Duals are compound types.\ntemplate <class T>\nstruct is_compound<duals::dual<T>> : true_type {};\n"
+assert block in s, "cppduals block not found"
+open(p, "w").write(s.replace(block, "", 1))
+print("cppduals is_compound specialization removed")
+PYEOF
     ( cd "$SRC/ngspice" && ./configure --with-ngshared --without-x --disable-openmp --prefix="$NGH" >> "$WORK/logs/ngspice-host.log" 2>&1 \
       && make -j"$(sysctl -n hw.ncpu)" >> "$WORK/logs/ngspice-host.log" 2>&1 \
       && make install >> "$WORK/logs/ngspice-host.log" 2>&1 ) || echo "libngspice host build FAILED (see log)"
@@ -47,6 +59,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DwxWidgets_CONFIG_OPTIONS="--toolkit=qt" \
     -DNGSPICE_INCLUDE_PATH="$NGH/include" \
     -DNGSPICE_LIBRARY_PATH="$NGH/lib" \
+    -DNGSPICE_LIB_NAME=ngspice \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
     -DKICAD_SPICE=OFF \
     -DKICAD_USE_SENTRY=OFF \
