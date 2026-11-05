@@ -161,3 +161,14 @@ Each modified upstream file also carries an in-file notice of the form:
   `KIPLATFORM` OS functions the editors reference; those will get
   UIKit/POSIX implementations under `os/ios/` in a follow-up patch.
   Desktop macOS builds are unaffected (system name is Darwin there).
+
+### KiCad patch 0008 — bom-plugins-wxmac-guard
+- **File:** `eeschema/bom_plugins.cpp`
+- **Change:** The bundled-Python command block's guard changes from
+  `__APPLE__` to `__WXMAC__`, with an in-file notice.
+- **Why:** The block calls `PATHS::GetOSXKicadDataDir()`, which is only
+  declared/defined under `__WXMAC__`. Under wxQt, `__APPLE__` is defined
+  but `__WXMAC__` is not, so the call referenced a nonexistent member.
+  Every other `GetOSX*` call site in the tree already guards with
+  `__WXMAC__`; with this change wxQt builds use the generic
+  `PYTHON_EXECUTABLE` BOM command, exactly as Linux builds do.
