@@ -48,7 +48,7 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxBUILD_DEMOS=OFF \
     -DCMAKE_PREFIX_PATH="$QT_IOS" \
     -DCMAKE_C_FLAGS="-I$WORK/glshim" \
-    -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1" \
+    -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES" \
     2>&1 | tee "$WORK/logs/wx-ios-configure.log"
 CFG_RC=${PIPESTATUS[0]}
 set +x
