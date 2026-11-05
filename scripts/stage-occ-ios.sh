@@ -13,6 +13,23 @@ if [ ! -d "$SRC/occt" ]; then
       && mkdir -p "$SRC/occt" && tar -xzf occ.tar.gz -C "$SRC/occt" --strip-components=1 )
 fi
 
+# Fetched-tree build fix (dependency tree only; OCCT is LGPL-2.1 + exception
+# and this change is disclosed in MODIFICATIONS.md): FreeType >= 2.13 made
+# FT_Outline.tags unsigned char*; OCCT 7.8.1's StdPrs_BRepFont stores it in
+# a const char* and only ever reads it through FT_CURVE_TAG bit masks, so
+# the cast is semantics-preserving. Without it this is the single compile
+# error in all 5561 OCC steps.
+python3 - "$SRC/occt/src/StdPrs/StdPrs_BRepFont.cxx" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = "const char* aTags      = &anOutline->tags[aStartIndex];"
+assert s.count(old) == 1, "BRepFont line not found"
+open(p, "w").write(s.replace(old, "const char* aTags      = (const char*)&anOutline->tags[aStartIndex];", 1))
+print("BRepFont freetype-tags cast applied")
+PYEOF
+[ $? -eq 0 ] || { echo "RESULT: OCC fetched-tree fix FAILED"; exit 3; }
+
 cmake -S "$SRC/occt" -B "$WORK/build-occ-ios" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
