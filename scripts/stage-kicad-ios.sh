@@ -79,6 +79,15 @@ OGL_FW="$SDK_PATH_IOS/System/Library/Frameworks/OpenGLES.framework"
 # bin/iodbc-config (deps stage); point nanodbc at it.
 export ODBC_PATH="$SYSROOT"
 
+# Host build tools that KiCad would otherwise build for the target:
+# 'lemon' is a single C file; KiCad's generate_lemon_grammar() stores
+# $<TARGET_FILE:lemon> in the LEMON_EXE cache var without FORCE, so a
+# command-line pre-seed with a host-built lemon wins and the parser
+# generation steps can actually run on the macOS host.
+mkdir -p "$WORK/host-tools/bin"
+cc -O2 -o "$WORK/host-tools/bin/lemon" "$SRC/kicad/thirdparty/lemon/lemon.c" >> "$WORK/logs/kicad-ios.log" 2>&1 \
+    || echo "WARNING: host lemon build failed"
+
 BLD="$WORK/build-kicad-ios"
 mkdir -p "$BLD"
 # PYTHON_FRAMEWORK: kicad/CMakeLists.txt uses it unquoted in
@@ -101,6 +110,7 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DPYTHON_FRAMEWORK="$SYSROOT" \
     -DPYTHON_INCLUDE_DIR="$SYSROOT/include/python3.13" \
     -DProtobuf_PROTOC_EXECUTABLE="$WORK/host-tools/bin/protoc" \
+    -DLEMON_EXE="$WORK/host-tools/bin/lemon" \
     -DKICAD_SCRIPTING_WXPYTHON=OFF \
     -DKICAD_USE_SENTRY=OFF \
     -DKICAD_IPC_API=OFF \
