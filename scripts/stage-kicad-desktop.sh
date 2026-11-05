@@ -57,6 +57,8 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_PREFIX_PATH="$(brew --prefix);$QT_ROOT/$QT_VERSION/macos;$QT_ROOT/$QT_VERSION/clang_64" \
     -DwxWidgets_CONFIG_EXECUTABLE="$WXCFG" \
     -DwxWidgets_CONFIG_OPTIONS="--toolkit=qt" \
+    -DCMAKE_C_FLAGS="-I$WORK/glshim" \
+    -DCMAKE_CXX_FLAGS="-I$WORK/glshim" \
     -DNGSPICE_INCLUDE_PATH="$NGH/include" \
     -DNGSPICE_LIBRARY_PATH="$NGH/lib" \
     -DNGSPICE_LIB_NAME=ngspice \
