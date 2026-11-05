@@ -219,6 +219,43 @@ sed -i '' 's|#include <Carbon/Carbon.h>|#include <CoreGraphics/CoreGraphics.h>|'
 grep -n 'CoreGraphics' "$SRC/cairo/src/cairo-quartz.h" "$SRC/cairo/src/cairo-quartz-image.h" | head -3
 build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled || FAILED="$FAILED cairo-meson"
 
+# libtess2: iOS has no GLU, and KiCad's OpenGL GAL uses the GLU
+# tessellator for polygon fills. libtess2 (zlib licence) is a sweep-line
+# tessellator with the same winding-rule model; the kicad-ios stage
+# compiles a small GLU-shaped adapter over it. Built with
+# TESSreal=double so vertex precision matches GLU's GLdouble pipeline.
+TESS2_SRC="$(get_git memononen/libtess2 master tess2 "")"
+if [ -n "$TESS2_SRC" ] && [ -f "$TESS2_SRC/Source/tess.c" ]; then
+    log "building libtess2 for iOS (HEAD $(git -C "$TESS2_SRC" rev-parse --short HEAD))"
+    # Fetched-tree edit (third-party dep): TESSreal must be double so
+    # tessellated vertices keep GLU's GLdouble precision end to end.
+    python3 - "$TESS2_SRC/Include/tesselator.h" <<'PYEOF'
+import sys
+p = sys.argv[1]
+src = open(p).read()
+if "typedef float TESSreal;" not in src:
+    print("tesselator.h: TESSreal pattern not found"); sys.exit(3)
+open(p, "w").write(src.replace("typedef float TESSreal;", "typedef double TESSreal;"))
+print("tesselator.h: TESSreal set to double")
+PYEOF
+    [ $? -ne 0 ] && FAILED="$FAILED tess2-header"
+    mkdir -p "$WORK/deps-build-tess2"
+    TESS_OK=1
+    for c in bucketalloc dict geom mesh priorityq sweep tess; do
+        xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -O2 -I"$TESS2_SRC/Include" -c "$TESS2_SRC/Source/$c.c" \
+            -o "$WORK/deps-build-tess2/$c.o" >> "$WORK/logs/dep-tess2-build.log" 2>&1 || TESS_OK=0
+    done
+    if [ "$TESS_OK" = 1 ]; then
+        ar rcs "$SYSROOT/lib/libtess2.a" "$WORK/deps-build-tess2/"*.o
+        cp "$TESS2_SRC/Include/tesselator.h" "$SYSROOT/include/tesselator.h"
+        echo "DEP_OK tess2"
+    else
+        FAILED="$FAILED tess2"
+    fi
+else
+    FAILED="$FAILED tess2-fetch"
+fi
+
 # Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
 # build time); it rides inside the sysroot artifact under host-tools/.
 if [ -x "$WORK/deps-build-protobuf-host/protoc" ]; then
