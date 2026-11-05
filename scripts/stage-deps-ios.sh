@@ -24,6 +24,7 @@ build_cmake_dep() {
         -DCMAKE_TOOLCHAIN_FILE="$TC" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$SYSROOT" \
+        -DCMAKE_PREFIX_PATH="$SYSROOT" \
         -DBUILD_SHARED_LIBS=OFF \
         "$@" 2>&1 | tee "$WORK/logs/dep-$name-configure.log" || return 1
     cmake --build "$bld" -j"$JOBS" 2>&1 | tee "$WORK/logs/dep-$name-build.log" || return 1
@@ -33,11 +34,18 @@ build_cmake_dep() {
 
 get() { # $1 url  $2 dir
     if [ ! -d "$WORK/deps-src/$2" ]; then
-        curl -sL "$1" -o "$WORK/deps-src/$2.tar.gz"
+        curl -sfL "$1" -o "$WORK/deps-src/$2.tar.gz" || { echo "DOWNLOAD FAILED: $1"; return 1; }
         mkdir -p "$WORK/deps-src/$2"
-        tar -xf "$WORK/deps-src/$2.tar.gz" -C "$WORK/deps-src/$2" --strip-components=1
+        tar -xf "$WORK/deps-src/$2.tar.gz" -C "$WORK/deps-src/$2" --strip-components=1 || { echo "EXTRACT FAILED: $1"; return 1; }
     fi
     echo "$WORK/deps-src/$2"
+}
+
+get_git() { # $1 repo  $2 tag  $3 dir  $4 extra clone args
+    if [ ! -d "$WORK/deps-src/$3" ]; then
+        git clone --depth 1 --branch "$2" $4 "https://github.com/$1" "$WORK/deps-src/$3" || { echo "CLONE FAILED: $1"; return 1; }
+    fi
+    echo "$WORK/deps-src/$3"
 }
 
 FAILED=""
@@ -52,10 +60,11 @@ step freetype build_cmake_dep freetype  "$(get https://download.savannah.gnu.org
 step harfbuzz build_cmake_dep harfbuzz  "$(get https://github.com/harfbuzz/harfbuzz/releases/download/8.5.0/harfbuzz-8.5.0.tar.xz harfbuzz)" -DHB_HAVE_FREETYPE=ON -DHB_BUILD_SUBSET=OFF -DHB_BUILD_UTILS=OFF
 step expat build_cmake_dep expat     "$(get https://github.com/libexpat/libexpat/releases/download/R_2_6_3/expat-2.6.3.tar.gz expat)" -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_TESTS=OFF -DEXPAT_BUILD_TOOLS=OFF
 step curl build_cmake_dep curl      "$(get https://curl.se/download/curl-8.10.1.tar.gz curl)" -DCURL_USE_SECTRANSP=ON -DCURL_USE_LIBSSH2=OFF -DBUILD_CURL_EXE=OFF -DBUILD_TESTING=OFF -DUSE_NGHTTP2=OFF -DCURL_ZLIB=ON
-step libgit2 build_cmake_dep libgit2   "$(get https://github.com/libgit2/libgit2/releases/download/v1.9.0/libgit2-1.9.0.tar.gz libgit2)" -DBUILD_CLI=OFF -DBUILD_TESTS=OFF -DUSE_HTTPS=OFF -DUSE_SSH=OFF -DREGEX_BACKEND=builtin
+step libgit2 build_cmake_dep libgit2   "$(get_git libgit2/libgit2 v1.9.0 libgit2 "")" -DBUILD_CLI=OFF -DBUILD_TESTS=OFF -DUSE_HTTPS=OFF -DUSE_SSH=OFF -DREGEX_BACKEND=builtin
 
 # protobuf: host build first for protoc, then iOS lib with that protoc.
-PB_SRC="$(get https://github.com/protocolbuffers/protobuf/releases/download/v25.1/protobuf-25.1.tar.gz protobuf)"
+# protobuf's release tarball omits the abseil submodule contents; clone with submodules instead.
+PB_SRC="$(get_git protocolbuffers/protobuf v25.1 protobuf "--recurse-submodules --shallow-submodules")"
 if [ ! -x "$WORK/deps-build-protobuf-host/protoc" ]; then
     log "building host protobuf (protoc)"
     cmake -S "$PB_SRC" -B "$WORK/deps-build-protobuf-host" -G Ninja \
