@@ -25,6 +25,8 @@ cmake -S "$SRC/occt" -B "$WORK/build-occ-ios" -G Ninja \
     -D3RDPARTY_FREETYPE_DIR="$SYSROOT" \
     -DFREETYPE_INCLUDE_DIRS="$SYSROOT/include/freetype2" \
     -DFREETYPE_LIBRARY="$SYSROOT/lib/libfreetype.a" \
+    -D3RDPARTY_FREETYPE_INCLUDE_DIR_ft2build="$SYSROOT/include/freetype2" \
+    -D3RDPARTY_FREETYPE_INCLUDE_DIR_freetype2="$SYSROOT/include/freetype2" \
     -DUSE_TBB=OFF \
     -DUSE_VTK=OFF \
     -DUSE_FFMPEG=OFF \
