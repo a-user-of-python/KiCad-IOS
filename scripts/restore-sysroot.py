@@ -41,9 +41,19 @@ def main():
         )
         return opener.open(req)
 
-    arts = json.load(
-        get(f"https://api.github.com/repos/{repo}/actions/artifacts?per_page=100")
-    )["artifacts"]
+    # Paginate the full artifact list: once a repo accumulates >100
+    # artifacts, the oldest sysroot pieces fall off page 1 and the
+    # restore silently finds nothing (hit 2026-11-05 at 134 artifacts).
+    arts = []
+    page = 1
+    while True:
+        batch = json.load(
+            get(f"https://api.github.com/repos/{repo}/actions/artifacts?per_page=100&page={page}")
+        )["artifacts"]
+        arts.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
     os.makedirs("work/sysroot-ios", exist_ok=True)
     got = []
     for name in sys.argv[1:]:
