@@ -193,3 +193,15 @@ Each modified upstream file also carries an in-file notice of the form:
   only sensible form for an iOS app bundle); with `--static=no`,
   wx-config reports no libraries and `find_package(wxWidgets)` fails at
   CMakeLists.txt:1102. Desktop builds are unaffected.
+
+### KiCad patch 0010 — panel-plugins-ipc-guard
+- **File:** `pcbnew/dialogs/panel_pcbnew_action_plugins.cpp`
+- **Change:** The constructor's `Bind` and destructor's `Unbind` of
+  `EDA_EVT_PLUGIN_AVAILABILITY_CHANGED` are wrapped in
+  `#ifdef KICAD_IPC_API`, with an in-file notice.
+- **Why:** That event is defined in `common/api/api_plugin_manager.cpp`,
+  which is compiled into kicommon only when the IPC API is enabled.
+  Eeschema and `pcb_edit_frame` guard their uses of it; this panel did
+  not — an upstream inconsistency that stays invisible in upstream builds
+  (IPC always on there) but fails the `_pcbnew.kiface` link in IPC-off
+  builds such as this port. Behaviour with IPC on is unchanged.
