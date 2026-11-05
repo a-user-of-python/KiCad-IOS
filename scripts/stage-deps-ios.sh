@@ -164,5 +164,12 @@ build_meson "$SRC/fontconfig" -Dtools=disabled -Dtests=disabled -Ddoc=disabled -
 fetch_tar https://www.cairographics.org/releases/cairo-1.18.2.tar.xz cairo
 build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Ddocumentation=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled; mark cairo-meson
 
+# Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
+# build time); it rides inside the sysroot artifact under host-tools/.
+if [ -x "$WORK/deps-build-protobuf-host/protoc" ]; then
+    mkdir -p "$SYSROOT/host-tools"
+    cp "$WORK/deps-build-protobuf-host/protoc" "$SYSROOT/host-tools/protoc"
+fi
+
 probe "fontconfig/fontconfig.h" "cairo/cairo.h" "pixman-1/pixman.h"
 echo "RESULT: iOS dependency sysroot stage complete (cmake set + meson set), failed:$FAILED"
