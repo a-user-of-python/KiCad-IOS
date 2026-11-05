@@ -1,0 +1,16 @@
+--- a/build/cmake/init.cmake
++++ b/build/cmake/init.cmake
+@@ -531,7 +531,12 @@
+ 
+     # extra dependencies
+     if(wxUSE_OPENGL)
+-        if(WXOSX_IPHONE)
++        # [KiCad-IOS port] wxQt on iOS is in the same GLES-only boat as the
++        # native iPhone port: there is no desktop OpenGL framework, only
++        # OpenGLES. Take the iPhone branch for it too, otherwise
++        # find_package(OpenGL) fails and wxGLCanvas is silently disabled
++        # (and KiCad requires the wx 'gl' component).
++        if(WXOSX_IPHONE OR (WXQT AND CMAKE_SYSTEM_NAME STREQUAL "iOS"))
+             set(OPENGL_FOUND TRUE)
+             set(OPENGL_INCLUDE_DIR "")
+             set(OPENGL_LIBRARIES "-framework OpenGLES" "-framework QuartzCore" "-framework GLKit")
