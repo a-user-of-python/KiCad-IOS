@@ -62,6 +62,14 @@ ls -la "$WORK/host-tools/" || true
 WXCFG="$WORK/build-wx-ios/wx-config"
 "$WXCFG" --selected-config || true
 
+# GL/gl.h shim for KiCad/wx headers under iOS (see stage-wx-ios.sh) and
+# OpenGL find presets: KiCad calls find_package(OpenGL REQUIRED), which
+# fails on iOS (no desktop GL framework); pre-seed it with OpenGLES.
+mkdir -p "$WORK/glshim/GL"
+printf '#pragma once\n#include <OpenGLES/ES3/gl.h>\n#include <OpenGLES/ES3/glext.h>\n' > "$WORK/glshim/GL/gl.h"
+SDK_PATH_IOS="$(xcrun --sdk iphoneos --show-sdk-path)"
+OGL_FW="$SDK_PATH_IOS/System/Library/Frameworks/OpenGLES.framework"
+
 BLD="$WORK/build-kicad-ios"
 mkdir -p "$BLD"
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
@@ -83,7 +91,12 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DKICAD_IPC_API=OFF \
     -DKICAD_BUILD_QA_TESTS=OFF \
     -DKICAD_BUILD_I18N=OFF \
-    -DKICAD_INSTALL_DEMOS=OFF
+    -DKICAD_INSTALL_DEMOS=OFF \
+    -DCMAKE_C_FLAGS="-I$WORK/glshim" \
+    -DCMAKE_CXX_FLAGS="-I$WORK/glshim" \
+    -DOPENGL_INCLUDE_DIR="$OGL_FW/Headers" \
+    -DOPENGL_opengl_LIBRARY="$OGL_FW/OpenGLES" \
+    -DOPENGL_gl_LIBRARY="$OGL_FW/OpenGLES"
 CFG_RC=$?
 echo "KICAD_IOS_CONFIGURE_RC=$CFG_RC"
 if [ "$CFG_RC" != "0" ]; then echo "RESULT: KiCad iOS configure FAILED"; exit 2; fi
