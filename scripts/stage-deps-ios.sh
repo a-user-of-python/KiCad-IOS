@@ -199,6 +199,12 @@ if grep -q "'CoreFoundation', 'ApplicationServices'" "$SRC/cairo/meson.build"; t
     sed -i '' "s/'CoreFoundation', 'ApplicationServices'/'CoreFoundation', 'CoreGraphics'/" "$SRC/cairo/meson.build"
     echo "cairo appleframeworks list patched for iOS"
 fi
+# Same story in cairo's public quartz headers: they include the macOS
+# umbrella headers ApplicationServices/Carbon; everything they use
+# (CGContextRef, CGImage) lives in CoreGraphics on iOS.
+sed -i '' 's|#include <ApplicationServices/ApplicationServices.h>|#include <CoreGraphics/CoreGraphics.h>|' "$SRC/cairo/src/cairo-quartz.h"
+sed -i '' 's|#include <Carbon/Carbon.h>|#include <CoreGraphics/CoreGraphics.h>|' "$SRC/cairo/src/cairo-quartz-image.h"
+grep -n 'CoreGraphics' "$SRC/cairo/src/cairo-quartz.h" "$SRC/cairo/src/cairo-quartz-image.h" | head -3
 build_meson "$SRC/cairo" -Dtests=disabled -Dspectre=disabled -Dxcb=disabled -Dxlib=disabled -Dglib=disabled -Dfontconfig=enabled -Dfreetype=enabled -Dpng=enabled -Dquartz=enabled -Dtee=disabled || FAILED="$FAILED cairo-meson"
 
 # Stash the host protoc for the kicad-ios stage (KiCad runs protoc at
