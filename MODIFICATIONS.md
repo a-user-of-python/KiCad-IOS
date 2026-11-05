@@ -40,6 +40,14 @@ Each modified upstream file also carries an in-file notice of the form:
    header and failed with "'Carbon/Carbon.h' file not found"
    (CI run 41944060930). In-file notice included in the patch.
 
+3. **`include/wx/osx/private.h`** — 2026-11-04 —
+   `patches/wx/0003-osx-private-header-wxqt-branch.patch`.
+   Add a `__WXQT__` branch to the private-header dispatch. Without it,
+   wxQt (which defines neither `__WXOSX_IPHONE__` nor `__WXOSX_COCOA__`)
+   falls through to the wxBase/macOS branch that includes
+   `<ApplicationServices/ApplicationServices.h>` — absent from the iOS
+   SDK (CI run 41944760546). In-file notice included in the patch.
+
 ### KiCad 10.0.1
 
 1. **`CMakeLists.txt`** — 2026-11-04 —
