@@ -57,12 +57,14 @@ Under the hood, the heavy lifting reuses a Qt‑for‑iOS toolchain (Qt 6 via `a
 |---|---|
 | Upstream pinned (KiCad **10.0.1**, commit `2db9e5a7…`) | ✅ Done |
 | Repo, licensing & attribution in place | ✅ Done |
-| wx fork patch audit vs. wxQt | 🔄 In progress |
-| wxQt compiled for iOS (arm64) | ⏳ Not yet |
-| KiCad configured for iOS (scripting off) | ⏳ Not yet |
-| KiCad project manager launches on iPad | ⏳ Not yet |
-| Schematic / PCB editors open as windows | ⏳ Not yet |
-| Real `.kicad_sch` edited on device | ⏳ Not yet |
+| wx fork patch audit vs. wxQt | ✅ Done — wxQt (wx 3.3.4 + Qt 6.9.3) carries it; see `MODIFICATIONS.md` |
+| wxQt compiled for iOS (arm64) | ✅ Done |
+| KiCad configured for iOS (wxPython off) | ✅ Done |
+| **Whole KiCad compiles + links for iOS arm64** | ✅ **Done — 1591/1591 build steps, manager + all 7 editors (kifaces) + 3D plugins (CI run 42112954275)** |
+| Unsigned IPA packaged | ✅ Done — 490 MB, valid iPad bundle, Qt iOS platform plugin linked into the executable |
+| KiCad project manager launches on iPad | 🧪 **Awaiting device test** — install the IPA (Signulous), first launch is the verdict |
+| Schematic / PCB editors open as windows | 🧪 Awaiting device test (the binaries are in the bundle; KiCad loads its editors in-process by design) |
+| Real `.kicad_sch` edited on device | ⏳ After launch verdict |
 
 *This table is updated as the spike moves. A well-evidenced "this is blocked, and here is exactly why" is a valid spike outcome — a fake UI is not.*
 
