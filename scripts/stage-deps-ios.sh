@@ -65,6 +65,15 @@ step libgit2 build_cmake_dep libgit2   "$(get_git libgit2/libgit2 v1.9.0 libgit2
 # protobuf: host build first for protoc, then iOS lib with that protoc.
 # protobuf's release tarball omits the abseil submodule contents; clone with submodules instead.
 PB_SRC="$(get_git protocolbuffers/protobuf v25.1 protobuf "--recurse-submodules --shallow-submodules")"
+# Build-tree workaround (third-party dep, not KiCad code): abseil's
+# GENERATED_AbseilCopts.cmake unconditionally pairs -Xarch_x86_64 with
+# -maes/-msse4.1 on Apple (fat-binary support). Xcode 26's clang rejects
+# those options outright in an arm64-only build, even behind -Xarch_.
+# Replace the two x86 codegen flags with a benign warning flag; the
+# randen_hwaes TU selects its code path by preprocessor arch macros, so
+# the arm64 build is unaffected.
+sed -i '' 's/"-maes"/"-Wno-unused-command-line-argument"/; s/"-msse4.1"/"-Wno-unused-command-line-argument"/' \
+    "$PB_SRC/third_party/abseil-cpp/absl/copts/GENERATED_AbseilCopts.cmake"
 if [ ! -x "$WORK/deps-build-protobuf-host/protoc" ]; then
     log "building host protobuf (protoc)"
     cmake -S "$PB_SRC" -B "$WORK/deps-build-protobuf-host" -G Ninja \
