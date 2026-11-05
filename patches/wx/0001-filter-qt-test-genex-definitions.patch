@@ -1,0 +1,27 @@
+# KiCad-IOS port patch 0001 (wxWidgets v3.3.4, wxWindows licence)
+# Filter Qt6::Test testcase generator-expression definitions out of the
+# compile definitions wx exports through wx-config. Without this, KiCad's
+# CMake generation fails in pcbnew's SWIG custom command. See
+# MODIFICATIONS.md. Apply with: patch -p1 (from the wx source root).
+#
+diff --git a/build/cmake/toolkit.cmake b/build/cmake/toolkit.cmake
+--- a/build/cmake/toolkit.cmake
++++ b/build/cmake/toolkit.cmake
+@@ -151,6 +151,17 @@ if(WXQT)
+     endforeach()
+     set(wxTOOLKIT_VERSION ${Qt${QT_VERSION_MAJOR}Core_VERSION})
+ 
++    # [KiCad-IOS port] Modified 2026-11-04: Qt6::Test exports testcase
++    # compile definitions containing $<TARGET_PROPERTY:...> generator
++    # expressions (QT_TESTCASE_BUILDDIR/SOURCEDIR). wx re-exports every Qt
++    # compile definition through wx-config, and consumers that copy those
++    # definitions into their own custom commands (e.g. KiCad's SWIG flag
++    # collection) then fail CMake generation. These definitions are only
++    # meaningful for Qt's own test targets, so drop any definition that
++    # references TARGET_PROPERTY from the exported set. wxWindows licence;
++    # change recorded in the KiCad-IOS MODIFICATIONS.md.
++    list(FILTER wxTOOLKIT_DEFINITIONS EXCLUDE REGEX "TARGET_PROPERTY")
++
+     if(ANDROID)
+         # A hack to remove _${ANDROID_ABI} that Qt5AndroidSupport.cmake added
+         # which breaks wx-config.
