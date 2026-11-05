@@ -43,7 +43,7 @@ get() { # $1 url  $2 dir
 
 get_git() { # $1 repo  $2 tag  $3 dir  $4 extra clone args
     if [ ! -d "$WORK/deps-src/$3" ]; then
-        git clone --depth 1 --branch "$2" $4 "https://github.com/$1" "$WORK/deps-src/$3" || { echo "CLONE FAILED: $1"; return 1; }
+        git clone --depth 1 --branch "$2" $4 "https://github.com/$1" "$WORK/deps-src/$3" >> "$WORK/logs/fetch-$3.log" 2>&1 || { echo "CLONE FAILED: $1"; return 1; }
     fi
     echo "$WORK/deps-src/$3"
 }
