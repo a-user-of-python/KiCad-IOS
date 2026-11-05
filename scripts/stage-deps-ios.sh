@@ -196,9 +196,20 @@ fetch_tar https://www.cairographics.org/releases/cairo-1.18.2.tar.xz cairo
 # which does not exist in the iOS SDK; cairo's quartz sources actually
 # call CoreGraphics + CoreFoundation. Swap the framework list.
 if grep -q "'CoreFoundation', 'ApplicationServices'" "$SRC/cairo/meson.build"; then
-    sed -i '' "s/'CoreFoundation', 'ApplicationServices'/'CoreFoundation', 'CoreGraphics'/" "$SRC/cairo/meson.build"
+    sed -i '' "s/'CoreFoundation', 'ApplicationServices'/'CoreFoundation', 'CoreGraphics', 'ImageIO'/" "$SRC/cairo/meson.build"
     echo "cairo appleframeworks list patched for iOS"
 fi
+# iOS platform gaps in cairo's quartz backend (fetched-dep tweaks):
+# - CGDisplayCopyColorSpace/CGMainDisplayID are macOS-only display APIs;
+#   both call sites already fall back to the device RGB space, which is
+#   the correct iOS behaviour — call it directly.
+# - _cairo_quartz_image_to_png (debug dump helper) uses ImageIO's
+#   CGImageDestination, present on iOS but previously pulled in via the
+#   ApplicationServices umbrella — include ImageIO explicitly.
+sed -i '' 's/color_space =  CGDisplayCopyColorSpace (CGMainDisplayID ());/color_space = CGColorSpaceCreateDeviceRGB ();/' "$SRC/cairo/src/cairo-quartz-surface.c"
+sed -i '' 's/colorspace = CGDisplayCopyColorSpace (CGMainDisplayID ());/colorspace = CGColorSpaceCreateDeviceRGB ();/' "$SRC/cairo/src/cairo-quartz-image-surface.c"
+sed -i '' 's|#include "cairo-quartz-image.h"|#include "cairo-quartz-image.h"\n\n#include <ImageIO/ImageIO.h>|' "$SRC/cairo/src/cairo-quartz-surface.c"
+grep -c 'CGColorSpaceCreateDeviceRGB' "$SRC/cairo/src/cairo-quartz-surface.c" "$SRC/cairo/src/cairo-quartz-image-surface.c"
 # Same story in cairo's public quartz headers: they include the macOS
 # umbrella headers ApplicationServices/Carbon; everything they use
 # (CGContextRef, CGImage) lives in CoreGraphics on iOS.
