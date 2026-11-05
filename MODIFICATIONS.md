@@ -172,3 +172,15 @@ Each modified upstream file also carries an in-file notice of the form:
   Every other `GetOSX*` call site in the tree already guards with
   `__WXMAC__`; with this change wxQt builds use the generic
   `PYTHON_EXECUTABLE` BOM command, exactly as Linux builds do.
+
+### Dependency-tree build fix — OCCT 7.8.1 vs FreeType >= 2.13 (in-stage, fetched tree only)
+- **File:** `src/StdPrs/StdPrs_BRepFont.cxx` in the OCCT tree fetched by
+  `scripts/stage-occ-ios.sh` (the repo ships no OCCT copy; the edit is
+  applied to the freshly fetched tree on every CI run and asserted).
+- **Change:** `const char* aTags = &anOutline->tags[...]` gains a
+  `(const char*)` cast.
+- **Why:** FreeType 2.13 changed `FT_Outline.tags` to `unsigned char*`;
+  OCCT 7.8.1 predates that. `aTags` is only read through `FT_CURVE_TAG`
+  bit masks, so the cast is semantics-preserving. This was the single
+  compile error in OCCT's 5561 build steps for iOS. OCCT is LGPL-2.1 with
+  the Open CASCADE exception; the change is disclosed here per its terms.
