@@ -183,6 +183,7 @@ CPPEOF
         -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -O2 -std=c++17 \
         -I"$QTDIR_IOS/include" -I"$QTDIR_IOS/include/QtCore" \
         -I"$QTDIR_IOS/lib/QtCore.framework/Headers" -F"$QTDIR_IOS/lib" \
+        -include arm_acle.h \
         -c "$WORK/glshim/qt_plugin_import.cpp" \
         -o "$WORK/glshim/qt_plugin_import.o"
     PLUGIN_RC=$?
