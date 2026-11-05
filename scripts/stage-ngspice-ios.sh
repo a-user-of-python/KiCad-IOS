@@ -11,7 +11,7 @@ set -ux
 
 NG_VER=44.2
 if [ ! -d "$SRC/ngspice" ]; then
-    ( cd "$WORK" && curl -sL "https://sourceforge.net/projects/ngspice/files/ng-spice-rework/$NG_VER/ngspice-$NG_VER.tar.gz/download" -o ngspice.tar.gz \
+    ( cd "$WORK" && curl -sL "https://downloads.sourceforge.net/project/ng-spice-rework/$NG_VER/ngspice-$NG_VER.tar.gz" -o ngspice.tar.gz \
       && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
 fi
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -30,4 +30,4 @@ echo "NG_MAKE_RC=$?"
 make install >> "$LOG" 2>&1
 echo "NG_INSTALL_RC=$?"
 find "$SYSROOT" -name '*ngspice*' | head
-ls "$SYSROOT/include/ngspice/sharedspice.h" && echo "RESULT: ngspice iOS OK" || echo "RESULT: ngspice headers missing"
+if ls "$SYSROOT/include/ngspice/sharedspice.h"; then echo "RESULT: ngspice iOS OK"; else echo "RESULT: ngspice headers missing"; exit 3; fi
