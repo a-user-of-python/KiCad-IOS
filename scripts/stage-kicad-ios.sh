@@ -86,10 +86,14 @@ cp "$WORK/glshim/GL/gl.h" "$WORK/glshim/OpenGL/gl.h"
 cp "$PWD/glu/glu.h" "$WORK/glshim/OpenGL/glu.h"
 xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
     -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -O2 \
-    -I"$SYSROOT/include" -c "$PWD/glu/glu_tess_adapter.c" \
+    -I"$SYSROOT/include" -I"$PWD/glu" -c "$PWD/glu/glu_tess_adapter.c" \
     -o "$WORK/glshim/glu_tess_adapter.o" >> "$WORK/logs/kicad-ios.log" 2>&1 \
-    && ar rcs "$WORK/glshim/libgluadapter.a" "$WORK/glshim/glu_tess_adapter.o" \
-    || echo "WARNING: GLU tess adapter failed to build"
+    && xcrun --sdk iphoneos clang -target arm64-apple-ios17.0 \
+    -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -O2 \
+    -I"$PWD/glu" -c "$PWD/glu/glu_quadric_adapter.c" \
+    -o "$WORK/glshim/glu_quadric_adapter.o" >> "$WORK/logs/kicad-ios.log" 2>&1 \
+    && ar rcs "$WORK/glshim/libgluadapter.a" "$WORK/glshim/glu_tess_adapter.o" "$WORK/glshim/glu_quadric_adapter.o" \
+    || echo "WARNING: GLU adapters failed to build"
 SDK_PATH_IOS="$(xcrun --sdk iphoneos --show-sdk-path)"
 OGL_FW="$SDK_PATH_IOS/System/Library/Frameworks/OpenGLES.framework"
 
@@ -174,13 +178,20 @@ Q_IMPORT_PLUGIN(QGifPlugin)
 Q_IMPORT_PLUGIN(QICOPlugin)
 Q_IMPORT_PLUGIN(QJpegPlugin)
 CPPEOF
+    ls "$QTDIR_IOS/include/QtCore/QtPlugin" || echo "QtPlugin header NOT at include/QtCore"
     xcrun --sdk iphoneos clang++ -target arm64-apple-ios17.0 \
         -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" -O2 -std=c++17 \
         -I"$QTDIR_IOS/include" -I"$QTDIR_IOS/include/QtCore" \
+        -I"$QTDIR_IOS/lib/QtCore.framework/Headers" -F"$QTDIR_IOS/lib" \
         -c "$WORK/glshim/qt_plugin_import.cpp" \
-        -o "$WORK/glshim/qt_plugin_import.o" >> "$WORK/logs/kicad-ios.log" 2>&1 \
-        && PLUGIN_ITEMS="$WORK/glshim/qt_plugin_import.o -Wl,-force_load,$QIOS_LIB $QGIF_LIB $QICO_LIB $QJPEG_LIB" \
-        || echo "WARNING: Qt plugin import TU failed to compile"
+        -o "$WORK/glshim/qt_plugin_import.o"
+    PLUGIN_RC=$?
+    echo "PLUGIN_TU_RC=$PLUGIN_RC"
+    if [ "$PLUGIN_RC" = "0" ]; then
+        PLUGIN_ITEMS="$WORK/glshim/qt_plugin_import.o -Wl,-force_load,$QIOS_LIB $QGIF_LIB $QICO_LIB $QJPEG_LIB"
+    else
+        echo "WARNING: Qt plugin import TU failed to compile"
+    fi
 fi
 echo "PLUGIN_ITEMS: $PLUGIN_ITEMS"
 
@@ -206,8 +217,8 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DKICAD_BUILD_QA_TESTS=OFF \
     -DKICAD_BUILD_I18N=OFF \
     -DKICAD_INSTALL_DEMOS=OFF \
-    -DCMAKE_C_FLAGS="-I$WORK/glshim" \
-    -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES" \
+    -DCMAKE_C_FLAGS="-I$WORK/glshim -DNANODBC_USE_IODBC_WIDE_STRINGS" \
+    -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES -DNANODBC_USE_IODBC_WIDE_STRINGS" \
     -DCMAKE_SHARED_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
     -DCMAKE_MODULE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
     -DCMAKE_EXE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS $PLUGIN_ITEMS" \
@@ -226,17 +237,17 @@ grep -E "error:" "$WORK/logs/kicad-ios.log" | sort | uniq -c | sort -rn | head -
 if [ "$BLD_RC" != "0" ]; then echo "RESULT: KiCad iOS build FAILED — see error catalogue"; exit 3; fi
 echo "RESULT: KiCad manager built for iOS arm64"
 
-# Package the manager into an unsigned IPA (the user re-signs with his own
-# tooling). See scripts/package_ios.py for the layout rules.
-python3 "$PWD/scripts/package_ios.py" "$WORK" "$BLD" "$SYSROOT" "$QTDIR_IOS"
-echo "PACKAGE_RC=$?"
-
-# Full-build catalogue: every remaining target (all kifaces incl.
-# eeschema/pcbnew, 3d-viewer, tools) with -k 0. Exploratory: its result
-# does not fail this stage now that the manager + IPA exist.
+# Full build: every remaining target (all kifaces incl. eeschema/
+# pcbnew, 3d-viewer, tools) with -k 0.
 cmake --build "$BLD" -j4 -- -k 0
 FULL_RC=$?
 echo "KICAD_IOS_FULL_BUILD_RC=$FULL_RC"
 echo "--- full-build error summary (unique errors) ---"
 grep -E "error:" "$WORK/logs/kicad-ios.log" | sort | uniq -c | sort -rn | head -40 || true
 if [ "$FULL_RC" = "0" ]; then echo "RESULT: FULL KiCad build (all kifaces) OK for iOS arm64"; else echo "RESULT: full build incomplete — see catalogue above"; fi
+
+# Package whatever built (manager + any kifaces) into an unsigned IPA
+# (the user re-signs with his own tooling). Runs last so the kifaces are
+# included. See scripts/package_ios.py for the layout rules.
+python3 "$PWD/scripts/package_ios.py" "$WORK" "$BLD" "$SYSROOT" "$QTDIR_IOS"
+echo "PACKAGE_RC=$?"
