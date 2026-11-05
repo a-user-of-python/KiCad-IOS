@@ -106,3 +106,20 @@ Each modified upstream file also carries an in-file notice of the form:
    "wxWidgets wx/version.h file not found". The patch strips `-I` only
    at list-element starts; behaviour is unchanged for all other paths.
    In-file notice included in the patch.
+
+4. **`include/kiway.h`** — 2026-11-04 —
+   `patches/kicad/0004-kiway-lib-env-var-by-os.patch`.
+   LIB_ENV_VAR was selected by wx port macro (`__WXMAC__`); wxQt never
+   defines it, so every TU including kiway.h hit `#error Platform
+   support missing` (37 diagnostics — the largest class in the desktop
+   wxQt catalogue). Select by OS (`__APPLE__`) instead. In-file notice
+   included in the patch.
+
+5. **`common/eda_doc.cpp`** — 2026-11-04 —
+   `patches/kicad/0005-eda-doc-mimetype-guard.patch`.
+   Guard the wxMimeTypesManager fallback table and lookup on
+   `wxUSE_MIMETYPE`. wxQt has no mime-types backend (wx's only impl
+   needs macOS LaunchServices/legacy UTI APIs, absent on iOS), so the
+   port builds wx with wxUSE_MIMETYPE=OFF. Without it the function
+   takes its existing "Unknown MIME type" path; PDFs (OpenPDF) are
+   unaffected. In-file notice included in the patch.
