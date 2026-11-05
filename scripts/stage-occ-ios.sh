@@ -35,4 +35,4 @@ cmake --build "$WORK/build-occ-ios" -j4 >> "$LOG" 2>&1
 echo "OCC_BUILD_RC=$?"
 cmake --install "$WORK/build-occ-ios" >> "$LOG" 2>&1
 echo "OCC_INSTALL_RC=$?"
-ls "$SYSROOT/lib/cmake/opencascade/OpenCASCADEConfig.cmake" && echo "RESULT: OCC iOS OK" || echo "RESULT: OCC iOS FAILED"
+if ls "$SYSROOT/lib/cmake/opencascade/OpenCASCADEConfig.cmake"; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
