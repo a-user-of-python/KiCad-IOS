@@ -109,8 +109,8 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_C_FLAGS="-I$WORK/glshim" \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES" \
     -DOPENGL_INCLUDE_DIR="$OGL_FW/Headers" \
-    -DOPENGL_opengl_LIBRARY="$OGL_FW/OpenGLES" \
-    -DOPENGL_gl_LIBRARY="$OGL_FW/OpenGLES"
+    -DOPENGL_opengl_LIBRARY="$OGL_FW" \
+    -DOPENGL_gl_LIBRARY="$OGL_FW"
 CFG_RC=$?
 echo "KICAD_IOS_CONFIGURE_RC=$CFG_RC"
 if [ "$CFG_RC" != "0" ]; then echo "RESULT: KiCad iOS configure FAILED"; exit 2; fi
