@@ -27,6 +27,7 @@ if [ ! -x "$WORK/swig421/bin/swig" ]; then
   if [ ! -x "$WORK/swig-4.2.1/configure" ]; then
     ( cd "$WORK" && curl -sL "https://github.com/swig/swig/archive/refs/tags/v4.2.1.tar.gz" -o swig421.tgz && tar -xzf swig421.tgz ) >> "$WORK/logs/swig421.log" 2>&1
   fi
+  brew install automake autoconf 2>&1 | tail -1
   ( cd "$WORK/swig-4.2.1" && { [ -x ./configure ] || ./autogen.sh; } && ./configure --prefix="$WORK/swig421" --without-pcre && make -j8 && make install ) >> "$WORK/logs/swig421.log" 2>&1 || echo "SWIG421 BUILD FAILED — see logs/swig421.log"
 fi
 if [ -x "$WORK/swig421/bin/swig" ]; then
