@@ -73,7 +73,12 @@ if [ ! -x "$WORK/deps-build-protobuf-host/protoc" ]; then
     cmake --build "$WORK/deps-build-protobuf-host" -j"$JOBS" --target protoc 2>&1 | tee "$WORK/logs/dep-protobuf-host-build.log"
 fi
 if [ -x "$WORK/deps-build-protobuf-host/protoc" ]; then
+    # CMAKE_OSX_ARCHITECTURES as a cache var: abseil's Apple copts branch
+    # builds fat-binary -Xarch_ flags from it; with only arm64 cached it
+    # emits just the arm64 flags (the toolchain's normal var was ignored,
+    # and Xcode 26 clang rejects -msse4.1 even behind -Xarch_x86_64).
     build_cmake_dep protobuf "$PB_SRC" -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF \
+        -DCMAKE_OSX_ARCHITECTURES=arm64 \
         -Dprotobuf_BUILD_PROTOC_BINARIES=OFF -DProtobuf_PROTOC_EXECUTABLE="$WORK/deps-build-protobuf-host/protoc" \
         || FAILED="$FAILED protobuf"
 else
