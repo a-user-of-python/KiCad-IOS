@@ -13,6 +13,7 @@ if [ ! -f "$WORK/build-wx-desktop/wx-config" ]; then
     bash scripts/stage-wx-desktop.sh || echo "wx desktop stage failed; continuing to capture KiCad configure behaviour anyway"
 fi
 fetch_kicad
+apply_patches "$SRC/kicad" kicad
 
 log "installing KiCad desktop build deps (brew)"
 brew install boost glm cairo pixman freetype harfbuzz curl opencascade glew ngspice protobuf swig fontconfig zstd libgit2 2>&1 | tail -3
