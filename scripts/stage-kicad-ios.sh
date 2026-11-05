@@ -18,6 +18,23 @@ fetch_kicad
 apply_patches "$SRC/kicad" kicad
 brew install swig 2>&1 | tail -1
 
+# protoc fallback: normally restored from the deps artifact's stash;
+# build the host protoc in-job if it is missing.
+if [ ! -x "$WORK/host-tools/protoc" ]; then
+    echo "building host protoc in-job (fallback)"
+    PB_SRC_FB="$SRC/protobuf-fb"
+    if [ ! -d "$PB_SRC_FB" ]; then
+        git clone --depth 1 --branch v25.1 --recurse-submodules --shallow-submodules \
+            https://github.com/protocolbuffers/protobuf "$PB_SRC_FB" >> "$WORK/logs/kicad-ios.log" 2>&1
+    fi
+    cmake -S "$PB_SRC_FB" -B "$WORK/build-protobuf-host-fb" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_EXAMPLES=OFF >> "$WORK/logs/kicad-ios.log" 2>&1
+    cmake --build "$WORK/build-protobuf-host-fb" -j4 --target protoc >> "$WORK/logs/kicad-ios.log" 2>&1
+    mkdir -p "$WORK/host-tools"
+    cp "$WORK/build-protobuf-host-fb/protoc" "$WORK/host-tools/protoc" || true
+fi
+ls -la "$WORK/host-tools/" || true
+
 WXCFG="$WORK/build-wx-ios/wx-config"
 "$WXCFG" --selected-config || true
 
