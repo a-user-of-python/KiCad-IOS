@@ -230,3 +230,18 @@ Each modified upstream file also carries an in-file notice of the form:
   branch), iOS now selects no OS source set; the link catalogue will
   enumerate exactly which `KIPLATFORM` OS functions need iOS
   implementations under `os/ios/`.
+
+### KiCad patch 0012 — nanodbc-iodbc-wide-traits-guard
+- **File:** `thirdparty/nanodbc/nanodbc/nanodbc.cpp` (KiCad's bundled
+  nanodbc, which carries a KiCad-specific addition)
+- **Change:** KiCad's Apple/Clang≥17 `char_traits` shim is skipped when
+  `NANODBC_USE_IODBC_WIDE_STRINGS` is defined (condition plus in-file
+  notice).
+- **Why:** The shim defines `std::char_traits<NANODBC_SQLCHAR>` for
+  platforms where libc++ dropped the generic template. With iODBC wide
+  strings — the only ODBC configuration on iOS — `NANODBC_SQLCHAR` is
+  `SQLWCHAR`, i.e. `wchar_t`, and libc++ still provides the standard
+  `char_traits<wchar_t>`, so the shim is a redefinition error
+  (iOS build run 42014900926, the only error in 85 attempted steps).
+  The shim remains in place for the non-wide `unsigned char`
+  configuration it was written for (e.g. the desktop unixODBC build).
