@@ -73,6 +73,16 @@ Each modified upstream file also carries an in-file notice of the form:
    41949832814, macro probe: wxUSE_MENUBAR 0 despite setup.h = 1). Qt
    on iOS provides all of these widgets. In-file notice included.
 
+### wx patch 0007 — scrolwin-handler-access
+- **File:** `include/wx/scrolwin.h` (wxWidgets 3.3.4)
+- **Change:** The `HandleOn*` event-handler methods of `wxScrollHelperBase`
+  are public again (one added `public:` label plus an in-file notice).
+- **Why:** wx 3.3 moved these methods to `private`; in wx 3.2 — the version
+  KiCad 10.0.1 is written and shipped against — they are public, and KiCad
+  code calls them (e.g. `PANEL_PACKAGES_VIEW::OnInfoMouseWheel` calls
+  `wxScrolledWindow::HandleOnMouseWheel`). Restores the wx 3.2 access
+  semantics without changing any behaviour.
+
 ### KiCad 10.0.1
 
 1. **`CMakeLists.txt`** — 2026-11-04 —
@@ -133,3 +143,10 @@ Each modified upstream file also carries an in-file notice of the form:
    Qt-backed port implementation; macOS/GTK-only workarounds are
    no-ops, cookie functions report failure (no wxWebView backend).
    In-file notices included in the patch.
+
+### Build-system note — SWIG pinned to 4.2.1 (no source change)
+- The CI stages build SWIG 4.2.1 from source instead of using Homebrew's
+  SWIG (4.5.1 at time of writing): KiCad 10.0.1's SWIG interface files use
+  `PyInt_*`/`PyString_*` aliases that SWIG >= 4.3 removed from its generated
+  Python runtime prelude, so 4.5-generated `pcbnew_wrap.cxx` does not
+  compile. No KiCad or wx source is modified for this.
