@@ -73,6 +73,11 @@ printf '#pragma once\n#include <OpenGLES/ES3/gl.h>\n#include <OpenGLES/ES3/glext
 SDK_PATH_IOS="$(xcrun --sdk iphoneos --show-sdk-path)"
 OGL_FW="$SDK_PATH_IOS/System/Library/Frameworks/OpenGLES.framework"
 
+# nanodbc (bundled) locates its ODBC driver manager by running the
+# iodbc-config program, searching $ODBC_PATH/bin first. Our sysroot ships
+# bin/iodbc-config (deps stage); point nanodbc at it.
+export ODBC_PATH="$SYSROOT"
+
 BLD="$WORK/build-kicad-ios"
 mkdir -p "$BLD"
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
