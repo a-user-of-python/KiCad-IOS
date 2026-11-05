@@ -233,7 +233,7 @@ probe "fontconfig/fontconfig.h" "cairo/cairo.h" "pixman-1/pixman.h"
 # and the ODBC manager KiCad's bundled nanodbc insists on).
 log "part 3: glm, boost.locale, iodbc"
 
-GLM_SRC="$(get https://github.com/g-truc/glm/releases/download/1.0.1/glm-1.0.1.zip glm)"
+GLM_SRC="$(get https://github.com/g-truc/glm/archive/refs/tags/1.0.1.zip glm)"
 if [ -d "$GLM_SRC/glm" ]; then
     rm -rf "$SYSROOT/include/glm"
     cp -R "$GLM_SRC/glm" "$SYSROOT/include/glm"
@@ -244,6 +244,16 @@ fi
 
 BOOST_SRC="$(get https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz boost)"
 if [ -n "$BOOST_SRC" ] && [ -d "$BOOST_SRC/libs/locale" ]; then
+    # The release tarball omits the superproject root CMakeLists.txt
+    # (per-lib CMakeLists + tools/cmake ARE included). Recreate the
+    # standard 1.86 superproject driver in the extracted tree;
+    # BOOST_INCLUDE_LIBRARIES prunes to locale + its dependency closure.
+    cat > "$BOOST_SRC/CMakeLists.txt" <<'BOOSTDRIVER'
+cmake_minimum_required(VERSION 3.20)
+project(Boost VERSION 1.86.0 LANGUAGES CXX)
+list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/tools/cmake/include)
+include(BoostRoot)
+BOOSTDRIVER
     build_cmake_dep boost "$BOOST_SRC" -DBOOST_INCLUDE_LIBRARIES=locale -DBOOST_ENABLE_MPI=OFF -DBOOST_ENABLE_PYTHON=OFF \
         || FAILED="$FAILED boost"
 else
@@ -265,7 +275,7 @@ chmod +x "$WORK/cc-ios.sh" "$WORK/cxx-ios.sh"
 IODBC_SRC="$(get https://github.com/openlink/iODBC/releases/download/v3.52.16/libiodbc-3.52.16.tar.gz iodbc)"
 if [ -n "$IODBC_SRC" ] && [ -x "$IODBC_SRC/configure" ]; then
     ( cd "$IODBC_SRC" \
-      && CC="$WORK/cc-ios.sh" CXX="$WORK/cxx-ios.sh" ./configure --host=arm64-apple-darwin --build=x86_64-apple-darwin \
+      && CC="$WORK/cc-ios.sh" CXX="$WORK/cxx-ios.sh" ./configure --host=aarch64-apple-darwin --build=x86_64-apple-darwin \
            --prefix="$SYSROOT" --enable-static --disable-shared --disable-gui --without-iodbcadm \
       && make -j"$JOBS" && make install ) >> "$WORK/logs/dep-iodbc-build.log" 2>&1 \
         || FAILED="$FAILED iodbc"
