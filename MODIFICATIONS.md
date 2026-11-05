@@ -329,12 +329,14 @@ Each modified upstream file also carries an in-file notice of the form:
   linkage: with a static wxWidgets (iOS), wx's own copy inside
   libwx_core collides with it; shared wx never exports the symbol.
   (CI run 42075801437: duplicate symbol in _eeschema/_pcbnew links.)
-- `patches/kicad/0017-nanosvg-hidden-visibility.patch` — compile
-  KiCad's bundled nanosvg with -fvisibility=hidden. wxWidgets bundles
-  its own nanosvg (bmpsvg); with static wx the two copies' globals
-  (nsvg__colors, nsvg__parseXML) collide in the same links. Hidden
-  visibility makes KiCad's copy link-local while staying resolvable
-  inside each static link. (CI run 42075801437.)
+- `patches/kicad/0017-nanosvg-missing-statics.patch` — give
+  nsvg__parseXML and nsvg__colors internal linkage in KiCad's bundled
+  nanosvg. Every other nsvg__ helper in the file is already `static`;
+  these two were missed. wxWidgets bundles its own nanosvg (bmpsvg);
+  with static wx the two global definitions collide in the kiface
+  links. (CI runs 42075801437, 42105125045. An earlier attempt used
+  -fvisibility=hidden on the nanosvg target; ld64 still reported the
+  duplicates, so the fix moved to the source.)
 
 - `patches/kicad/0018-kicad-exe-qt-plugin-items.patch` — kicad
   executable only: apply the stage-provided KICAD_IOS_PLUGIN_ITEMS
