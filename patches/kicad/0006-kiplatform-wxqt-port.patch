@@ -43,7 +43,7 @@ New files carry the standard KiCad GPL header. Modified/new files
          port/wxgtk/ui.cpp
 --- /dev/null
 +++ b/libs/kiplatform/port/wxqt/ui.cpp
-@@ -0,0 +1,239 @@
+@@ -0,0 +1,238 @@
 +/*
 + * This program source code file is part of KiCad, a free EDA CAD application.
 + *
@@ -122,9 +122,7 @@ New files carry the standard KiCad GPL header. Modified/new files
 +    // Present the containing top-level window so it actually receives
 +    // keyboard events (the wx-generic equivalent of the GTK port's
 +    // gtk_window_present call).
-+    wxTopLevelWindow* tlw = wxGetTopLevelParent( aWindow );
-+
-+    if( tlw )
++    if( wxWindow* tlw = wxGetTopLevelParent( aWindow ) )
 +        tlw->Raise();
 +}
 +
@@ -134,7 +132,8 @@ New files carry the standard KiCad GPL header. Modified/new files
 +    if( !aWindow )
 +        return false;
 +
-+    wxTopLevelWindow* tlw = wxGetTopLevelParent( aWindow );
++    wxTopLevelWindow* tlw =
++            wxDynamicCast( wxGetTopLevelParent( aWindow ), wxTopLevelWindow );
 +
 +    return tlw && tlw->IsActive();
 +}
