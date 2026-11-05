@@ -1,0 +1,28 @@
+[KiCad-IOS port] kiway.h: select LIB_ENV_VAR by OS, not by wx port
+
+LIB_ENV_VAR was chosen by wx port macro: __WXMAC__ -> DYLD_LIBRARY_PATH.
+Under the wxQt port __WXMAC__ is never defined, even on macOS/iOS, so
+every translation unit including kiway.h hit "#error Platform support
+missing" (37 diagnostics in the desktop wxQt catalogue — the single
+largest error class). The loader variable is a property of the host
+OS, so test __APPLE__ (defined by the compiler on macOS and iOS for
+every wx port) instead. No behaviour change for wxMSW/wxGTK/wxOSX.
+
+Modified file (GPL-3.0-or-later, same license as upstream):
+  include/kiway.h
+
+--- a/include/kiway.h
++++ b/include/kiway.h
+@@ -117,7 +117,11 @@
+ #ifndef SWIG
+ #if defined(__linux__) || defined(__FreeBSD__)
+  #define LIB_ENV_VAR    wxT( "LD_LIBRARY_PATH" )
+-#elif defined(__WXMAC__)
++#elif defined(__APPLE__)
++ // [KiCad-IOS port] Test the OS, not the wx port: under wxQt __WXMAC__
++ // is never defined (the port is __WXQT__), so the old test fell into
++ // the #error below on Apple hosts. __APPLE__ covers macOS and iOS
++ // for every wx port.
+  #define LIB_ENV_VAR    wxT( "DYLD_LIBRARY_PATH" )
+ #elif defined(_WIN32)
+  #define LIB_ENV_VAR    wxT( "PATH" )
