@@ -99,6 +99,22 @@ find "$SYSROOT" -name "*.a" | sort | tee "$WORK/logs/sysroot-libs.txt"
 if [ -n "$FAILED" ]; then echo "RESULT: deps part 1 PARTIAL — failed:$FAILED"; exit 3; fi
 echo "RESULT: deps part 1 OK"
 
+# CMake-built zlib installs no zlib.pc, but freetype2.pc and libpng.pc
+# both "Requires: zlib" — meson/pkg-config chains fail without it.
+mkdir -p "$SYSROOT/lib/pkgconfig"
+cat > "$SYSROOT/lib/pkgconfig/zlib.pc" <<EOF3
+prefix=$SYSROOT
+exec_prefix=\${prefix}
+libdir=\${prefix}/lib
+includedir=\${prefix}/include
+
+Name: zlib
+Description: zlib compression library
+Version: 1.3.1
+Libs: -L\${libdir} -lz
+Cflags: -I\${includedir}
+EOF3
+
 # ---------------------------------------------------------------- meson
 # pixman / cairo / fontconfig are meson projects. One generated cross file.
 SDK_PATH="$(xcrun --sdk iphoneos --show-sdk-path)"
