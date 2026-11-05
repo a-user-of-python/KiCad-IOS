@@ -55,6 +55,13 @@ Each modified upstream file also carries an in-file notice of the form:
    wxQt instead of falling back to Carbon's `Gestalt()`, which does not
    exist on iOS (CI run 41946411983). In-file notice included.
 
+5. **`src/unix/utilsunx.cpp`** — 2026-11-04 —
+   `patches/wx/0005-wxshutdown-no-system-ios.patch`.
+   `wxShutdown()` called `system("init …")`; `system()` is marked
+   unavailable in the iOS SDK. Extend the existing wxOSX-iPhone
+   early-return branch to wxQt-on-Apple (CI run 41947031204). In-file
+   notice included.
+
 ### KiCad 10.0.1
 
 1. **`CMakeLists.txt`** — 2026-11-04 —
