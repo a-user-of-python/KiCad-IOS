@@ -270,7 +270,7 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/libs/numeric/conversion/CMakeLists.txt)
   add_subdirectory(libs/numeric/conversion libs/numeric/conversion/build-ios)
 endif()
 BOOSTDRIVER
-    BOOST_LIBS="algorithm;align;array;assert;atomic;bind;chrono;concept_check;config;container;container_hash;core;date_time;describe;detail;exception;function;integer;io;iterator;lexical_cast;locale;move;mp11;mpl;predef;preprocessor;ratio;smart_ptr;static_assert;system;thread;throw_exception;tuple;type_traits;typeof;utility;variant2;winapi"
+    BOOST_LIBS="algorithm;align;array;assert;atomic;bind;chrono;concept_check;config;container;container_hash;conversion;core;date_time;describe;detail;exception;function;function_types;integer;io;iterator;lexical_cast;intrusive;locale;move;mp11;mpl;optional;predef;preprocessor;range;ratio;smart_ptr;static_assert;system;thread;throw_exception;tuple;type_traits;typeof;utility;variant2;winapi"
     build_cmake_dep boost "$BOOST_SRC" "-DBOOST_SUBSET_LIBS=$BOOST_LIBS" \
         || FAILED="$FAILED boost"
 else
