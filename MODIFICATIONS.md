@@ -245,3 +245,35 @@ Each modified upstream file also carries an in-file notice of the form:
   (iOS build run 42014900926, the only error in 85 attempted steps).
   The shim remains in place for the non-wide `unsigned char`
   configuration it was written for (e.g. the desktop unixODBC build).
+
+### KiCad patch 0013 — kiplatform-ios-os-layer
+- **Files:** New directory `libs/kiplatform/os/ios/` (app.cpp,
+  drivers.cpp, environment.mm, io.cpp, policy.cpp, printing.cpp,
+  secrets.cpp, sysinfo.cpp) + one block in
+  `libs/kiplatform/CMakeLists.txt` selecting them (with Security and
+  CFNetwork frameworks) when `CMAKE_SYSTEM_NAME` is iOS.
+- **Why:** With the macOS and Linux OS branches excluded on iOS
+  (patches 0007/0011), the libkicommon link enumerated exactly the
+  missing OS surface (iOS build run 42046911806: 12 undefined
+  `KIPLATFORM::` functions). This patch implements that surface — plus
+  the rest of the functions the same files define, which the manager
+  and editor links will require — by porting KiCad's own os/apple and
+  os/unix implementations to the APIs iOS provides:
+  - `SECRETS`: the macOS Keychain implementation verbatim — the
+    Security framework C API (SecItem*) is identical on iOS.
+  - `ENV` paths: wxStandardPaths (wxQt → QStandardPaths) and
+    NSFileManager for the caches directory.
+  - `ENV::GetSystemProxyConfig`: the macOS implementation's CFNetwork
+    core (CFNetworkCopySystemProxySettings /
+    CFNetworkCopyProxiesForURL / PAC evaluation via NSURLSession) —
+    all available on iOS; wxCFStringRef conversions replaced with
+    plain CFString helpers since wxCFStringRef is wxOSX-only.
+  - `IO`: POSIX implementations (the macOS SeqFOpen, stat/chmod
+    permission helpers, fnmatch TimestampDir, mmap MAPPED_FILE) —
+    all plain POSIX on iOS.
+  - `APP`/`POLICY`: the macOS stub semantics.
+  - Honest platform gaps, documented in-file: `ENV::MoveToTrash`
+    returns false (iOS has no Trash API for apps; KiCad's callers fall
+    back to permanent deletion) and `PRINTING::PrintPDF` returns
+    PRINT_RESULT::UNSUPPORTED (iOS printing is the asynchronous UIKit
+    print controller, which does not fit this synchronous API).
