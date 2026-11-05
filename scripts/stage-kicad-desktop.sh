@@ -25,7 +25,7 @@ NGH="$WORK/ngspice-host"
 if [ ! -f "$NGH/lib/libngspice.dylib" ]; then
     log "building libngspice (host) from source"
     if [ ! -d "$SRC/ngspice" ]; then
-        ( cd "$WORK" && curl -sL "https://downloads.sourceforge.net/project/ng-spice-rework/44.2/ngspice-44.2.tar.gz" -o ngspice.tar.gz \
+        ( cd "$WORK" && curl -sL "https://distfiles.macports.org/ngspice/ngspice-44.2.tar.gz" -o ngspice.tar.gz \
           && mkdir -p "$SRC/ngspice" && tar -xzf ngspice.tar.gz -C "$SRC/ngspice" --strip-components=1 )
     fi
     ( cd "$SRC/ngspice" && ./configure --with-ngshared --without-x --disable-openmp --prefix="$NGH" >> "$WORK/logs/ngspice-host.log" 2>&1 \
