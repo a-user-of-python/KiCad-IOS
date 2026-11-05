@@ -21,6 +21,8 @@ WX_FORK_REPO="https://github.com/wxWidgets/wxWidgets.git"
 WX_FORK_BRANCH="v3.3.4"
 
 WORK="${WORK:-$PWD/work}"
+SYSROOT="$WORK/sysroot-ios"
+export SYSROOT
 SRC="$WORK/src"
 QT_ROOT="$WORK/Qt"
 mkdir -p "$SRC" "$WORK/logs"
