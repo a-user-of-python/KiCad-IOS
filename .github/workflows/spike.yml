@@ -198,7 +198,8 @@ jobs:
       - name: Restore host tools
         run: |
           mkdir -p work/host-tools
-          if [ -f work/sysroot-ios/host-tools/protoc ]; then cp work/sysroot-ios/host-tools/protoc work/host-tools/protoc && chmod +x work/host-tools/protoc; else echo "no stashed protoc"; fi
+          if [ -d work/sysroot-ios/host-tools ]; then cp -R work/sysroot-ios/host-tools/. work/host-tools/ && chmod +x work/host-tools/bin/protoc; else echo "no stashed host-tools"; fi
+          ls -la work/host-tools/ work/host-tools/bin/ 2>/dev/null || true
           ls work/sysroot-ios/lib | head -30
       - name: Install Qt 6.9.3 (iOS + desktop host kits)
         run: |
