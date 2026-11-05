@@ -260,6 +260,9 @@ cmake_minimum_required(VERSION 3.20)
 project(boost_subset VERSION 1.86.0 LANGUAGES CXX)
 set(BOOST_SUPERPROJECT_VERSION "1.86.0")
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/tools/cmake/include)
+# The release tarball hoists all headers into the root boost/ tree;
+# the per-lib include/ dirs the CMakeLists reference are empty here.
+include_directories(${PROJECT_SOURCE_DIR})
 foreach(lib IN LISTS BOOST_SUBSET_LIBS)
   if(EXISTS ${PROJECT_SOURCE_DIR}/libs/${lib}/CMakeLists.txt)
     add_subdirectory(libs/${lib} libs/${lib}/build-ios)
