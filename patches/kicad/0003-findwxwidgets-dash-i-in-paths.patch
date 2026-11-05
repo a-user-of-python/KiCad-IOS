@@ -1,0 +1,36 @@
+[KiCad-IOS port] FindwxWidgets: do not corrupt paths containing "-I"
+
+Upstream bug, hit for real by this port: FindwxWidgets extracts the
+wx include directories from `wx-config --cxxflags` and then strips the
+"-I" prefix with a global string(REPLACE "-I" "" ...). That replaces
+EVERY occurrence of the two characters "-I" in the whole string --
+including inside directory names. Any checkout path containing "-I"
+(e.g. a repository named "KiCad-IOS", so every CI path reads
+.../work/KiCad-IOS/KiCad-IOS/...) is mangled to "KiCadOS", the paths
+stop existing, and configure dies with
+"wxWidgets wx/version.h file not found in .../KiCadOS/...".
+
+Fix: strip "-I" only where it starts a list element (the element
+separator is ";"). Behaviour is identical for all previously working
+paths.
+
+Modified file (GPL-3.0-or-later, same license as upstream):
+  cmake/FindwxWidgets.cmake
+
+--- a/cmake/FindwxWidgets.cmake
++++ b/cmake/FindwxWidgets.cmake
+@@ -841,7 +841,13 @@
+           wxWidgets_INCLUDE_DIRS "${wxWidgets_CXX_FLAGS}")
+         string(REGEX REPLACE "-I[^;]+;" ""
+           wxWidgets_CXX_FLAGS "${wxWidgets_CXX_FLAGS}")
+-        string(REPLACE "-I" ""
++        # [KiCad-IOS port] Strip "-I" only at the start of each list
++        # element. A global REPLACE also eats "-I" inside directory
++        # names (e.g. a "KiCad-IOS" checkout path), corrupting them.
++        string(PREPEND wxWidgets_INCLUDE_DIRS ";")
++        string(REPLACE ";-I" ";"
++          wxWidgets_INCLUDE_DIRS "${wxWidgets_INCLUDE_DIRS}")
++        string(REGEX REPLACE "^;" ""
+           wxWidgets_INCLUDE_DIRS "${wxWidgets_INCLUDE_DIRS}")
+ 
+         # Flags are a string, not a list, fix it here
