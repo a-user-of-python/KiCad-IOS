@@ -22,6 +22,9 @@ cmake -S "$SRC/occt" -B "$WORK/build-occ-ios" -G Ninja \
     -DBUILD_DOC_Overview=OFF \
     -DINSTALL_TEST_CASES=OFF \
     -DUSE_FREETYPE=ON \
+    -D3RDPARTY_FREETYPE_DIR="$SYSROOT" \
+    -DFREETYPE_INCLUDE_DIRS="$SYSROOT/include/freetype2" \
+    -DFREETYPE_LIBRARY="$SYSROOT/lib/libfreetype.a" \
     -DUSE_TBB=OFF \
     -DUSE_VTK=OFF \
     -DUSE_FFMPEG=OFF \
@@ -32,8 +35,14 @@ cmake -S "$SRC/occt" -B "$WORK/build-occ-ios" -G Ninja \
     -DUSE_XLIB=OFF \
     > "$LOG" 2>&1
 echo "OCC_CONFIGURE_RC=$?"
-cmake --build "$WORK/build-occ-ios" -j4 >> "$LOG" 2>&1
-echo "OCC_BUILD_RC=$?"
+cmake --build "$WORK/build-occ-ios" -j4 -- -k 0 >> "$LOG" 2>&1
+OCC_BUILD_RC=$?
+echo "OCC_BUILD_RC=$OCC_BUILD_RC"
 cmake --install "$WORK/build-occ-ios" >> "$LOG" 2>&1
 echo "OCC_INSTALL_RC=$?"
-if ls "$SYSROOT/lib/cmake/opencascade/OpenCASCADEConfig.cmake"; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
+# Honest gate (a config-file-only check previously passed a build that had
+# died at step 2344/5561 with only libTKernel.a installed): require clean
+# build+install RCs and a real toolkit census incl. the libs KiCad links.
+TK_COUNT=$(ls "$SYSROOT/lib/" 2>/dev/null | grep -c '^libTK.*\.a$' || true)
+echo "OCC toolkits installed: $TK_COUNT"
+if [ "$OCC_BUILD_RC" = "0" ] && [ -f "$SYSROOT/lib/libTKBinL.a" ] && [ -f "$SYSROOT/lib/libTKSTEP.a" ] && [ "$TK_COUNT" -ge 50 ]; then echo "RESULT: OCC iOS OK"; else echo "RESULT: OCC iOS FAILED"; exit 3; fi
