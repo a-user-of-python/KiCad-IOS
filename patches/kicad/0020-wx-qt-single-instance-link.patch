@@ -1,0 +1,63 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1109,6 +1109,36 @@
+ # Include wxWidgets macros.
+ include( ${wxWidgets_USE_FILE} )
+ 
++# [KiCad-IOS port] iOS only: wxWidgets and Qt are static archives in
++# this port. If every KiCad shared library and kiface module links
++# them, each resulting Mach-O image carries its OWN copy of the wx/Qt
++# statics (wxAppConsoleBase::ms_appInstance, the wx class-info
++# registry, QCoreApplication's self pointer, ...), and the copies
++# never agree: the manager executable's startup sets the executable's
++# ms_appInstance, while libkicommon's PGM_BASE::App() reads
++# libkicommon's own still-null copy and PGM_KICAD::OnPgmInit
++# dereferences the null wxApp pointer (device crash report
++# 2026-11-05: SIGSEGV at OnPgmInit +156, fault address 0x127 =
++# &wxApp::m_appDisplayName inside a null wxApp, in the copy of the
++# statics linked into libkicommon and, identically, into every other
++# image).
++#
++# So on iOS the real library list is stashed here and the variable
++# cleared before any subdirectory is processed: library and module
++# targets link no wx/Qt archives and leave those symbols undefined.
++# The stage adds "-undefined dynamic_lookup" to the shared/module
++# link flags, so at load time they bind to the single copies in the
++# manager executable, which is linked with the stashed list at the
++# end of this file and exports its symbols (-export_dynamic, added
++# by the stage to the executable link flags). That restores the
++# desktop arrangement -- one wx/Qt state per process -- which Qt's
++# static platform-plugin registration in the executable (patch 0018)
++# also requires. No behaviour change on other platforms.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    set( KICAD_IOS_WX_LIBS ${wxWidgets_LIBRARIES} )
++    set( wxWidgets_LIBRARIES "" )
++endif()
++
+ # Detect wxWidgets port being used
+ if( wxWidgets_FIND_STYLE STREQUAL "win32" )
+     string(REGEX MATCH "(msw|qt|gtk)" KICAD_WX_PORT "${WX_CONFIGURATION}")
+@@ -1283,3 +1313,23 @@
+ 
+     add_subdirectory( signing )
+ endif()
++
++# [KiCad-IOS port] iOS only: give the executable targets the real
++# wx/Qt library list that was withheld from the library targets at
++# the find_package(wxWidgets) call above (see the note there), so
++# exactly one copy of the wx/Qt statics exists in the process -- the
++# manager executable's, which the shared libraries and kiface
++# modules resolve against at load time. The small standalone tools
++# are executables too and would otherwise fail to link; the static
++# archives contribute nothing to a target that does not reference
++# them, so listing them here is safe for tools that do not use wx.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    foreach( _ios_exe IN ITEMS kicad kicad-cli utf8_tests
++            test-nm-biu-to-ascii-mm-round-tripping
++            idfcyl idfrect dxf2idf idf2vrml dsntest )
++        if( TARGET ${_ios_exe} )
++            target_link_libraries( ${_ios_exe} PRIVATE ${KICAD_IOS_WX_LIBS} )
++        endif()
++    endforeach()
++    unset( _ios_exe )
++endif()

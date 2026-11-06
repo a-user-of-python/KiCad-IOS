@@ -205,6 +205,16 @@ CPPEOF
 fi
 echo "PLUGIN_ITEMS: $PLUGIN_ITEMS"
 
+# Single-wx/Qt-instance linking (with KiCad patch 0020): the KiCad
+# shared libraries and kiface modules must NOT embed their own copies
+# of the static wx/Qt archives -- duplicated wx statics (above all
+# wxAppConsoleBase::ms_appInstance) made libkicommon's PGM_BASE::App()
+# return a null wxApp and crashed OnPgmInit on device. Patch 0020
+# withholds the wx/Qt library list from library targets; the flags
+# below leave their wx/Qt symbols undefined at link time
+# (-undefined dynamic_lookup) so dyld binds them at load time to the
+# manager executable, which links the real archives and exports its
+# symbols (-export_dynamic).
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -230,9 +240,9 @@ cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DKICAD_INSTALL_DEMOS=OFF \
     -DCMAKE_C_FLAGS="-I$WORK/glshim -DNANODBC_USE_IODBC_WIDE_STRINGS" \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES -DNANODBC_USE_IODBC_WIDE_STRINGS" \
-    -DCMAKE_SHARED_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
-    -DCMAKE_MODULE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
-    -DCMAKE_EXE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS -undefined dynamic_lookup" \
+    -DCMAKE_MODULE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS -undefined dynamic_lookup" \
+    -DCMAKE_EXE_LINKER_FLAGS="$IOS_FW $IOS_EXTRA_LIBS -Wl,-export_dynamic" \
     -DOPENGL_INCLUDE_DIR="$OGL_FW/Headers" \
     -DOPENGL_opengl_LIBRARY="$OGL_FW" \
     -DOPENGL_gl_LIBRARY="$OGL_FW"

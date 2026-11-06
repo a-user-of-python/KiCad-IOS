@@ -359,6 +359,28 @@ Each modified upstream file also carries an in-file notice of the form:
   QApplication before calling UIApplicationMain") — device crash
   report captured with KiCad-Spike-v2.ipa, 2026-11-05. No behaviour
   change on other platforms (iOS-only block).
+- `patches/kicad/0020-wx-qt-single-instance-link.patch` — top-level
+  CMakeLists, iOS only: withhold the wx/Qt library list from the
+  library and module targets and give it to the executable targets
+  instead. wxWidgets and Qt are static archives in this port, so
+  every KiCad image that linked them carried its own copy of their
+  statics: the shipped v3 binaries each defined their own
+  `wxAppConsoleBase::ms_appInstance` (verified in the executable,
+  libkicommon, libkigal and _eeschema.kiface). The manager's
+  wxEntry set the executable's copy, libkicommon's
+  `PGM_BASE::App()` read its own still-null copy, and
+  `PGM_KICAD::OnPgmInit` dereferenced the null wxApp pointer at
+  +156 (device crash report 2026-11-05: SIGSEGV, fault address
+  0x127 = `&wxApp::m_appDisplayName` inside a null wxApp; the entry
+  chain of patch 0019 worked — the stack reached OnInit/OnPgmInit).
+  With the patch, library/module targets leave their wx/Qt symbols
+  undefined and the stage script adds `-undefined dynamic_lookup`
+  to the shared/module link flags, so they bind at load time to the
+  single copies in the manager executable, which the same stage
+  links with `-Wl,-export_dynamic`. One wx/Qt state per process,
+  as in a desktop build with shared wx. No behaviour change on
+  other platforms (both the stash/clear and the relink are inside
+  `CMAKE_SYSTEM_NAME STREQUAL "iOS"` blocks).
 - Build tooling (this repo's own `scripts/package_ios.py`, not an
   upstream file) — 2026-11-05: (1) the dependency walk no longer
   skips `@rpath/...` loads; they are resolved against the sysroot
