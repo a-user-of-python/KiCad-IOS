@@ -54,7 +54,12 @@ ls "$SYSROOT/lib/python3.13/encodings/__init__.py" "$SYSROOT/lib/python3.13/lib-
 # well as in the kicad stage: this stage has both the sysroot tree
 # and the iPhoneOS SDK, and a probe failure (including its sanity
 # check) fails this stage loudly instead of letting vacuous
-# verdicts reach packaging.
+# verdicts reach packaging. NOTE: verdicts here are an early
+# warning only -- this stage's sysroot lacks the deps stage's
+# libz/libzstd, so the zlib-family modules show TRIM here; the
+# BINDING verdicts are computed in the kicad stage, whose
+# assembled sysroot contains those dylibs (and the shipped audit
+# re-verifies closure on the final file regardless).
 python3 "$PWD/scripts/probe_dynload.py" "$SYSROOT" "$WORK" "$(xcrun --sdk iphoneos --show-sdk-path)"
 PROBE_RC=$?
 echo "PROBE_RC=$PROBE_RC"
