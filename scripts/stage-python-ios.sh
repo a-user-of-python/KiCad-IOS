@@ -31,4 +31,23 @@ PYH=$(find "$SLICE" -name 'Python.h' | head -1)
 echo "PYTHON_H=$PYH"
 mkdir -p "$SYSROOT/include/python3.13"
 cp -R "$(dirname "$PYH")/"* "$SYSROOT/include/python3.13/"
+# [KiCad-IOS port] Standard library tree (launch fix round 6,
+# KiCad-Spike-v8): until now only the interpreter binary and headers
+# entered the sysroot, so the packaged app shipped CPython with NO
+# stdlib -- and KiCad's startup constructs its embedded interpreter
+# unconditionally (SCRIPTING in PGM_BASE::InitPgm), whose
+# initialisation imports the `encodings` package and aborted the
+# whole launch on device ("Failed to import encodings module").
+# The support tarball carries the full 3.13 library as pure Python
+# in Python.xcframework/lib/python3.13 (shared by all slices) plus
+# the compiled extension modules per slice under
+# <slice>/lib-arm64/python3.13/lib-dynload. Copy both into the
+# sysroot next to libpython3.13.a; scripts/package_ios.py installs
+# them into the app bundle under the PYTHONHOME the executable's
+# startup object sets (patch 0025), applying the documented trims.
+mkdir -p "$SYSROOT/lib/python3.13/lib-dynload"
+cp -R "$XCF/lib/python3.13/." "$SYSROOT/lib/python3.13/"
+cp "$SLICE/lib-arm64/python3.13/lib-dynload/"*.so "$SYSROOT/lib/python3.13/lib-dynload/"
+echo "stdlib staged: $(find "$SYSROOT/lib/python3.13" -type f | wc -l) files, $(du -sh "$SYSROOT/lib/python3.13" | cut -f1)"
+ls "$SYSROOT/lib/python3.13/encodings/__init__.py" "$SYSROOT/lib/python3.13/lib-dynload" | head -5
 if ls -la "$SYSROOT/lib/libpython3.13.a" "$SYSROOT/include/python3.13/Python.h"; then echo "RESULT: python iOS OK"; else echo "RESULT: python iOS FAILED"; exit 3; fi
