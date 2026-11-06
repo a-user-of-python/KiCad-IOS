@@ -164,6 +164,25 @@ def main():
     python_exports = norm(python_exports)
     libsystem = norm(tbd_symbols(os.path.join(sdk, "usr/lib/libSystem.B.tbd")))
     libsqlite = norm(tbd_symbols(os.path.join(sdk, "usr/lib/libsqlite3.tbd")))
+    # The extension modules bind in the process-wide FLAT namespace
+    # (this port's linking model), so symbols can also legitimately
+    # resolve against other dylibs the app itself ships and loads at
+    # startup -- concretely zlib: binascii/zlib modules reference
+    # the zlib API without linking libz themselves, and the bundle
+    # ships Frameworks/libz.1.dylib (KiCad's own images link it, so
+    # it is loaded before any dlopen). Model that: union the
+    # exports of the sysroot's standalone C dylibs the packager
+    # embeds (zlib, zstd).
+    bundled_exports = set()
+    import glob as _glob
+    for cand in _glob.glob(os.path.join(sysroot, "lib", "libz*.dylib")) + \
+            _glob.glob(os.path.join(sysroot, "lib", "libzstd*.dylib")):
+        with open(cand, "rb") as fh:
+            d, _u, _l = parse_macho(fh.read())
+        bundled_exports |= d
+        print(f"probe: bundled dylib in resolution universe: "
+              f"{os.path.basename(cand)} ({len(d)} exports)")
+    bundled_exports = norm(bundled_exports)
     print(f"probe: Python exports={len(python_exports)} "
           f"libSystem stub symbols={len(libsystem)} "
           f"libsqlite3 stub symbols={len(libsqlite)}")
@@ -174,7 +193,8 @@ def main():
     for name in modules:
         with open(os.path.join(dynload, name), "rb") as fh:
             defined, undef, loads = parse_macho(fh.read())
-        universe = python_exports | libsystem | norm(DYLD_WHITELIST)
+        universe = python_exports | libsystem | bundled_exports \
+            | norm(DYLD_WHITELIST)
         if any("libsqlite3" in ld for ld in loads):
             universe |= libsqlite
         undef = norm(undef - defined)
