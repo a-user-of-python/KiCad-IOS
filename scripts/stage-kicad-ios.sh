@@ -460,6 +460,65 @@ else
     echo "EXE export check: manager executable not found at the expected build paths"
 fi
 
+# --- Python inventory of the build tree (launch fix round 6) ------------
+# Ground truth for the packaging step: every Python artefact this
+# build produced, with sizes. The manager app bundle in the build
+# tree carries KiCad's own Python destination (PYTHON_DEST): the
+# build copies pcbnew.py and _pcbnew.so (a copy of _pcbnew.kiface)
+# into Contents/Frameworks/Python.framework/Versions/*/lib/python*/
+# site-packages; nothing else in the tree is Python.
+echo "=== PYTHON INVENTORY (build tree) ==="
+find "$BLD/kicad/KiCad.app/Contents/Frameworks/Python.framework" -type f \
+    -exec ls -la {} \; 2>/dev/null || echo "no Python.framework in built app"
+echo "build-tree *.py under pcbnew: $(find "$BLD/pcbnew" -name '*.py' | wc -l)"
+ls -la "$BLD/pcbnew/pcbnew.py" 2>/dev/null || echo "no BLD/pcbnew/pcbnew.py"
+echo "sysroot stdlib: $(find "$SYSROOT/lib/python3.13" -type f 2>/dev/null | wc -l) files"
+echo "sysroot lib-dynload: $(ls "$SYSROOT/lib/python3.13/lib-dynload" 2>/dev/null | wc -l) modules"
+
+# --- Extension-module loadability probe (launch fix round 6) ------------
+# Per-module verdicts (OK / TRIM) against the real iPhoneOS SDK
+# stubs + the shipped Python image's exports; package_ios.py drops
+# TRIM modules (provably unloadable on device) and logs the drop.
+python3 "$PWD/scripts/probe_dynload.py" "$SYSROOT" "$WORK" "$SDK_PATH_IOS" \
+    || echo "WARNING: dynload probe failed -- packaging without verdicts"
+
+# --- Vendor addon fetch (launch fix round 6) ------------------------------
+# The official PCBWay and JLCPCB (Fabrication Toolkit) PCM packages,
+# pinned to the exact versions/URLs the KiCad official PCM
+# repository index (https://repository.kicad.org/repository.json,
+# the repository KiCad itself defaults to) lists, with sha256
+# verification. Fetched, never vendored into this repo. A failed
+# fetch degrades to "addon absent" (STATUS.txt tells package_ios.py,
+# which logs it loudly); a checksum MISMATCH also yields absent --
+# never a substituted file.
+mkdir -p "$WORK/addons"
+fetch_addon() {
+    # $1 key, $2 zip url, $3 zip sha256, $4 license url, $5 license sha256
+    local key="$1" zurl="$2" zsha="$3" lurl="$4" lsha="$5"
+    if curl -sL "$zurl" -o "$WORK/addons/$key.zip" \
+        && curl -sL "$lurl" -o "$WORK/addons/$key-LICENSE" \
+        && [ "$(shasum -a 256 "$WORK/addons/$key.zip" | cut -d' ' -f1)" = "$zsha" ] \
+        && [ "$(shasum -a 256 "$WORK/addons/$key-LICENSE" | cut -d' ' -f1)" = "$lsha" ]; then
+        echo "ADDON $key OK" >> "$WORK/addons/STATUS.txt"
+        echo "addon $key: fetched + sha256 verified"
+    else
+        echo "ADDON $key MISSING" >> "$WORK/addons/STATUS.txt"
+        echo "addon $key: FETCH OR CHECKSUM FAILED -- packaging without it"
+        rm -f "$WORK/addons/$key.zip" "$WORK/addons/$key-LICENSE"
+    fi
+}
+rm -f "$WORK/addons/STATUS.txt"
+fetch_addon pcbway \
+    "https://github.com/pcbway/PCBWay-Plug-in-for-Kicad/releases/download/v1.0.5/KiCadToPCBWay_v1.0.5.zip" \
+    "c0c1f6c9de5bdaf6b495dfa2e4c2f6921aca86fecb3f4a2e86e07139650c4066" \
+    "https://raw.githubusercontent.com/pcbway/PCBWay-Plug-in-for-Kicad/v1.0.5/LICENSE" \
+    "2ef4edb948f9d237118202df5c20d916e855c34654915fbec76e654da90d83b2"
+fetch_addon jlcpcb \
+    "https://github.com/bennymeg/Fabrication-Toolkit/releases/download/v5.3.0/Fabrication-Toolkit-5.3.0.zip" \
+    "70fe1ecc4858c5c44a3aedb6eafff80515e7837e48921c983c6fb2d8b19d9938" \
+    "https://raw.githubusercontent.com/bennymeg/Fabrication-Toolkit/v5.3.0/LICENSE" \
+    "f1e35329cecb90444923037b38b9d0b9927d70ef33e820a2195837ab6eb9cfc2"
+
 # Package whatever built (manager + any kifaces) into an unsigned IPA
 # (The user re-signs with their own tooling). Runs last so the kifaces are
 # included. See scripts/package_ios.py for the layout rules.
