@@ -1,0 +1,81 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1134,6 +1134,17 @@
+     set( wxWidgets_LIBRARIES "" )
+ endif()
+ 
++# [KiCad-IOS port] (patch 0021) The end-of-file relink below also
++# force-loads the wx component archives into the executables and
++# exports their globals (-exported_symbol '_*'). Patch 0020 alone
++# left most of the executables' wx/Qt globals unexported (private
++# externs) and never extracted the archive objects no executable
++# object references, so the -undefined dynamic_lookup libraries
++# could not resolve their wx symbols at load time (device report
++# 2026-11-06, KiCad-Spike-v4.ipa: dyld aborts before any app code,
++# "symbol not found in flat namespace
++# '__ZN10wxGLCanvas11SwapBuffersEv'"). See the end-of-file block.
++
+ # Detect wxWidgets port being used
+ if( wxWidgets_FIND_STYLE STREQUAL "win32" )
+     string(REGEX MATCH "(msw|qt|gtk)" KICAD_WX_PORT "${WX_CONFIGURATION}")
+@@ -1322,6 +1333,46 @@
+ # target_link_libraries signature: KiCad's own CMake files use it
+ # for these targets, and CMake forbids mixing the two signatures.)
+ if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    # [KiCad-IOS port] (patch 0021) Force-load the wx component
++    # archives into the executables and export the executables'
++    # global symbols. Patch 0020's arrangement left two holes that
++    # only a device run could see (KiCad-Spike-v4.ipa, crash report
++    # 2026-11-06: dyld aborts in dyld4::prepare, before any app
++    # code runs, with "symbol not found in flat namespace
++    # '__ZN10wxGLCanvas11SwapBuffersEv'", referenced by libkigal):
++    #   1. Static-archive extraction is demand-driven by the
++    #      executable's own references. Nothing in the manager
++    #      references most of wx (e.g. the gl component's
++    #      wxGLCanvas), so those objects were never extracted --
++    #      while the shared libraries, linked -undefined
++    #      dynamic_lookup, reference them and dyld must find them
++    #      process-wide at load time.
++    #   2. The wx/Qt globals that WERE extracted land in the
++    #      executable mostly as private externs (n_type 0x1e) and
++    #      are not exported at all: -export_dynamic only preserves
++    #      globals against LTO, it does not un-hide archive
++    #      symbols. Of the v4 executable's ~82k defined globals
++    #      only ~500 were true externals, and a bundle-wide
++    #      symbol-closure audit of the shipped v4 IPA counted
++    #      3,351 wx symbols the libraries and kifaces reference
++    #      but no shipped image exports -- dyld simply reported
++    #      the first one.
++    # -force_load extracts every object of each wx component
++    # archive, and -exported_symbol '_*' promotes the
++    # executable's globals to real exports, restoring the flat
++    # namespace the libraries resolve against. The Qt framework
++    # binaries stay demand-driven: no shipped library references
++    # a Qt symbol the executables do not already pull in, and a
++    # wx object newly extracted by -force_load pulls the Qt
++    # symbols it needs from the Qt archives in the same link.
++    set( KICAD_IOS_WX_ARCHIVES "" )
++    foreach( _ios_lib IN LISTS KICAD_IOS_WX_LIBS )
++        if( _ios_lib MATCHES "\\.a$" )
++            list( APPEND KICAD_IOS_WX_ARCHIVES "${_ios_lib}" )
++        endif()
++    endforeach()
++    unset( _ios_lib )
++    list( REMOVE_DUPLICATES KICAD_IOS_WX_ARCHIVES )
+     foreach( _ios_exe IN ITEMS kicad kicad-cli utf8_tests
+             test-nm-biu-to-ascii-mm-round-tripping
+             idfcyl idfrect dxf2idf idf2vrml dsntest
+@@ -1329,6 +1380,13 @@
+             bitmap2component )
+         if( TARGET ${_ios_exe} )
+             target_link_libraries( ${_ios_exe} ${KICAD_IOS_WX_LIBS} )
++            foreach( _ios_ar IN LISTS KICAD_IOS_WX_ARCHIVES )
++                target_link_options( ${_ios_exe} PRIVATE
++                    "-Wl,-force_load,${_ios_ar}" )
++            endforeach()
++            unset( _ios_ar )
++            target_link_options( ${_ios_exe} PRIVATE
++                "-Wl,-exported_symbol,_*" )
+         endif()
+     endforeach()
+     unset( _ios_exe )
