@@ -10,8 +10,10 @@
 # for _sqlite3, /usr/lib/libsqlite3.dylib). Whether a given module
 # can actually be dlopen'd on device is decidable offline: every
 # strong undefined symbol must be an export of the shipped Python
-# image, of the iOS SDK's libSystem stub, or -- only for images
-# that link it -- of the SDK's libsqlite3 stub. This probe performs
+# image, of the iOS SDK's libSystem stub, of another dylib the app
+# itself ships and loads (the flat namespace: libz/libzstd from
+# the sysroot), or -- only for images that link it -- of the SDK's
+# libsqlite3 stub. This probe performs
 # that check per module on the build machine (against the real
 # iPhoneOS SDK .tbd stubs) and writes verdicts to
 # $WORK/dynload-verdicts.txt for scripts/package_ios.py:
