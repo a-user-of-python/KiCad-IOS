@@ -390,6 +390,40 @@ Each modified upstream file also carries an in-file notice of the form:
   executables and otherwise fail with undefined wx symbols
   (run 42155182542). Those standalone apps are not part of the
   spike IPA; they are relinked only to keep the full build green.
+- `patches/kicad/0021-wx-force-load-and-export.patch` — top-level
+  CMakeLists, iOS only: amend patch 0020's executable relink to
+  (a) `-force_load` every wx component archive into the executable
+  targets and (b) add `-Wl,-exported_symbol,_*` to those targets.
+  Device evidence (KiCad-Spike-v4.ipa, crash report 2026-11-06):
+  with patch 0020 alone the app died in `dyld4::prepare`, before
+  any app code ran — "symbol not found in flat namespace
+  `__ZN10wxGLCanvas11SwapBuffersEv`", referenced by libkigal.
+  Two distinct holes, both consequences of the dynamic_lookup
+  arrangement: static-archive extraction is demand-driven by the
+  executable's own references, so wx objects the manager never
+  references (the whole gl component among them) were never
+  extracted; and the wx/Qt globals that were extracted landed in
+  the executable almost entirely as private externs (n_type
+  0x1e — of ~82k defined globals only ~504 were true externals),
+  which dyld cannot bind from other images. `-export_dynamic`
+  does not fix that: it only preserves globals against LTO. A
+  bundle-wide symbol-closure audit of the shipped v4 IPA
+  (LC_SYMTAB of every image; every undefined symbol must be
+  defined by a shipped image or a system library) counted 3,351
+  unresolvable symbols, all of them wx — dyld had simply
+  reported the first. `-force_load` extracts every object of
+  each wx component archive; `-exported_symbol '_*'` promotes
+  the executables' globals to real exports, restoring the flat
+  namespace the libraries resolve against. The Qt framework
+  binaries stay demand-driven: no shipped library references a
+  Qt symbol the executables do not already pull in, and a wx
+  object newly extracted by `-force_load` pulls the Qt symbols
+  it needs from the Qt archives in the same link. The stage
+  script additionally links a 3-symbol probe with these exact
+  options against the real archives before the build and stops
+  if they do not export, and counts the built executable's
+  defined externals after the build. No behaviour change on
+  other platforms (iOS-only blocks, like patch 0020).
 - Build tooling (this repo's own `scripts/package_ios.py`, not an
   upstream file) — 2026-11-05: (1) the dependency walk no longer
   skips `@rpath/...` loads; they are resolved against the sysroot
