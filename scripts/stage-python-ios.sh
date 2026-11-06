@@ -50,4 +50,13 @@ cp -R "$XCF/lib/python3.13/." "$SYSROOT/lib/python3.13/"
 cp "$SLICE/lib-arm64/python3.13/lib-dynload/"*.so "$SYSROOT/lib/python3.13/lib-dynload/"
 echo "stdlib staged: $(find "$SYSROOT/lib/python3.13" -type f | wc -l) files, $(du -sh "$SYSROOT/lib/python3.13" | cut -f1)"
 ls "$SYSROOT/lib/python3.13/encodings/__init__.py" "$SYSROOT/lib/python3.13/lib-dynload" | head -5
+# Loadability probe over the staged extension modules, run HERE as
+# well as in the kicad stage: this stage has both the sysroot tree
+# and the iPhoneOS SDK, and a probe failure (including its sanity
+# check) fails this stage loudly instead of letting vacuous
+# verdicts reach packaging.
+python3 "$PWD/scripts/probe_dynload.py" "$SYSROOT" "$WORK" "$(xcrun --sdk iphoneos --show-sdk-path)"
+PROBE_RC=$?
+echo "PROBE_RC=$PROBE_RC"
+if [ "$PROBE_RC" -ne 0 ]; then echo "RESULT: python iOS FAILED (dynload probe)"; exit 4; fi
 if ls -la "$SYSROOT/lib/libpython3.13.a" "$SYSROOT/include/python3.13/Python.h"; then echo "RESULT: python iOS OK"; else echo "RESULT: python iOS FAILED"; exit 3; fi
