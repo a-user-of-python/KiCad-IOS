@@ -1,0 +1,57 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1365,6 +1365,32 @@
+     # a Qt symbol the executables do not already pull in, and a
+     # wx object newly extracted by -force_load pulls the Qt
+     # symbols it needs from the Qt archives in the same link.
++    #
++    # (patch 0022) Two corrections from the v5 candidate build
++    # (CI run 42210442013):
++    #   * -exported_symbol '_*' reached ld64 (it is visible,
++    #     quoted, in the link lines) but does NOT promote the
++    #     archives' private-extern globals: wx/Qt are compiled
++    #     with hidden visibility, their object files store the
++    #     globals as N_PEXT, and an export list only selects
++    #     among symbols that are exportable to begin with. The
++    #     candidate executable still exported only 725 symbols
++    #     (SwapBuffers among them present but private). The
++    #     stage therefore clears the N_PEXT bit in the wx/Qt
++    #     archive object files before configure
++    #     (scripts/unhide_archive_symbols.py); with default
++    #     visibility restored, the archives' globals land in the
++    #     executable as true externals, as the ~500 always-visible
++    #     ones (e.g. the lexilla C API) already did in v4. The
++    #     -exported_symbol '_*' stays as insurance.
++    #   * The force_load/export options apply ONLY to the kicad
++    #     manager target. Applied to every executable they broke
++    #     idfcyl/idfrect: force-loading all of wx drags in the
++    #     full Qt closure (QtGui's harfbuzz objects need Qt's
++    #     bundled harfbuzz archive), which those minimal tools
++    #     do not link. The standalone executables are separate
++    #     processes that nothing dlopens against; they keep
++    #     patch 0020's plain relink, which was green in v4.
+     set( KICAD_IOS_WX_ARCHIVES "" )
+     foreach( _ios_lib IN LISTS KICAD_IOS_WX_LIBS )
+         if( _ios_lib MATCHES "\\.a$" )
+@@ -1380,13 +1406,15 @@
+             bitmap2component )
+         if( TARGET ${_ios_exe} )
+             target_link_libraries( ${_ios_exe} ${KICAD_IOS_WX_LIBS} )
+-            foreach( _ios_ar IN LISTS KICAD_IOS_WX_ARCHIVES )
++            if( _ios_exe STREQUAL "kicad" )
++                foreach( _ios_ar IN LISTS KICAD_IOS_WX_ARCHIVES )
++                    target_link_options( ${_ios_exe} PRIVATE
++                        "-Wl,-force_load,${_ios_ar}" )
++                endforeach()
++                unset( _ios_ar )
+                 target_link_options( ${_ios_exe} PRIVATE
+-                    "-Wl,-force_load,${_ios_ar}" )
+-            endforeach()
+-            unset( _ios_ar )
+-            target_link_options( ${_ios_exe} PRIVATE
+-                "-Wl,-exported_symbol,_*" )
++                    "-Wl,-exported_symbol,_*" )
++            endif()
+         endif()
+     endforeach()
+     unset( _ios_exe )
