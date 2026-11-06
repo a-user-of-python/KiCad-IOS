@@ -424,6 +424,46 @@ Each modified upstream file also carries an in-file notice of the form:
   if they do not export, and counts the built executable's
   defined externals after the build. No behaviour change on
   other platforms (iOS-only blocks, like patch 0020).
+- `patches/kicad/0022-kicad-only-force-load-export.patch` —
+  top-level CMakeLists, iOS only: narrow patch 0021's
+  force_load/export options to the `kicad` manager target only.
+  Evidence (CI run 42210442013, the first v5 candidate): with
+  the options on every executable, `idfcyl` and `idfrect`
+  failed to link — force-loading all of wx drags in the full
+  Qt closure (QtGui's harfbuzz objects need Qt's bundled
+  harfbuzz archive), which those minimal tools do not link.
+  The standalone executables are separate processes that
+  nothing dlopens against; they keep patch 0020's plain relink
+  (green in v4). The same run proved the second correction
+  this round is built on: `-exported_symbol '_*'` DID reach
+  ld64 (visible, quoted, in the link lines) but does not
+  promote the archives' private-extern globals — the candidate
+  manager still exported only 725 symbols, with
+  `wxGLCanvas::SwapBuffers` present (force_load worked) but
+  private. An export list only selects among symbols that are
+  exportable to begin with; wx/Qt's hidden visibility is baked
+  into their object files as N_PEXT. The stage script's
+  unhide step (below) removes it at the source.
+- Build tooling (this repo's own
+  `scripts/unhide_archive_symbols.py`, not an upstream file) —
+  2026-11-06: before the KiCad configure, clear the N_PEXT
+  (private-extern) bit on every defined external symbol in the
+  wx component archives and the Qt kit's archives/framework
+  binaries, in place. wx and Qt are compiled with hidden
+  visibility; under patch 0020's arrangement their globals must
+  be exported by the manager executable for the
+  `-undefined dynamic_lookup` libraries to bind at load time,
+  and N_PEXT is exactly what stops ld64 exporting them (v4:
+  ~82k defined globals in the executable, ~504 true externals;
+  bundle symbol-closure audit: 3,351 unresolvable wx symbols).
+  Only n_type bytes change — member layout, symbol names and
+  the archive index are untouched; the step is idempotent,
+  prints per-archive counts, and fails the stage if it unhides
+  nothing. Third-party sysroot libraries are not touched:
+  their symbols already resolve inside their home images.
+  This rewrites intermediate build artifacts, not upstream
+  sources; it is recorded here for transparency like every
+  other change that shapes the shipped binary.
 - Build tooling (this repo's own `scripts/package_ios.py`, not an
   upstream file) — 2026-11-05: (1) the dependency walk no longer
   skips `@rpath/...` loads; they are resolved against the sysroot
