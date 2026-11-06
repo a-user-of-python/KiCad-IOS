@@ -205,6 +205,132 @@ CPPEOF
 fi
 echo "PLUGIN_ITEMS: $PLUGIN_ITEMS"
 
+# --- Link probe (launch fix round 3, KiCad-Spike-v5) ----------------------
+# Before the multi-hour build, verify with the REAL wx/Qt archives
+# (restored sysroot + the aqt kit) that the options patch 0021 adds to
+# the executable links -- -force_load of the wx archives and
+# -exported_symbol '_*' -- actually make the executable EXPORT the wx
+# symbols the shared libraries resolve against at load time. In v4 the
+# executable's ~82k wx/Qt globals were almost all unexported private
+# externs (n_type 0x1e; only ~500 true externals), and dyld aborted
+# before any app code: "symbol not found in flat namespace
+# '__ZN10wxGLCanvas11SwapBuffersEv'". The probe links a test program
+# referencing three symbols (a wx base data symbol, a wx gl method, a
+# QtWidgets method) and nm-checks the result. If a variant LINKS but
+# none EXPORTS, the mechanism is wrong and the stage stops here
+# instead of spending hours building an IPA that cannot launch.
+PROBE_DIR="$WORK/probe"
+mkdir -p "$PROBE_DIR"
+cat > "$PROBE_DIR/probe.cpp" <<'CPPEOF'
+// Declarations only; the addresses taken in main() create the three
+// undefined references. Mangling does not encode member types, so
+// these match the real symbols exactly.
+class wxAppConsoleBase { public: static wxAppConsoleBase* ms_appInstance; };
+class wxGLCanvas { public: void SwapBuffers(); };
+class QWidget { public: void show(); };
+int main() {
+    void* a = (void*)&wxAppConsoleBase::ms_appInstance;
+    auto b = &wxGLCanvas::SwapBuffers;
+    auto c = &QWidget::show;
+    return (a && b && c) ? 0 : 1;
+}
+CPPEOF
+xcrun --sdk iphoneos clang++ -target arm64-apple-ios17.0 \
+    -isysroot "$SDK_PATH_IOS" -O0 -c "$PROBE_DIR/probe.cpp" \
+    -o "$PROBE_DIR/probe.o" 2> "$PROBE_DIR/compile.log" \
+    || echo "PROBE: probe.cpp failed to compile (see probe/compile.log)"
+PROBE_WX=( "$SYSROOT"/lib/libwx_*.a )
+PROBE_QT=()
+for q in QtCore QtGui QtWidgets QtOpenGL QtOpenGLWidgets QtPrintSupport QtTest QtSvg; do
+    [ -f "$QTDIR_IOS/lib/$q.framework/$q" ] && PROBE_QT+=( "$QTDIR_IOS/lib/$q.framework/$q" )
+done
+PROBE_LIBS=(
+    "${PROBE_WX[@]}" "${PROBE_QT[@]}"
+    -L"$SYSROOT/lib" -lwxscintilla-3.3 -lwxlexilla-3.3 -lwxjpeg -lwxpng
+    -lwxtiff -lwxwebp -lwxwebpdemux -lwxsharpyuv -lwxregexu
+    -lpng16 -lpcre2-16 "$WORK/glshim/libgluadapter.a" -ltess2
+    -framework CoreFoundation -framework Foundation -framework UIKit
+    -framework Metal -framework IOKit -framework CoreGraphics
+    -framework CoreText -framework CoreServices
+    -framework UniformTypeIdentifiers -framework OpenGLES
+    -framework QuartzCore -framework GLKit -framework CFNetwork
+    -framework Security -framework SystemConfiguration
+    -lexpat -lz -liconv -lc++
+)
+[ -n "${QT_PCRE2:-}" ] && PROBE_LIBS+=( "$QT_PCRE2" )
+PROBE_FL=()
+for a in "${PROBE_WX[@]}"; do PROBE_FL+=( "-Wl,-force_load,$a" ); done
+PROBE_FLQ=()
+for q in "${PROBE_QT[@]}"; do PROBE_FLQ+=( "-Wl,-force_load,$q" ); done
+PROBE_SYMS="__ZN16wxAppConsoleBase14ms_appInstanceE __ZN10wxGLCanvas11SwapBuffersEv __ZN7QWidget4showEv"
+probe_exports() {
+    # $1 = binary; success iff all 3 probe symbols are DEFINED externals
+    local out s
+    out="$(xcrun nm -g "$1" 2>/dev/null | grep -E '^[0-9a-f]+ [A-Z] ')"
+    for s in $PROBE_SYMS; do
+        echo "$out" | grep -q " $s\$" || return 1
+    done
+    return 0
+}
+probe_try() {
+    # $1 = variant name, rest = extra link args; echoes a verdict line
+    local name="$1"; shift
+    if ! xcrun --sdk iphoneos clang++ -target arm64-apple-ios17.0 \
+            -isysroot "$SDK_PATH_IOS" "$PROBE_DIR/probe.o" "$@" \
+            "${PROBE_LIBS[@]}" -o "$PROBE_DIR/probe_$name" \
+            2> "$PROBE_DIR/link_$name.log"; then
+        echo "PROBE $name: LINK FAILED (see probe/link_$name.log)"
+        return 1
+    fi
+    if probe_exports "$PROBE_DIR/probe_$name"; then
+        echo "PROBE $name: LINKS + EXPORTS all 3 probe symbols"
+        return 0
+    fi
+    echo "PROBE $name: links but does NOT export the probe symbols"
+    return 2
+}
+PROBE_VERDICT="inconclusive"
+PROBE_LINKED=0
+FULL_RC=99
+if [ -f "$PROBE_DIR/probe.o" ]; then
+    probe_try full "${PROBE_FL[@]}" "-Wl,-exported_symbol,_*"
+    FULL_RC=$?
+    [ $FULL_RC -ne 1 ] && PROBE_LINKED=1
+    if [ $FULL_RC = 0 ]; then
+        PROBE_VERDICT="full"
+    elif [ $FULL_RC = 2 ]; then
+        PROBE_VERDICT="links-but-no-export"
+    elif grep -q "duplicate symbol" "$PROBE_DIR/link_full.log"; then
+        PROBE_VERDICT="force-load-duplicate-symbols"
+    else
+        # The hand-rolled probe line may miss transitive deps the real
+        # CMake link has; try the Qt-force-load variant before giving
+        # up on the probe entirely.
+        probe_try fullqt "${PROBE_FL[@]}" "${PROBE_FLQ[@]}" "-Wl,-exported_symbol,_*"
+        rc=$?
+        [ $rc -ne 1 ] && PROBE_LINKED=1
+        if [ $rc = 0 ]; then
+            PROBE_VERDICT="fullqt-only"
+        fi
+    fi
+fi
+echo "PROBE_VERDICT: $PROBE_VERDICT (any variant linked: $PROBE_LINKED)"
+case "$PROBE_VERDICT" in
+    full)
+        echo "PROBE OK: patch 0021's option set exports the wx/Qt symbols" ;;
+    fullqt-only)
+        echo "RESULT: probe shows the export works only with the Qt archives force-loaded too; patch 0021 does not do that -- stopping for a fix round instead of building a known-bad IPA"
+        exit 4 ;;
+    links-but-no-export)
+        echo "RESULT: probe linked with patch 0021's exact options but the wx/Qt symbols are still not exported -- stopping for a fix round instead of building a known-bad IPA"
+        exit 4 ;;
+    force-load-duplicate-symbols)
+        echo "RESULT: probe shows -force_load of the wx archives produces duplicate symbols at link time (see probe/link_full.log) -- patch 0021 as written would break the real link; stopping for a fix round"
+        exit 4 ;;
+    *)
+        echo "PROBE WARNING: probe inconclusive (no variant linked; the hand-rolled probe line may miss transitive deps) -- proceeding; the real build and the offline symbol-closure audit are the verdict" ;;
+esac
+
 # Single-wx/Qt-instance linking (with KiCad patch 0020): the KiCad
 # shared libraries and kiface modules must NOT embed their own copies
 # of the static wx/Qt archives -- duplicated wx statics (above all
@@ -215,6 +341,18 @@ echo "PLUGIN_ITEMS: $PLUGIN_ITEMS"
 # (-undefined dynamic_lookup) so dyld binds them at load time to the
 # manager executable, which links the real archives and exports its
 # symbols (-export_dynamic).
+#
+# Round-3 correction (patch 0021, KiCad-Spike-v5): -export_dynamic
+# alone did NOT export the archives' symbols -- it only preserves
+# globals against LTO. In the v4 executable the wx/Qt globals were
+# almost all private externs (not dyld-bindable from other images)
+# and the archive objects the manager itself never references were
+# not extracted at all, so dyld aborted at load on the first of
+# 3,351 unresolvable wx symbols (device crash report 2026-11-06).
+# Patch 0021 force-loads the wx component archives into the
+# executables and adds -exported_symbol '_*' to promote their
+# globals to real exports; the probe above verifies that mechanism
+# against the real archives before the build starts.
 cmake -S "$SRC/kicad" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$PWD/scripts/ios.toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -267,8 +405,29 @@ echo "--- full-build error summary (unique errors) ---"
 grep -E "error:" "$WORK/logs/kicad-ios.log" | sort | uniq -c | sort -rn | head -40 || true
 if [ "$FULL_RC" = "0" ]; then echo "RESULT: FULL KiCad build (all kifaces) OK for iOS arm64"; else echo "RESULT: full build incomplete — see catalogue above"; fi
 
+# Post-build export check (launch fix round 3): the manager
+# executable must EXPORT the wx symbols the libraries and kifaces
+# resolve against at load time (patch 0021). The v4 executable had
+# only ~500 defined externals; the fixed one should have tens of
+# thousands, including the three probe symbols. Loud but non-fatal:
+# the packaged IPA is audited offline (full symbol closure over the
+# bundle) before it is staged for the device.
+EXE_BUILT=""
+for cand in "$BLD/kicad/kicad.app/kicad" "$BLD/kicad/KiCad.app/Contents/MacOS/kicad"; do
+    [ -f "$cand" ] && EXE_BUILT="$cand" && break
+done
+if [ -n "$EXE_BUILT" ]; then
+    NMDEF="$(xcrun nm -g "$EXE_BUILT" 2>/dev/null | grep -E '^[0-9a-f]+ [A-Z] ')"
+    echo "EXE defined-external symbols: $(echo "$NMDEF" | grep -c .)"
+    for s in __ZN16wxAppConsoleBase14ms_appInstanceE __ZN10wxGLCanvas11SwapBuffersEv __ZN7QWidget4showEv; do
+        if echo "$NMDEF" | grep -q " $s\$"; then echo "EXE exports $s: YES"; else echo "EXE exports $s: NO"; fi
+    done
+else
+    echo "EXE export check: manager executable not found at the expected build paths"
+fi
+
 # Package whatever built (manager + any kifaces) into an unsigned IPA
-# (the user re-signs with his own tooling). Runs last so the kifaces are
+# (The user re-signs with their own tooling). Runs last so the kifaces are
 # included. See scripts/package_ios.py for the layout rules.
 python3 "$PWD/scripts/package_ios.py" "$WORK" "$BLD" "$SYSROOT" "$QTDIR_IOS"
 echo "PACKAGE_RC=$?"
