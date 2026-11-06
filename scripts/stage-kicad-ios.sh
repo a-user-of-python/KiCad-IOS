@@ -269,8 +269,8 @@ for q in QtCore QtGui QtWidgets QtOpenGL QtOpenGLWidgets QtPrintSupport QtTest Q
 done
 PROBE_LIBS=(
     "${PROBE_WX[@]}" "${PROBE_QT[@]}"
-    -L"$SYSROOT/lib" -lwxscintilla-3.3 -lwxlexilla-3.3 -lwxjpeg -lwxpng
-    -lwxtiff -lwxwebp -lwxwebpdemux -lwxsharpyuv -lwxregexu
+    -L"$SYSROOT/lib" -lwxscintilla-3.3 -lwxlexilla-3.3 -lwxjpeg-3.3 -lwxpng-3.3
+    -lwxtiff-3.3 -lwxwebp-3.3 -lwxwebpdemux-3.3 -lwxsharpyuv-3.3 -lwxregexu-3.3
     -lpng16 -lpcre2-16 "$WORK/glshim/libgluadapter.a" -ltess2
     -framework CoreFoundation -framework Foundation -framework UIKit
     -framework Metal -framework IOKit -framework CoreGraphics
