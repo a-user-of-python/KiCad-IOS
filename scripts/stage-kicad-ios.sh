@@ -205,6 +205,27 @@ CPPEOF
 fi
 echo "PLUGIN_ITEMS: $PLUGIN_ITEMS"
 
+# --- Unhide wx/Qt archive symbols (launch fix round 4) --------------------
+# wx and Qt are compiled with hidden visibility: their object files
+# store globals as private externs (N_PEXT), which ld64 carries into
+# the executable unexported -- and neither -export_dynamic nor
+# -exported_symbol '_*' promotes them (v5 candidate build, run
+# 42210442013: the manager still exported only 725 symbols and the
+# bundle closure was still short the same 3,351 wx symbols, every
+# one of them present in the executable but private). Clear N_PEXT
+# in the wx/Qt archive object files, in place, so their globals
+# land in the executable as true externals. The script fails the
+# stage if it unhides nothing (the visibility model would be
+# wrong). See scripts/unhide_archive_symbols.py for the full story.
+python3 "$PWD/scripts/unhide_archive_symbols.py" "$SYSROOT/lib" "$QTDIR_IOS" \
+    > "$WORK/logs/unhide.log" 2>&1
+UNHIDE_RC=$?
+cat "$WORK/logs/unhide.log"
+if [ "$UNHIDE_RC" != "0" ]; then
+    echo "RESULT: unhide step failed (rc=$UNHIDE_RC) -- stopping before the build"
+    exit 5
+fi
+
 # --- Link probe (launch fix round 3, KiCad-Spike-v5) ----------------------
 # Before the multi-hour build, verify with the REAL wx/Qt archives
 # (restored sysroot + the aqt kit) that the options patch 0021 adds to
@@ -214,7 +235,9 @@ echo "PLUGIN_ITEMS: $PLUGIN_ITEMS"
 # executable's ~82k wx/Qt globals were almost all unexported private
 # externs (n_type 0x1e; only ~500 true externals), and dyld aborted
 # before any app code: "symbol not found in flat namespace
-# '__ZN10wxGLCanvas11SwapBuffersEv'". The probe links a test program
+# '__ZN10wxGLCanvas11SwapBuffersEv'". Round 4: the probe runs AFTER
+# the unhide step above, so it tests the real mechanism (unhidden
+# archives + force_load + -exported_symbol). The probe links a test program
 # referencing three symbols (a wx base data symbol, a wx gl method, a
 # QtWidgets method) and nm-checks the result. If a variant LINKS but
 # none EXPORTS, the mechanism is wrong and the stage stops here
@@ -258,6 +281,12 @@ PROBE_LIBS=(
     -lexpat -lz -liconv -lc++
 )
 [ -n "${QT_PCRE2:-}" ] && PROBE_LIBS+=( "$QT_PCRE2" )
+# Qt's bundled third-party archives (harfbuzz, freetype, ...): the
+# round-3 probe link failed without them -- wx core pulls QtGui
+# objects whose harfbuzz references live in libQtBundledHarfbuzz.
+for b in "$QTDIR_IOS"/lib/libQt*.a; do
+    [ -f "$b" ] && PROBE_LIBS+=( "$b" )
+done
 PROBE_FL=()
 for a in "${PROBE_WX[@]}"; do PROBE_FL+=( "-Wl,-force_load,$a" ); done
 PROBE_FLQ=()
@@ -322,7 +351,7 @@ case "$PROBE_VERDICT" in
         echo "RESULT: probe shows the export works only with the Qt archives force-loaded too; patch 0021 does not do that -- stopping for a fix round instead of building a known-bad IPA"
         exit 4 ;;
     links-but-no-export)
-        echo "RESULT: probe linked with patch 0021's exact options but the wx/Qt symbols are still not exported -- stopping for a fix round instead of building a known-bad IPA"
+        echo "RESULT: probe linked with the executable options but the wx/Qt symbols are still not exported (unhide step + patches 0021/0022 insufficient) -- stopping for a fix round instead of building a known-bad IPA"
         exit 4 ;;
     force-load-duplicate-symbols)
         echo "RESULT: probe shows -force_load of the wx archives produces duplicate symbols at link time (see probe/link_full.log) -- patch 0021 as written would break the real link; stopping for a fix round"
@@ -330,6 +359,11 @@ case "$PROBE_VERDICT" in
     *)
         echo "PROBE WARNING: probe inconclusive (no variant linked; the hand-rolled probe line may miss transitive deps) -- proceeding; the real build and the offline symbol-closure audit are the verdict" ;;
 esac
+# Preserve the probe's own logs in the uploaded logs artifact (in
+# round 3 they stayed in work/probe and the link failure could not
+# be diagnosed after the run).
+mkdir -p "$WORK/logs/probe"
+cp "$PROBE_DIR"/*.log "$WORK/logs/probe/" 2>/dev/null || true
 
 # Single-wx/Qt-instance linking (with KiCad patch 0020): the KiCad
 # shared libraries and kiface modules must NOT embed their own copies
