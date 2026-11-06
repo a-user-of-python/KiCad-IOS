@@ -8,6 +8,11 @@ Layout produced (iOS-flat, as dyld + iOS require):
     Payload/KiCad.app/Info.plist            (iOS plist written here)
     Payload/KiCad.app/Frameworks/*.dylib    (KiCad libs + sysroot dylibs)
     Payload/KiCad.app/Frameworks/*.framework (Qt frameworks actually linked)
+    Payload/KiCad.app/share/                (stock data: bitmap archive,
+                                             scripting plugins, addons)
+    Payload/KiCad.app/python/               (PYTHONHOME: CPython 3.13
+                                             stdlib + KiCad's own Python
+                                             modules in site-packages)
 
     (No Contents/ mirror is produced: the v1 package mirrored the whole
     Frameworks tree into a macOS-shaped Contents/ tree, doubling the
@@ -24,11 +29,14 @@ The user re-signs the unsigned IPA with his own tooling (Signulous), like the
 other spike apps.
 """
 
+import glob
+import json
 import os
 import plistlib
 import shutil
 import subprocess
 import sys
+import zipfile
 
 WORK = sys.argv[1]          # $WORK
 BLD = sys.argv[2]           # $WORK/build-kicad-ios
@@ -230,6 +238,240 @@ def main():
         for dep in sorted(unresolved):
             print("   UNRESOLVED:", dep)
 
+    # ------------------------------------------------------------------
+    # Python runtime (launch fix round 6, KiCad-Spike-v8).
+    #
+    # KiCad initialises its embedded CPython during manager startup
+    # (SCRIPTING in PGM_BASE::InitPgm) and CPython imports the stdlib
+    # `encodings` package during initialisation; up to v7 the bundle
+    # shipped the interpreter binary with NO standard library, and
+    # startup aborted on exactly that import. Patch 0025 points
+    # PYTHONHOME at <app>/python in the executable's startup object;
+    # this step stocks that tree from the same BeeWare sysroot the
+    # interpreter came from, and mirrors in KiCad's own Python
+    # components from the build tree.
+    # ------------------------------------------------------------------
+    def dir_stats(root):
+        n = b = 0
+        for r, _d, fs in os.walk(root):
+            for f in fs:
+                n += 1
+                b += os.path.getsize(os.path.join(r, f))
+        return n, b
+
+    def collect_macho(root):
+        found = []
+        for r, _d, fs in os.walk(root):
+            for f in fs:
+                p = os.path.join(r, f)
+                if is_macho(p):
+                    os.chmod(p, 0o755)
+                    found.append(p)
+        return found
+
+    py_src = os.path.join(SYSROOT, "lib", "python3.13")
+    if not os.path.isdir(py_src):
+        print("FATAL: Python stdlib missing from sysroot:", py_src,
+              "(re-run the python-ios stage)")
+        sys.exit(1)
+    py_dst = os.path.join(APP, "python", "lib", "python3.13")
+    os.makedirs(py_dst, exist_ok=True)
+    shutil.copytree(py_src, py_dst, dirs_exist_ok=True)
+
+    # Trims -- provably-dead weight ONLY, each logged with its size:
+    #   * test/        CPython's own regression suite (35 MB); its
+    #                  only consumers are CPython developers.
+    #   * idlelib/     the IDLE editor; its GUI toolkit module
+    #                  (_tkinter) does not exist in the iOS build.
+    #   * tkinter/, turtledemo/   same reason: no _tkinter module
+    #                  exists for this platform, so none of it can
+    #                  ever be imported successfully.
+    #   * lib-dynload test modules (_test*, _ctypes_test,
+    #     _xxtestfuzz): extension modules whose only importer is
+    #     the trimmed test suite.
+    #   * modules the dynload probe (scripts/probe_dynload.py)
+    #     proved cannot load on this platform at all.
+    trim_log = []
+
+    def trim_path(path, why):
+        if not os.path.exists(path):
+            return
+        if os.path.isdir(path):
+            n, b = dir_stats(path)
+            shutil.rmtree(path)
+        else:
+            n, b = 1, os.path.getsize(path)
+            os.remove(path)
+        trim_log.append(f"{os.path.relpath(path, py_dst)} "
+                        f"({n} files, {b} bytes) -- {why}")
+
+    for d in ("test", "idlelib", "tkinter", "turtledemo"):
+        trim_path(os.path.join(py_dst, d),
+                  "provably dead on this platform (see packager notes)")
+    dynload_dst = os.path.join(py_dst, "lib-dynload")
+    if os.path.isdir(dynload_dst):
+        for name in sorted(os.listdir(dynload_dst)):
+            stem = name.split(".")[0]
+            if stem.startswith("_test") or stem == "_ctypes_test" \
+                    or stem == "_xxtestfuzz":
+                trim_path(os.path.join(dynload_dst, name),
+                          "CPython test-suite extension module")
+    verdicts_file = os.path.join(WORK, "dynload-verdicts.txt")
+    if os.path.isfile(verdicts_file):
+        for line in open(verdicts_file):
+            parts = line.split(None, 2)
+            if len(parts) >= 2 and parts[0] == "TRIM":
+                syms = parts[2].strip() if len(parts) > 2 else "?"
+                trim_path(os.path.join(dynload_dst, parts[1]),
+                          f"probe_dynload: cannot load on iOS "
+                          f"(unresolvable: {syms})")
+    else:
+        print("WARNING: no dynload-verdicts.txt -- probe did not run; "
+              "packaging all extension modules unprobed")
+    for t in trim_log:
+        print("python trim:", t)
+
+    encodings = os.path.join(py_dst, "encodings", "__init__.py")
+    if not os.path.isfile(encodings):
+        print("FATAL: encodings package missing from packaged stdlib:",
+              encodings)
+        sys.exit(1)
+    n_dyn = len([f for f in os.listdir(dynload_dst)
+                 if f.endswith(".so")]) if os.path.isdir(dynload_dst) else 0
+    if n_dyn == 0:
+        print("FATAL: no extension modules in packaged lib-dynload")
+        sys.exit(1)
+    n_py, b_py = dir_stats(os.path.join(APP, "python"))
+    print(f"python stdlib packaged: {n_py} files, {b_py} bytes "
+          f"({n_dyn} extension modules kept)")
+
+    # KiCad's own Python modules: the build copies pcbnew.py and
+    # _pcbnew.so into its bundle-shaped PYTHON_DEST (a
+    # Python.framework site-packages inside the built KiCad.app).
+    # Mirror that directory wholesale into the PYTHONHOME
+    # site-packages, where the interpreter's site machinery (and the
+    # startup object's PYTHONPATH) finds them. _pcbnew.so is a copy
+    # of _pcbnew.kiface: source the bytes from the copy already
+    # placed in Frameworks/ so both go through the same install-name
+    # rewrite below (falling back to the build's own copy if the
+    # kiface is somehow absent).
+    site_dst = os.path.join(py_dst, "site-packages")
+    os.makedirs(site_dst, exist_ok=True)
+    sp_glob = os.path.join(SRC_APP, "Contents", "Frameworks",
+                           "Python.framework", "Versions", "*",
+                           "lib", "python*", "site-packages")
+    sp_dirs = sorted(glob.glob(sp_glob))
+    if not sp_dirs:
+        print("WARNING: build produced no Python.framework "
+              "site-packages (glob:", sp_glob, ") -- KiCad Python "
+              "modules NOT packaged")
+    for sp in sp_dirs:
+        for name in sorted(os.listdir(sp)):
+            src = os.path.join(sp, name)
+            if not os.path.isfile(src):
+                continue
+            if name == "_pcbnew.so":
+                kiface_copy = os.path.join(FW, "_pcbnew.kiface")
+                if os.path.isfile(kiface_copy):
+                    shutil.copy2(kiface_copy,
+                                 os.path.join(site_dst, "_pcbnew.so"))
+                    print("site-packages: _pcbnew.so <- Frameworks/"
+                          "_pcbnew.kiface (same bytes, module name)")
+                else:
+                    shutil.copy2(src, os.path.join(site_dst, name))
+                    print("site-packages: _pcbnew.so <- build copy "
+                          "(kiface missing from bundle!)")
+            else:
+                shutil.copy2(src, os.path.join(site_dst, name))
+                print(f"site-packages: {name} "
+                      f"({os.path.getsize(src)} bytes)")
+
+    # KiCad's stock scripting plugins + footprint wizards: the
+    # install rule ships pcbnew/python/plugins/ to
+    # <data>/scripting/plugins, and the plugin loader
+    # (kicadplugins.i LoadPlugins) searches the stock scripting
+    # path's plugins/ subdirectory first. Mirror it under the
+    # bundle's stock root (share/ == the KICAD_STOCK_DATA_HOME the
+    # startup object sets).
+    plugins_dst = os.path.join(APP, "share", "scripting", "plugins")
+    stock_plugins = os.path.join(WORK, "src", "kicad", "pcbnew",
+                                 "python", "plugins")
+    if os.path.isdir(stock_plugins):
+        os.makedirs(plugins_dst, exist_ok=True)
+        shutil.copytree(stock_plugins, plugins_dst, dirs_exist_ok=True)
+        n_sp, b_sp = dir_stats(plugins_dst)
+        print(f"stock scripting plugins packaged: {n_sp} files, "
+              f"{b_sp} bytes -> share/scripting/plugins")
+    else:
+        print("WARNING: KiCad stock scripting plugins not found at",
+              stock_plugins)
+
+    # Vendor addons (PCBWay / JLCPCB Fabrication Toolkit): official
+    # PCM packages fetched + sha256-verified by the stage script
+    # (see stage-kicad-ios.sh; pinned to the KiCad official PCM
+    # repository's listed versions). PCM's own install transform
+    # (kicad/pcm/pcm_task_manager.cpp) maps a package zip's
+    # plugins/<contents> to <3rdparty>/plugins/<identifier with
+    # '.'->'_'>/<contents>; we mirror that layout into the stock
+    # scripting plugins directory the loader searches first, and
+    # keep each package's metadata.json + vendor LICENSE alongside
+    # the code for attribution.
+    addons_dir = os.path.join(WORK, "addons")
+    status_file = os.path.join(addons_dir, "STATUS.txt")
+    addon_status = {}
+    if os.path.isfile(status_file):
+        for line in open(status_file):
+            parts = line.split()
+            if len(parts) == 3 and parts[0] == "ADDON":
+                addon_status[parts[1]] = parts[2]
+    for key in ("pcbway", "jlcpcb"):
+        zpath = os.path.join(addons_dir, key + ".zip")
+        if addon_status.get(key) != "OK" or not os.path.isfile(zpath):
+            print(f"ADDON NOT PACKAGED: {key} (stage fetch status: "
+                  f"{addon_status.get(key, 'unknown')})")
+            continue
+        with zipfile.ZipFile(zpath) as zf:
+            meta = json.loads(zf.read("metadata.json"))
+            clean_id = meta["identifier"].replace(".", "_")
+            dest = os.path.join(plugins_dst, clean_id)
+            os.makedirs(dest, exist_ok=True)
+            n_add = 0
+            for info in zf.infolist():
+                if not info.filename.startswith("plugins/") \
+                        or info.filename.endswith("/"):
+                    continue
+                rel = info.filename[len("plugins/"):]
+                if ".." in rel.split("/"):
+                    continue
+                target = os.path.join(dest, rel)
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                with open(target, "wb") as fh:
+                    fh.write(zf.read(info.filename))
+                n_add += 1
+            with open(os.path.join(dest, "metadata.json"), "wb") as fh:
+                fh.write(zf.read("metadata.json"))
+        lic = os.path.join(addons_dir, key + "-LICENSE")
+        if os.path.isfile(lic):
+            shutil.copy2(lic, os.path.join(dest, "LICENSE"))
+        n_add, b_add = dir_stats(dest)
+        print(f"addon packaged: {meta['name']} {meta['versions'][0]['version']} "
+              f"({meta['identifier']}, license {meta['license']}) -> "
+              f"share/scripting/plugins/{clean_id} ({n_add} files, "
+              f"{b_add} bytes)")
+
+    # Every Mach-O now under python/ joins the rewrite pass below:
+    # it normalises their @rpath/Python.framework/Python load (the
+    # BeeWare spelling) to @rpath/Python, the install name the
+    # bundled interpreter image carries -- without it dyld cannot
+    # match the extension modules' twolevel references to the
+    # already-loaded Python image and every dlopen would fail.
+    for p in collect_macho(os.path.join(APP, "python")):
+        if p not in binaries:
+            binaries.append(p)
+    for p in collect_macho(plugins_dst):
+        if p not in binaries:
+            binaries.append(p)
+
     # Rewrite install names: own id -> @rpath/<base>, deps -> @rpath/<base>
     for binary in binaries:
         if not is_macho(binary):
@@ -295,6 +537,19 @@ def main():
         ],
         "UIRequiresFullScreen": False,
         "NSPrincipalClass": "UIApplication",
+        # File access (launch fix round 6, KiCad-Spike-v8): expose the
+        # app's sandbox Documents folder in the Files app / Finder and
+        # allow opening documents in place. This is the folder KiCad
+        # resolves its user paths against on this port: the iOS
+        # kiplatform layer's KIPLATFORM::ENV::GetDocumentsPath() is
+        # wxStandardPaths::GetDocumentsDir() (the sandbox Documents
+        # dir), and PATHS::getUserDocumentPath() builds
+        # Documents/KiCad/10.0/{scripting,plugins,symbols,footprints,
+        # 3rdparty,projects,...} on it -- so projects and libraries
+        # dropped into the shared folder are exactly where KiCad
+        # looks for them.
+        "UIFileSharingEnabled": True,
+        "LSSupportsOpeningDocumentsInPlace": True,
     }
     with open(os.path.join(APP, "Info.plist"), "wb") as fh:
         plistlib.dump(plist, fh)
