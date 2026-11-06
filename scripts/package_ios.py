@@ -181,7 +181,20 @@ def main():
                     embed_frameworks[fwname] = srcdir
                     queue.append(os.path.join(srcdir, fwname.replace(".framework", "")))
                 else:
-                    unresolved.add(dep)
+                    # The framework bundle exists nowhere (the sysroot
+                    # carries the BeeWare Python dylib as a bare file,
+                    # libpython3.13.a): embed its binary flat, under
+                    # its own name -- the install-name rewrite below
+                    # normalises this dep to @rpath/<binary name>.
+                    binbase = EMBED_ALIASES.get(os.path.basename(dep),
+                                                os.path.basename(dep))
+                    src = find_embed_source(binbase)
+                    if src is not None and binbase not in embed_dylibs \
+                            and not os.path.exists(os.path.join(FW, binbase)):
+                        embed_dylibs[binbase] = src
+                        queue.append(src)
+                    else:
+                        unresolved.add(dep)
                 continue
             base = EMBED_ALIASES.get(os.path.basename(dep), os.path.basename(dep))
             if base in embed_dylibs or os.path.exists(os.path.join(FW, base)):
