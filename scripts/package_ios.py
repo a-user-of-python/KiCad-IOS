@@ -188,9 +188,11 @@ def main():
                     # normalises this dep to @rpath/<binary name>.
                     binbase = EMBED_ALIASES.get(os.path.basename(dep),
                                                 os.path.basename(dep))
+                    if binbase in embed_dylibs \
+                            or os.path.exists(os.path.join(FW, binbase)):
+                        continue
                     src = find_embed_source(binbase)
-                    if src is not None and binbase not in embed_dylibs \
-                            and not os.path.exists(os.path.join(FW, binbase)):
+                    if src is not None:
                         embed_dylibs[binbase] = src
                         queue.append(src)
                     else:
