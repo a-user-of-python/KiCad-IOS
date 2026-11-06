@@ -49,12 +49,25 @@ def nm_symbols(path, *flags):
 
 
 def nm_undefined(path):
-    """Undefined symbols only: lines whose type field is 'U'."""
+    """Undefined symbols from `nm -u`.
+
+    Apple nm's -u listing prints BARE symbol names, one per line
+    (no address/type columns); GNU-style output prints
+    "<spaces> U <name>". Accept both. (The first version of this
+    probe recognised only the GNU form, saw zero undefined symbols
+    for every module, and reported vacuous OKs -- caught in review
+    of the KiCad-Spike-v8 stage log, where every module claimed
+    "0 undefined". The sanity check in main() now makes that
+    failure mode impossible to miss.)
+    """
     names = set()
     for line in run(["xcrun", "nm", "-u", path]).splitlines():
         parts = line.split()
         if len(parts) >= 2 and parts[-2] == "U":
             names.add(parts[-1])
+        elif len(parts) == 1 and parts[0].startswith("_") \
+                and not parts[0].endswith(":"):
+            names.add(parts[0])
     return names
 
 
@@ -86,6 +99,7 @@ def main():
           f"libsqlite3 stub symbols={len(libsqlite)}")
 
     verdicts = []
+    total_undef = 0
     modules = sorted(f for f in os.listdir(dynload) if f.endswith(".so"))
     for name in modules:
         path = os.path.join(dynload, name)
@@ -94,6 +108,7 @@ def main():
         if "/usr/lib/libsqlite3.dylib" in loads:
             universe |= libsqlite
         undef = norm(nm_undefined(path) - nm_symbols(path, "-g"))
+        total_undef += len(undef)
         missing = sorted(s for s in undef if s not in universe)
         if missing:
             shown = ["_" + s for s in missing]
@@ -103,6 +118,16 @@ def main():
             verdicts.append(f"OK {name}")
             print(f"probe: OK {name} ({len(undef)} undefined, all resolve)")
 
+    if total_undef == 0:
+        # Sanity check: real extension modules DO carry undefined
+        # symbols (every one references Py_* APIs). Zero across the
+        # board means the nm parsing above is broken, not that the
+        # modules are clean -- fail loudly instead of writing
+        # vacuous OK verdicts.
+        print("probe: SANITY FAILURE -- 0 undefined symbols seen "
+              f"across {len(modules)} modules; nm output parsing "
+              "is broken. Refusing to write verdicts.")
+        sys.exit(2)
     out = os.path.join(work, "dynload-verdicts.txt")
     with open(out, "w") as fh:
         fh.write("\n".join(verdicts) + "\n")
