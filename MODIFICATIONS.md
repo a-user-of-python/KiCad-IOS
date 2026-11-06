@@ -519,3 +519,38 @@ Each modified upstream file also carries an in-file notice of the form:
   address. No behaviour change on other platforms (the C++ is
   behind `KICAD_IOS_PORT`, defined only by the iOS-only CMake
   block).
+- `patches/kicad/0024-ios-complete-qt-resources-and-stock-data.patch`
+  — kicad executable only, iOS, extends the patch-0023 startup
+  object in `kicad/kicad.cpp` (still behind `KICAD_IOS_PORT`):
+  (1) Qt resource registration is completed to the FULL bundle set
+  of the Qt modules the executable links. A census of the Qt 6.9.3
+  iOS kit (the same aqt archives CI installs; inventory from
+  `lib/objects-Release/*/qrc_*_init.cpp.o` plus framework symbol
+  tables, compared against the v6 executable's LC_SYMTAB) shows
+  the linked modules carry exactly eight bundles — QtGui
+  {gui_shaders, qpdf}, QtWidgets {qstyle, qstyle1, qstyle_fusion,
+  qmessagebox}, QtPrintSupport {qprintdialog, qprintdialog1} — of
+  which the v6 executable contained seven: `qprintdialog1` was
+  never extracted, the same silent-extraction hole as v5's
+  gui_shaders, one level down. All eight init functions are now
+  declared and called explicitly, so no bundle's presence depends
+  on an incidental reference again. The census also proved there
+  is no `rhi_shaders` bundle in this kit (QtGui ships exactly two
+  resource objects) and that PNG needs no plugin in 6.9.3 (the
+  handler is built into QtGui; the kit's imageformats are only
+  gif/ico/jpeg/svg). (2) Stock data: KiCad 10's BITMAP_STORE is
+  file-based — it opens `PATHS::GetStockDataPath() +
+  "/resources/images.tar.gz"` and reads every icon's PNG data
+  from it; the failure mode is graceful (each icon becomes the
+  built-in "image not found" placeholder), so the v1–v6 bundles,
+  which ship no stock data, would open a manager window whose
+  every icon is a placeholder. `GetStockDataPath()` consults the
+  `KICAD_STOCK_DATA_HOME` environment variable before any
+  platform branch (verified compiled into the shipped
+  libkicommon), so the startup constructor now sets it — only if
+  unset — to `<bundle>/share`, derived from
+  `_NSGetExecutablePath` (flat layout: the bundle root is the
+  executable's directory). Companion change, not in this patch:
+  `scripts/package_ios.py` installs the build's own
+  `$BLD/resources/images.tar.gz` at `KiCad.app/share/resources/`
+  and fails the package if the archive is missing.

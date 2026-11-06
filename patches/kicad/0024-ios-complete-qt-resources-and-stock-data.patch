@@ -1,0 +1,111 @@
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -63,7 +63,13 @@
+ #include <kiplatform/environment.h>
+ 
+ #ifdef KICAD_IOS_PORT
++#include <climits>
++#include <cstdint>
+ #include <cstdlib>
++#include <cstring>
++#include <string>
++
++#include <mach-o/dyld.h>
+ 
+ // [KiCad-IOS port] Modified 2026-11-06 for iOS. Two startup duties that
+ // must be done before wxEntry creates the QApplication; this object's
+@@ -99,6 +105,23 @@
+ //    registered for the same reason; qstyle, qmessagebox, qpdf and
+ //    qprintdialog already made it into the v5 executable through
+ //    incidental references.
++//    [Patch 0024 extends this to the COMPLETE bundle set of the Qt
++//    modules this executable links, so no bundle's presence ever
++//    again depends on an incidental reference. A full census of the
++//    Qt 6.9.3 iOS kit (the same aqt archives CI installs; bundle
++//    inventory from lib/objects-Release/*/qrc_*_init.cpp.o plus the
++//    framework symbol tables, compared against this executable's
++//    LC_SYMTAB) shows the linked modules carry exactly eight
++//    resource bundles: QtGui {gui_shaders, qpdf}, QtWidgets {qstyle,
++//    qstyle1, qstyle_fusion, qmessagebox}, QtPrintSupport
++//    {qprintdialog, qprintdialog1}. The v6 executable contained
++//    seven -- qprintdialog1 was missing, the same silent hole one
++//    level down (its data serves the generic print dialog's UI).
++//    All eight are now declared and called below. The census also
++//    closed two open questions: there is NO rhi_shaders bundle in
++//    this kit (QtGui ships exactly two resource objects), and PNG
++//    needs no plugin (Qt 6.9.3 builds the PNG handler into QtGui;
++//    the kit's imageformats are only gif/ico/jpeg/svg).]
+ // 2) Environment defaults, set before QApplication exists.
+ //    QT_WIDGETS_RHI=0 opts widget top-levels out of RHI-composited
+ //    flushing wherever Qt evaluates that choice
+@@ -109,9 +132,34 @@
+ //    the RHI and platform-integration logging categories so the next
+ //    launch failure carries its reason in the log instead of a bare
+ //    fault address.
++// 3) [Patch 0024] Stock data location. KiCad 10's BITMAP_STORE is
++//    FILE-based: its constructor opens an ASSET_ARCHIVE at
++//    PATHS::GetStockDataPath() + "/resources/images.tar.gz" and
++//    every KiBitmap() (all toolbar/launcher/dialog icons, starting
++//    with the manager frame's own) reads PNG data from it. The
++//    archive-open failure is graceful (each icon degrades to the
++//    built-in "image not found" placeholder), so a bundle without
++//    stock data does not crash -- it opens a manager window whose
++//    every icon is a placeholder. Up to v6 the bundle shipped no
++//    stock data at all, and the compiled-in KICAD_DATA path is a
++//    CI-machine sysroot path that cannot exist on device.
++//    PATHS::GetStockDataPath() consults the KICAD_STOCK_DATA_HOME
++//    environment variable before any platform branch (the literal
++//    is verifiably compiled into the shipped libkicommon), so the
++//    constructor below points it at the app bundle's share/
++//    directory, where the packaging step (scripts/package_ios.py)
++//    installs the build's own resources/images.tar.gz. This runs
++//    at load time, long before the lazily-constructed BITMAP_STORE
++//    (first KiBitmap call, in the manager frame constructor), and
++//    an externally-provided value is respected.
+ extern int qInitResources_gui_shaders();
++extern int qInitResources_qpdf();
++extern int qInitResources_qstyle();
+ extern int qInitResources_qstyle1();
+ extern int qInitResources_qstyle_fusion();
++extern int qInitResources_qmessagebox();
++extern int qInitResources_qprintdialog();
++extern int qInitResources_qprintdialog1();
+ 
+ namespace
+ {
+@@ -121,9 +169,35 @@
+     {
+         setenv( "QT_WIDGETS_RHI", "0", 1 );
+         setenv( "QT_LOGGING_RULES", "qt.rhi.*=true;qt.qpa.*=true", 1 );
++
++        if( !std::getenv( "KICAD_STOCK_DATA_HOME" ) )
++        {
++            char     exePath[PATH_MAX];
++            uint32_t exeLen = sizeof( exePath );
++
++            if( _NSGetExecutablePath( exePath, &exeLen ) == 0 )
++            {
++                // Flat iOS layout: <...>/KiCad.app/KiCad -> the
++                // bundle root is the executable's directory.
++                char* slash = std::strrchr( exePath, '/' );
++
++                if( slash )
++                {
++                    *slash = '\0';
++                    std::string stockHome = std::string( exePath ) + "/share";
++                    setenv( "KICAD_STOCK_DATA_HOME", stockHome.c_str(), 1 );
++                }
++            }
++        }
++
+         qInitResources_gui_shaders();
++        qInitResources_qpdf();
++        qInitResources_qstyle();
+         qInitResources_qstyle1();
+         qInitResources_qstyle_fusion();
++        qInitResources_qmessagebox();
++        qInitResources_qprintdialog();
++        qInitResources_qprintdialog1();
+     }
+ };
+ 

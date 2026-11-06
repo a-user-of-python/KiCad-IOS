@@ -255,6 +255,28 @@ def main():
     # from Frameworks/ like every other binary here. Restore a mirror
     # only if a device run proves an editor actually searches there.
 
+    # KiCad stock data (launch fix round 5, KiCad-Spike-v7): KiCad
+    # 10's BITMAP_STORE is file-based -- it opens an asset archive at
+    # <stock data>/resources/images.tar.gz and every icon in every
+    # window (starting with the manager's own toolbar/launcher) reads
+    # its PNG data from it; a missing archive degrades every icon to
+    # the built-in "image not found" placeholder. Patch 0024 points
+    # PATHS::GetStockDataPath() at <app>/share via the
+    # KICAD_STOCK_DATA_HOME environment variable, set by the
+    # executable's iOS startup object. The full build produces the
+    # archive at $BLD/resources/images.tar.gz (the same file desktop
+    # installs as share/kicad/resources/images.tar.gz). Package it or
+    # fail: a bundle without it is a known-broken deliverable.
+    stock_src = os.path.join(BLD, "resources", "images.tar.gz")
+    if not os.path.isfile(stock_src):
+        print("FATAL: stock bitmap archive missing:", stock_src)
+        sys.exit(1)
+    stock_dst_dir = os.path.join(APP, "share", "resources")
+    os.makedirs(stock_dst_dir, exist_ok=True)
+    shutil.copy2(stock_src, os.path.join(stock_dst_dir, "images.tar.gz"))
+    print("stock data packaged: share/resources/images.tar.gz",
+          os.path.getsize(stock_src), "bytes")
+
     plist = {
         "CFBundleExecutable": "KiCad",
         "CFBundleIdentifier": "com.user.kicadspike",
