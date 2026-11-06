@@ -1,0 +1,76 @@
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -152,6 +152,36 @@
+ //    at load time, long before the lazily-constructed BITMAP_STORE
+ //    (first KiBitmap call, in the manager frame constructor), and
+ //    an externally-provided value is respected.
++// 4) [Patch 0025] Embedded Python home. PGM_BASE::InitPgm constructs
++//    SCRIPTING during manager startup, whose constructor calls
++//    pybind11::initialize_interpreter(); CPython's own initialisation
++//    imports the stdlib `encodings` package, and with no standard
++//    library anywhere on the device that import fails and startup
++//    aborts with std::runtime_error "Failed to import encodings
++//    module" (the v7 device result: the exception dialog on launch,
++//    OK -> crash). KiCad's scriptingSetup() only calls
++//    Py_SetPythonHome() on the Windows/MSVC branch; the generic
++//    unix branch this port compiles sets PYTHONPATH (to a
++//    build-machine path that cannot exist on device) and leaves the
++//    interpreter's home to the environment -- CPython honours the
++//    PYTHONHOME environment variable when it computes its prefix,
++//    and the stdlib then resolves at $PYTHONHOME/lib/python3.13
++//    with extension modules in its lib-dynload subdirectory. The
++//    constructor below therefore points PYTHONHOME at the bundle's
++//    python/ directory, where the packaging step installs the full
++//    CPython 3.13 standard library (from the same BeeWare sysroot
++//    as the shipped interpreter binary), and adds the bundle's
++//    site-packages directory -- which the packager stocks with
++//    KiCad's own Python modules (pcbnew.py, _pcbnew.so) -- to
++//    PYTHONPATH when the user has not set one (scriptingSetup()
++//    prepends the inherited PYTHONPATH to its own value, so this
++//    survives; the directory is also the interpreter's automatic
++//    site-packages location under this PYTHONHOME). Finally,
++//    PYTHONDONTWRITEBYTECODE=1 mirrors KiCad's own macOS branch of
++//    scriptingSetup(): the signed bundle is read-only, so bytecode
++//    caching could only ever fail -- and on desktop macOS it is
++//    disabled to protect the package seal. An externally-provided
++//    PYTHONHOME is respected, like KICAD_STOCK_DATA_HOME above.
+ extern int qInitResources_gui_shaders();
+ extern int qInitResources_qpdf();
+ extern int qInitResources_qstyle();
+@@ -189,6 +219,36 @@
+                 }
+             }
+         }
++
++        // Embedded Python home (patch 0025, duty 4 above): the
++        // bundle's python/ tree carries the CPython standard
++        // library the interpreter initialises against.
++        setenv( "PYTHONDONTWRITEBYTECODE", "1", 1 );
++
++        if( !std::getenv( "PYTHONHOME" ) )
++        {
++            char     exePath[PATH_MAX];
++            uint32_t exeLen = sizeof( exePath );
++
++            if( _NSGetExecutablePath( exePath, &exeLen ) == 0 )
++            {
++                char* slash = std::strrchr( exePath, '/' );
++
++                if( slash )
++                {
++                    *slash = '\0';
++                    std::string pyHome = std::string( exePath ) + "/python";
++                    setenv( "PYTHONHOME", pyHome.c_str(), 1 );
++
++                    if( !std::getenv( "PYTHONPATH" ) )
++                    {
++                        std::string sitePkgs =
++                                pyHome + "/lib/python3.13/site-packages";
++                        setenv( "PYTHONPATH", sitePkgs.c_str(), 1 );
++                    }
++                }
++            }
++        }
+ 
+         qInitResources_gui_shaders();
+         qInitResources_qpdf();
