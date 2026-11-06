@@ -1,0 +1,97 @@
+--- a/kicad/CMakeLists.txt
++++ b/kicad/CMakeLists.txt
+@@ -144,6 +144,15 @@
+     target_link_options( kicad PRIVATE "-Wl,-e,_qt_main_wrapper" )
+ endif()
+ 
++# [KiCad-IOS port] Modified 2026-11-06 for iOS: mark the manager
++# executable so kicad.cpp compiles its iOS-only startup block (Qt
++# resource registration plus pre-QApplication environment defaults;
++# see the matching KICAD_IOS_PORT block in kicad.cpp for the device
++# crash that motivates it).
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( kicad PRIVATE KICAD_IOS_PORT )
++endif()
++
+ add_executable( kicad-cli WIN32
+     kicad_cli.cpp
+     ${KICAD_CLI_SRCS}
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -62,6 +62,76 @@
+ #include <kiplatform/app.h>
+ #include <kiplatform/environment.h>
+ 
++#ifdef KICAD_IOS_PORT
++#include <cstdlib>
++
++// [KiCad-IOS port] Modified 2026-11-06 for iOS. Two startup duties that
++// must be done before wxEntry creates the QApplication; this object's
++// constructor runs during executable load, ahead of main and therefore
++// ahead of Qt's qt_main_wrapper -> UIApplicationMain path.
++//
++// 1) Qt module resource registration. Qt for iOS is linked statically
++//    and KiCad links Qt as bare paths rather than CMake targets, so
++//    the resource-initialiser objects inside the Qt archives are never
++//    extracted: nothing references them, and their own static
++//    initialisers never run. (FEBio, which links Qt via CMake
++//    targets, gets them automatically.) The Qt resource filesystem is
++//    therefore missing whole trees in this executable -- decisively
++//    the "gui_shaders" resource holding the QBackingStore compositor's
++//    precompiled shaders
++//    (:/qt-project.org/gui/painting/shaders/backingstorecompose.*.qsb).
++//    On iOS every widget window is flushed through QRhiBackingStore
++//    and that compositor; with the shaders absent, pipeline creation
++//    fails (a qWarning, invisible on iOS) and the pipeline stays null,
++//    so the first window paint dereferenced it in
++//    QRhiMetal::setGraphicsPipeline -- the device crash of
++//    KiCad-Spike-v5 (2026-11-06), ~0.15 s after launch, before the
++//    manager window ever painted. Binary evidence: the v5 executable
++//    contains zero embedded .qsb resource entries and none of these
++//    init symbols, while the FEBio executable (same Qt build, renders
++//    fine) contains both. Declaring and calling the init functions
++//    here is exactly what Qt's Q_INIT_RESOURCE macro expands to (the
++//    macro itself cannot be used: it requires Qt headers, which this
++//    translation unit does not include, and the generated symbol name
++//    is the plain extern below). The call forces the linker to
++//    extract the resource objects from the archives.
++//    qstyle1/qstyle_fusion are the same trap inside QtWidgets and are
++//    registered for the same reason; qstyle, qmessagebox, qpdf and
++//    qprintdialog already made it into the v5 executable through
++//    incidental references.
++// 2) Environment defaults, set before QApplication exists.
++//    QT_WIDGETS_RHI=0 opts widget top-levels out of RHI-composited
++//    flushing wherever Qt evaluates that choice
++//    (QBackingStoreRhiSupport::checkForceRhi /
++//    QWidgetPrivate::q_evaluateRhiConfig): belt-and-braces next to
++//    (1) -- KiCad's canvases in this port are Cairo/software, nothing
++//    needs an RHI-composited backing store. QT_LOGGING_RULES enables
++//    the RHI and platform-integration logging categories so the next
++//    launch failure carries its reason in the log instead of a bare
++//    fault address.
++extern int qInitResources_gui_shaders();
++extern int qInitResources_qstyle1();
++extern int qInitResources_qstyle_fusion();
++
++namespace
++{
++struct KICAD_IOS_STARTUP
++{
++    KICAD_IOS_STARTUP()
++    {
++        setenv( "QT_WIDGETS_RHI", "0", 1 );
++        setenv( "QT_LOGGING_RULES", "qt.rhi.*=true;qt.qpa.*=true", 1 );
++        qInitResources_gui_shaders();
++        qInitResources_qstyle1();
++        qInitResources_qstyle_fusion();
++    }
++};
++
++KICAD_IOS_STARTUP kicadIosStartup;
++} // namespace
++
++#endif // KICAD_IOS_PORT
++
+ #ifdef KICAD_IPC_API
+ #include <api/api_server.h>
+ #endif

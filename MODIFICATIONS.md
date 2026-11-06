@@ -476,3 +476,46 @@ Each modified upstream file also carries an in-file notice of the form:
   whole Frameworks tree is removed: it doubled the v1 bundle to
   491 MB and the result failed signing. Restore it only if a
   device run proves an editor actually searches there.
+- `patches/kicad/0023-ios-qt-resource-registration-and-rhi-env.patch`
+  — kicad executable only, iOS: (a) `kicad/CMakeLists.txt` defines
+  `KICAD_IOS_PORT` for the manager target; (b) under that define,
+  `kicad/kicad.cpp` gains a file-scope startup object whose
+  constructor runs at executable load, before `main`, and (1)
+  declares and calls `qInitResources_gui_shaders()`,
+  `qInitResources_qstyle1()` and `qInitResources_qstyle_fusion()` —
+  exactly what Qt's `Q_INIT_RESOURCE` macro expands to (the macro
+  itself needs Qt headers, which that translation unit does not
+  include). Device evidence (KiCad-Spike-v5.ipa, crash report
+  2026-11-06): the app passed dyld, entered through
+  `qt_main_wrapper`, and died ~0.15 s after launch in
+  `QRhiMetal::setGraphicsPipeline` (fault address 0x368 = a member
+  offset from a null base) on the first window paint
+  (`QWidgetWindow::handleExposeEvent` →
+  `QBackingStoreDefaultCompositor::flush`). Root cause, proven by
+  binary inspection: Qt for iOS is statically linked and KiCad
+  links Qt as bare paths rather than CMake targets, so the
+  resource-initialiser objects in the Qt archives were never
+  extracted — the v5 executable embeds zero `.qsb` resource
+  entries and none of these init symbols, while the FEBio Studio
+  executable (same Qt 6.9.3 build, CMake-linked, renders fine on
+  the same iPad) contains `qInitResources_gui_shaders` and both
+  backingstorecompose shaders. Without the `gui_shaders` resource,
+  the compositor's precompiled shaders
+  (`:/qt-project.org/gui/painting/shaders/backingstorecompose.*.qsb`)
+  do not exist, its Metal graphics pipelines fail to create (a
+  `qWarning`, invisible on iOS), the pipeline stays null, and the
+  first flush dereferences it. On iOS every widget window flushes
+  through `QRhiBackingStore` and that compositor, so no window can
+  paint. The two QtWidgets style resources are the same trap in
+  the same archives and are registered alongside. The startup
+  constructor also (2) sets `QT_WIDGETS_RHI=0` before QApplication
+  exists — opting widget top-levels out of RHI-composited flushing
+  wherever Qt evaluates that choice
+  (`QBackingStoreRhiSupport`/`QWidgetPrivate::q_evaluateRhiConfig`);
+  belt-and-braces next to the resource fix, since KiCad's canvases
+  in this port are Cairo/software — and (3) sets
+  `QT_LOGGING_RULES=qt.rhi.*=true;qt.qpa.*=true` so the next launch
+  failure carries its reason in the log instead of a bare fault
+  address. No behaviour change on other platforms (the C++ is
+  behind `KICAD_IOS_PORT`, defined only by the iOS-only CMake
+  block).
