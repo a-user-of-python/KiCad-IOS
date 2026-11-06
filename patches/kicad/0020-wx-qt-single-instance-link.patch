@@ -56,7 +56,7 @@
 +            test-nm-biu-to-ascii-mm-round-tripping
 +            idfcyl idfrect dxf2idf idf2vrml dsntest )
 +        if( TARGET ${_ios_exe} )
-+            target_link_libraries( ${_ios_exe} PRIVATE ${KICAD_IOS_WX_LIBS} )
++            target_link_libraries( ${_ios_exe} ${KICAD_IOS_WX_LIBS} )
 +        endif()
 +    endforeach()
 +    unset( _ios_exe )
