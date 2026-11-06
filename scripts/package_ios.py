@@ -8,9 +8,13 @@ Layout produced (iOS-flat, as dyld + iOS require):
     Payload/KiCad.app/Info.plist            (iOS plist written here)
     Payload/KiCad.app/Frameworks/*.dylib    (KiCad libs + sysroot dylibs)
     Payload/KiCad.app/Frameworks/*.framework (Qt frameworks actually linked)
-    Payload/KiCad.app/Contents/Frameworks/  (mirror of the dylibs: KiCad's
-        own path logic is macOS-bundle-shaped; the mirror gives its
-        dlopen-based kiface search a Contents/Frameworks to find)
+
+    (No Contents/ mirror is produced: the v1 package mirrored the whole
+    Frameworks tree into a macOS-shaped Contents/ tree, doubling the
+    bundle to 491 MB, and the result failed signing. Dependencies
+    recorded as @rpath/<name> are resolved against the sysroot and the
+    Qt kit and embedded like any other library -- skipping them is what
+    left libz, libzstd and Python out of the v1 package.)
 
 Every Mach-O gets its install names rewritten to @rpath/<basename> and
 the executable gains @executable_path/Frameworks as an rpath, so nothing
@@ -98,8 +102,8 @@ def main():
             binaries.append(dst)
 
     # Kiface modules + 3D plugins, if the full build produced them.
-    # They are dlopen'd by KiCad at runtime, so they live both in
-    # Frameworks/ (for dyld) and in the Contents/PlugIns mirror below.
+    # They are dlopen'd by KiCad at runtime from Frameworks/, like
+    # every other binary in the bundle.
     plugins_dir = os.path.join(SRC_APP, "Contents", "PlugIns")
     kifaces = []
     if os.path.isdir(plugins_dir):
@@ -123,8 +127,32 @@ def main():
 
     # Walk load commands until the embed set stops growing: any dep that
     # lives in the sysroot, the Qt kit, or the build tree gets embedded.
+    # Deps recorded as @rpath/<name> are resolved against the sysroot
+    # and the Qt kit too -- the v1 walk skipped every "@" dep, which is
+    # how libz.1.dylib, libzstd.1.dylib and Python (all recorded as
+    # @rpath loads) were left out of the v1 package entirely.
+    #
+    # EMBED_ALIASES maps a dep's file name in the sysroot to the name
+    # it must carry in the bundle: KiCad's PYTHON_LIBRARY points at
+    # the BeeWare CPython dylib, which the python stage stores in the
+    # sysroot under a static-archive name; the built binaries record
+    # it (and dyld looks for it) as plain "Python".
+    EMBED_ALIASES = {"libpython3.13.a": "Python"}
+    rpath_search_dirs = [os.path.join(SYSROOT, "lib"),
+                         os.path.join(QTDIR, "lib")]
+
+    def find_embed_source(base):
+        names = [base] + [k for k, v in EMBED_ALIASES.items() if v == base]
+        for name in names:
+            for d in rpath_search_dirs:
+                cand = os.path.join(d, name)
+                if os.path.isfile(cand):
+                    return cand
+        return None
+
     embed_dylibs = {}       # basename -> source path
     embed_frameworks = {}   # framework name -> source dir
+    unresolved = set()
     queue = list(binaries)
     seen = set()
     while queue:
@@ -133,20 +161,42 @@ def main():
             continue
         seen.add(binary)
         for dep in load_commands(binary):
-            if dep.startswith("@") or dep.startswith("/usr/lib/") or dep.startswith("/System/"):
+            if dep.startswith("/usr/lib/") or dep.startswith("/System/"):
                 continue
-            base = os.path.basename(dep)
             if ".framework/" in dep:
                 fwname = dep.split(".framework/")[0].split("/")[-1] + ".framework"
-                srcdir = dep.split(fwname)[0] + fwname
-                if fwname not in embed_frameworks and os.path.isdir(srcdir):
+                if fwname in embed_frameworks or os.path.isdir(os.path.join(FW, fwname)):
+                    continue
+                srcdir = None
+                if not dep.startswith("@"):
+                    cand = dep.split(fwname)[0] + fwname
+                    if os.path.isdir(cand):
+                        srcdir = cand
+                if srcdir is None:
+                    for d in rpath_search_dirs:
+                        if os.path.isdir(os.path.join(d, fwname)):
+                            srcdir = os.path.join(d, fwname)
+                            break
+                if srcdir is not None:
                     embed_frameworks[fwname] = srcdir
                     queue.append(os.path.join(srcdir, fwname.replace(".framework", "")))
+                else:
+                    unresolved.add(dep)
                 continue
-            if base not in embed_dylibs:
-                if os.path.isfile(dep):
-                    embed_dylibs[base] = dep
-                    queue.append(dep)
+            base = EMBED_ALIASES.get(os.path.basename(dep), os.path.basename(dep))
+            if base in embed_dylibs or os.path.exists(os.path.join(FW, base)):
+                continue
+            if dep.startswith("@"):
+                src = find_embed_source(base)
+                if src is not None:
+                    embed_dylibs[base] = src
+                    queue.append(src)
+                else:
+                    unresolved.add(dep)
+                continue
+            if os.path.isfile(dep):
+                embed_dylibs[base] = dep
+                queue.append(dep)
 
     for base, src in sorted(embed_dylibs.items()):
         dst = os.path.join(FW, base)
@@ -160,6 +210,11 @@ def main():
             shutil.copytree(srcdir, dst, symlinks=True)
             binaries.append(os.path.join(dst, fwname.replace(".framework", "")))
 
+    if unresolved:
+        print("WARNING: deps that could not be resolved or embedded:")
+        for dep in sorted(unresolved):
+            print("   UNRESOLVED:", dep)
+
     # Rewrite install names: own id -> @rpath/<base>, deps -> @rpath/<base>
     for binary in binaries:
         if not is_macho(binary):
@@ -172,23 +227,18 @@ def main():
             if dep.startswith("/usr/lib/") or dep.startswith("/System/"):
                 continue
             depbase = os.path.basename(dep)
+            depbase = EMBED_ALIASES.get(depbase, depbase)
             if dep != f"@rpath/{depbase}":
                 run(["install_name_tool", "-change", dep, f"@rpath/{depbase}", binary])
         if binary == dst_exe:
             run(["install_name_tool", "-add_rpath", "@executable_path/Frameworks", binary])
 
-    # Mirror dylibs under Contents/Frameworks for KiCad's macOS-shaped
-    # bundle path logic (kiface dlopen search).
-    mirror = os.path.join(APP, "Contents", "Frameworks")
-    os.makedirs(mirror, exist_ok=True)
-    plug_mirror = os.path.join(APP, "Contents", "PlugIns")
-    os.makedirs(plug_mirror, exist_ok=True)
-    for name in sorted(os.listdir(FW)):
-        src = os.path.join(FW, name)
-        if os.path.isfile(src):
-            shutil.copy2(src, os.path.join(mirror, name))
-            if name.endswith(".kiface"):
-                shutil.copy2(src, os.path.join(plug_mirror, name))
+    # No Contents/ mirror: the v1 package mirrored every Frameworks
+    # file into Contents/Frameworks (+ Contents/PlugIns) as a hedge
+    # for KiCad's macOS-shaped kiface search, doubling the bundle to
+    # 491 MB; the signing service refused it. The editors are dlopen'd
+    # from Frameworks/ like every other binary here. Restore a mirror
+    # only if a device run proves an editor actually searches there.
 
     plist = {
         "CFBundleExecutable": "KiCad",
