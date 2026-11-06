@@ -380,7 +380,16 @@ Each modified upstream file also carries an in-file notice of the form:
   links with `-Wl,-export_dynamic`. One wx/Qt state per process,
   as in a desktop build with shared wx. No behaviour change on
   other platforms (both the stash/clear and the relink are inside
-  `CMAKE_SYSTEM_NAME STREQUAL "iOS"` blocks).
+  `CMAKE_SYSTEM_NAME STREQUAL "iOS"` blocks). Two link-detail
+  iterations during the v4 round, both recorded here: the relink
+  must use the plain `target_link_libraries` signature (CMake
+  forbids mixing it with the keyword signature KiCad itself uses;
+  run 42153711965), and the relink list must include the six
+  single-top editor executables (eeschema, pcbnew, gerbview,
+  pl_editor, pcb_calculator, bitmap2component), which are separate
+  executables and otherwise fail with undefined wx symbols
+  (run 42155182542). Those standalone apps are not part of the
+  spike IPA; they are relinked only to keep the full build green.
 - Build tooling (this repo's own `scripts/package_ios.py`, not an
   upstream file) — 2026-11-05: (1) the dependency walk no longer
   skips `@rpath/...` loads; they are resolved against the sysroot

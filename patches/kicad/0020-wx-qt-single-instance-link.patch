@@ -37,7 +37,7 @@
  # Detect wxWidgets port being used
  if( wxWidgets_FIND_STYLE STREQUAL "win32" )
      string(REGEX MATCH "(msw|qt|gtk)" KICAD_WX_PORT "${WX_CONFIGURATION}")
-@@ -1283,3 +1313,23 @@
+@@ -1283,3 +1313,28 @@
  
      add_subdirectory( signing )
  endif()
@@ -47,14 +47,19 @@
 +# the find_package(wxWidgets) call above (see the note there), so
 +# exactly one copy of the wx/Qt statics exists in the process -- the
 +# manager executable's, which the shared libraries and kiface
-+# modules resolve against at load time. The small standalone tools
-+# are executables too and would otherwise fail to link; the static
-+# archives contribute nothing to a target that does not reference
-+# them, so listing them here is safe for tools that do not use wx.
++# modules resolve against at load time. The standalone executables
++# (the small tools and the single-top editor apps) would otherwise
++# fail to link; the static archives contribute nothing to a target
++# that does not reference them, so listing them here is safe for
++# tools that do not use wx. (The relink must use the plain
++# target_link_libraries signature: KiCad's own CMake files use it
++# for these targets, and CMake forbids mixing the two signatures.)
 +if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
 +    foreach( _ios_exe IN ITEMS kicad kicad-cli utf8_tests
 +            test-nm-biu-to-ascii-mm-round-tripping
-+            idfcyl idfrect dxf2idf idf2vrml dsntest )
++            idfcyl idfrect dxf2idf idf2vrml dsntest
++            eeschema pcbnew gerbview pl_editor pcb_calculator
++            bitmap2component )
 +        if( TARGET ${_ios_exe} )
 +            target_link_libraries( ${_ios_exe} ${KICAD_IOS_WX_LIBS} )
 +        endif()
