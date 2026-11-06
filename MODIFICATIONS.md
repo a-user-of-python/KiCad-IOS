@@ -346,3 +346,27 @@ Each modified upstream file also carries an in-file notice of the form:
   executable imports them; scoping this to the manager executable
   keeps build tools (lemon) and standalone utilities out of the Qt
   plugin closure. (CI run 42086627018.)
+- `patches/kicad/0019-kicad-exe-ios-entry-point.patch` — kicad
+  executable only, iOS: add `-Wl,-e,_qt_main_wrapper` so dyld enters
+  the manager through Qt's iOS entry point. qt_main_wrapper (in the
+  QIOS plugin the executable already force-loads, patch 0018) runs
+  UIApplicationMain with Qt's application delegate, which then calls
+  the executable's main (wxEntry) with a UIApplication in existence.
+  Qt's EntryPointPrivate module applies this same option to apps
+  linking Qt6::Core as a CMake target; KiCad links Qt as bare
+  framework paths, so it never arrived. Without it the app aborted
+  on launch inside QIOSIntegration's constructor ("You are creating
+  QApplication before calling UIApplicationMain") — device crash
+  report captured with KiCad-Spike-v2.ipa, 2026-11-05. No behaviour
+  change on other platforms (iOS-only block).
+- Build tooling (this repo's own `scripts/package_ios.py`, not an
+  upstream file) — 2026-11-05: (1) the dependency walk no longer
+  skips `@rpath/...` loads; they are resolved against the sysroot
+  and the Qt kit and embedded (with the libpython3.13.a → Python
+  name alias), and anything still unresolvable is printed as
+  UNRESOLVED in the stage log. The old skip is what left
+  libz.1.dylib, libzstd.1.dylib and Python out of the v1 package.
+  (2) The Contents/Frameworks + Contents/PlugIns mirror of the
+  whole Frameworks tree is removed: it doubled the v1 bundle to
+  491 MB and the result failed signing. Restore it only if a
+  device run proves an editor actually searches there.
