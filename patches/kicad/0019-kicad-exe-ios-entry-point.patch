@@ -1,0 +1,26 @@
+--- a/kicad/CMakeLists.txt
++++ b/kicad/CMakeLists.txt
+@@ -126,6 +126,23 @@
+ if( CMAKE_SYSTEM_NAME STREQUAL "iOS" AND KICAD_IOS_PLUGIN_ITEMS )
+     target_link_libraries( kicad ${KICAD_IOS_PLUGIN_ITEMS} )
+ endif()
+ 
++# [KiCad-IOS port] Modified 2026-11-05 for iOS: enter the manager
++# through Qt's iOS entry point, qt_main_wrapper (provided by the QIOS
++# plugin this executable already force-loads). qt_main_wrapper runs
++# UIApplicationMain with Qt's application delegate; the delegate then
++# calls this executable's main (wxEntry) with a UIApplication in
++# existence. Qt's own EntryPointPrivate module applies exactly this
++# -Wl,-e,_qt_main_wrapper option to executables that link Qt6::Core
++# as a CMake target; KiCad links Qt as bare framework paths, so the
++# option never arrived and dyld entered at main instead. Without it,
++# wxEntry creates the QApplication before UIApplicationMain and
++# QIOSIntegration aborts in its constructor ("You are creating
++# QApplication before calling UIApplicationMain") -- the launch
++# crash captured on device with KiCad-Spike-v2.ipa.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_link_options( kicad PRIVATE "-Wl,-e,_qt_main_wrapper" )
++endif()
++
+ add_executable( kicad-cli WIN32
+     kicad_cli.cpp
