@@ -554,3 +554,49 @@ Each modified upstream file also carries an in-file notice of the form:
   `scripts/package_ios.py` installs the build's own
   `$BLD/resources/images.tar.gz` at `KiCad.app/share/resources/`
   and fails the package if the archive is missing.
+
+- `patches/kicad/0025-ios-python-home-stdlib.patch` — kicad
+  executable only, iOS, extends the patch-0023/0024 startup
+  constructor. Round 6 (KiCad-Spike-v8) exists because v7 — which
+  signed, installed, and opened on device — then aborted at
+  manager startup with KiCad's exception dialog "Failed to import
+  encodings module": `PGM_BASE::InitPgm` constructs the embedded
+  interpreter unconditionally (`std::make_unique<SCRIPTING>()`),
+  and CPython initialisation imports the stdlib `encodings`
+  package, which the bundle did not ship. The startup
+  constructor now also sets (before `QApplication` exists):
+  `PYTHONHOME=<bundle>/python`, but only if unset;
+  `PYTHONPATH=<bundle>/python/lib/python3.13/site-packages` if
+  unset/empty; and `PYTHONDONTWRITEBYTECODE=1` unconditionally.
+  Why the environment works here: KiCad's own
+  `scriptingSetup()` sets the Python home itself only on the
+  Windows/MSVC branch (`Py_SetPythonHome`); the generic-unix
+  branch this port compiles does not touch the home and only
+  manages `PYTHONPATH` — recomputing it from an install path
+  that does not exist on device, but PREPENDING any pre-existing
+  value, so the startup object's entries survive. CPython
+  resolves the stdlib to `$PYTHONHOME/lib/python3.13`, finds
+  `encodings` there, and the `lib-dynload` extension modules
+  load against the shipped interpreter image. Companion
+  packaging changes (this repo's scripts, not upstream files):
+  `stage-python-ios.sh` stages the BeeWare standard-library
+  tree + the device slice's `lib-dynload` modules into the
+  sysroot; `scripts/probe_dynload.py` verifies every extension
+  module's undefined symbols against the iPhoneOS SDK stubs and
+  the interpreter's exports before packaging; and
+  `scripts/package_ios.py` installs the stdlib under
+  `KiCad.app/python/` (hard-failing if `encodings` is absent;
+  trimming only provably-dead weight: the CPython test suite,
+  tkinter/idlelib/turtledemo — no `_tkinter` module exists for
+  this platform — the test-only extension modules, and any
+  module the probe proves unloadable), mirrors the build's own
+  Python destination (site-packages: `pcbnew.py`, `_pcbnew.so`)
+  and KiCad's stock scripting plugins into the bundle, bundles
+  two official vendor PCM packages fetched and sha256-verified
+  at package time (PCBWay Plug-in for KiCad 1.0.5, MIT;
+  Fabrication Toolkit 5.3.0 for JLCPCB, Apache-2.0 — each with
+  its vendor LICENSE included beside the code; the packages
+  themselves are not vendored into this repository), and turns
+  on file sharing in the generated Info.plist
+  (`UIFileSharingEnabled`,
+  `LSSupportsOpeningDocumentsInPlace`).
