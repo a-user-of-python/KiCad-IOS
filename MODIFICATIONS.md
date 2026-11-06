@@ -363,8 +363,9 @@ Each modified upstream file also carries an in-file notice of the form:
   upstream file) — 2026-11-05: (1) the dependency walk no longer
   skips `@rpath/...` loads; they are resolved against the sysroot
   and the Qt kit and embedded (with the libpython3.13.a → Python
-  name alias), and anything still unresolvable is printed as
-  UNRESOLVED in the stage log. The old skip is what left
+  name alias; framework-style loads whose bundle exists nowhere are
+  embedded as the bare binary), and anything still unresolvable is
+  printed as UNRESOLVED in the stage log. The old skip is what left
   libz.1.dylib, libzstd.1.dylib and Python out of the v1 package.
   (2) The Contents/Frameworks + Contents/PlugIns mirror of the
   whole Frameworks tree is removed: it doubled the v1 bundle to
