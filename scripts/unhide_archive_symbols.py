@@ -94,16 +94,12 @@ def _unhide_member(d, off, counts):
         unhide_slice(d, off, counts)
 
 
-def unhide_archive(path):
-    """Rewrite one ar archive in place; return (members, unhidden)."""
-    with open(path, 'rb') as fh:
-        d = bytearray(fh.read())
-    if d[:8] != b'!<arch>\n':
-        return None  # not an archive (e.g. a real dylib) -- skip
-    counts = [0]
+def _unhide_ar_region(d, start, end, counts):
+    """Walk one ar archive occupying d[start:end]; return member
+    count. Member bodies may themselves be fat Mach-O files."""
     members = 0
-    p = 8
-    while p + 60 <= len(d):
+    p = start + 8
+    while p + 60 <= end:
         size_field = d[p + 48:p + 58].decode('ascii', 'replace').strip()
         try:
             size = int(size_field)
@@ -123,6 +119,31 @@ def unhide_archive(path):
             _unhide_member(d, moff, counts)
         members += 1
         p = body_off + size + (size & 1)
+    return members
+
+
+def unhide_archive(path):
+    """Rewrite one archive in place; return (members, unhidden).
+    Handles thin ar archives and FAT archives (the Qt framework
+    binaries are fat archives: a 0xCAFEBABE header whose slices are
+    ar archives -- ld reports their members as e.g.
+    QtGui[arm64][229](qharfbuzzng.cpp.o))."""
+    with open(path, 'rb') as fh:
+        d = bytearray(fh.read())
+    counts = [0]
+    if d[:8] == b'!<arch>\n':
+        members = _unhide_ar_region(d, 0, len(d), counts)
+    elif len(d) >= 8 and struct.unpack_from('>I', d, 0)[0] == FAT_MAGIC:
+        members = 0
+        nfat = struct.unpack_from('>I', d, 4)[0]
+        for i in range(nfat):
+            _ct, _cs, off, size = struct.unpack_from('>IIII', d, 8 + i * 20)
+            if d[off:off + 8] == b'!<arch>\n':
+                members += _unhide_ar_region(d, off, off + size, counts)
+            else:
+                _unhide_member(d, off, counts)
+    else:
+        return None  # not an archive (e.g. a real dylib) -- skip
     if counts[0]:
         with open(path, 'wb') as fh:
             fh.write(d)
