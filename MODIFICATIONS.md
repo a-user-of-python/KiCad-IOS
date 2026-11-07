@@ -876,3 +876,46 @@ jetson-agx-thor-baseboard (97 MB), cm5_minima (50 MB),
 tiny_tapeout (31 MB); the other 32 projects (50 MB) ship
 complete. The trim, and the exact resulting bundle size growth,
 are disclosed in the spike report.
+
+### KiCad patch 0032 — ios-kicommon-define (launch fix round 10, KiCad-Spike-v12)
+
+**`common/CMakeLists.txt`** — 2026-11-07 —
+`patches/kicad/0032-ios-kicommon-define.patch`.
+The v11 device verdict convicted the whole KICAD_IOS_PORT family
+in libkicommon: the manager still raised the bundle-root
+`_eeschema.kiface` dlopen error at startup. Disassembly of the
+shipped v11 `libkicommon` is unambiguous — `KIWAY::dso_search_path`
+contains no "Frameworks" append (its only `wxFileName::AppendDir`
+call is the pre-existing one inside the
+`KICAD_RUN_FROM_BUILD_DIR` branch) and
+`PATHS::GetStockEDALibraryPath` contains no `GetStockDataPath`
+call: the iOS blocks of patches 0026, 0027 and 0028 were all
+preprocessed out. The cause is a target mix-up in patch 0026: it
+added `target_compile_definitions( common PRIVATE KICAD_IOS_PORT )`,
+but `kiway.cpp`, `paths.cpp` and `startwizard/startwizard.cpp`
+are all in `KICOMMON_SRCS`, compiled by the `kicommon` SHARED
+target into libkicommon — the `common` STATIC target compiles
+none of them, so the define reached no patched source. (The
+round-8 wizard fix's device success in v10 is thereby
+re-attributed to that round's `UIUserInterfaceStyle = Light`
+plist change, not to patch 0026's then-inert startwizard block.)
+This patch adds the same define, under the same
+`CMAKE_SYSTEM_NAME STREQUAL "iOS"` guard, to the `kicommon`
+target — the one change that makes patches 0026–0028 real. No
+upstream logic is altered.
+
+### Packaging (no upstream change) — kiface modules also at the bundle root (launch fix round 10, KiCad-Spike-v12)
+
+2026-11-07 — `scripts/package_ios.py`. The packager now also
+copies the eight kiface modules to the app bundle root, byte-
+identical to the final Frameworks copies. Two rounds reasoned
+about the kiface path while the device kept dlopening
+`<exe dir>/_<tool>.kiface`; with patch 0032 the Frameworks
+search is genuinely compiled in, and the root copies cover the
+path the device demonstrably constructs — a path that exists
+cannot fail on path grounds. A kiface's dependencies are
+`@rpath` names resolved through `@executable_path`-based
+rpaths, independent of the kiface's own location; the Python
+module's separate `_pcbnew.so` copy is untouched. Cost: the
+eight modules total 160,119,512 bytes uncompressed, disclosed
+in the spike report.
