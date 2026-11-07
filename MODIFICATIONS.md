@@ -600,3 +600,44 @@ Each modified upstream file also carries an in-file notice of the form:
   on file sharing in the generated Info.plist
   (`UIFileSharingEnabled`,
   `LSSupportsOpeningDocumentsInPlace`).
+
+- Build-configuration change, no upstream source change — wx is
+  built against the system libpng/zlib/expat (launch fix round 7,
+  KiCad-Spike-v9). Round 7 exists because v8 — the first build whose
+  Python initialisation passed on device — aborted ~0.74 s after
+  launch inside `KICAD_MANAGER_FRAME` construction with a libmalloc
+  bug report ("pointer being freed was not allocated") in
+  `wx_png_destroy_read_struct` during the first `BITMAP_STORE` icon
+  load. Binary census of the shipped v8 executable: it contained
+  TWO libpng implementations — wx's bundled 1.6.59 (`wx_png_*`,
+  372 defined symbols, the copy `wxPNGHandler` uses) and the deps
+  sysroot's 1.6.43 (the copy everything else links) — whose
+  `png_struct` layouts measurably diverge (the destroy routines free
+  the same fields at offsets drifted by +0x08..+0x38; the IDAT
+  staging buffer sits at +0x488 in the wx copy, +0x458 in the
+  sysroot copy), all exported into one flat namespace
+  (`-exported_symbol '_*'`), plus wx's bundled zlib beside the
+  sysroot zlib. Root cause in this repo's own stage scripts:
+  `scripts/stage-wx-ios.sh` configured wx with
+  `CMAKE_PREFIX_PATH` naming only the Qt kit, so wx's
+  `find_package(PNG)` could not see the deps sysroot, and wx's
+  `build/cmake/lib/png.cmake` silently forced the bundled copy
+  (zlib/expat, "sys" by default on Apple, fell back the same way).
+  The fix is confined to this repo's build tooling:
+  `stage-wx-ios.sh` now refuses to configure wx when the sysroot
+  libpng/zlib/expat are absent (fail closed instead of the silent
+  bundled fallback), puts the sysroot on wx's find path with
+  explicit PNG/ZLIB/EXPAT library hints, forces
+  `wxUSE_LIBPNG=sys` / `wxUSE_ZLIB=sys` / `wxUSE_EXPAT=sys`, and
+  fails the stage if a bundled `libwxpng`/`libwxzlib` archive is
+  produced anyway; the `wx-ios` CI job now restores the deps
+  sysroot before configuring (it previously restored nothing); and
+  the link probe in `scripts/stage-kicad-ios.sh` links wx's bundled
+  third-party archives only when they exist. wx's bundled
+  jpeg/tiff/webp archives remain (the sysroot ships no equivalents
+  and they are not on the PNG icon path). Resulting invariant,
+  checked on the shipped file before delivery: no image in the
+  bundle defines any `wx_png_*` symbol, exactly one libpng version
+  string exists bundle-wide, and the executable defines the plain
+  `png_*` entry points the wx handler now binds. Upstream KiCad and
+  wx sources are untouched by this round.
