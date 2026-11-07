@@ -1,0 +1,503 @@
+--- a/src/qt/window.cpp
++++ b/src/qt/window.cpp
+@@ -16,6 +16,8 @@
+ #include <QtWidgets/QGridLayout>
+ #include <QtWidgets/QApplication>
+ #include <QtWidgets/QWidget>
++#include <QtGui/QGuiApplication>
++#include <QtGui/QScreen>
+ #include <QtWidgets/QScrollArea>
+ #include <QtWidgets/QMainWindow>
+ #include <QtWidgets/QMenu>
+@@ -1236,6 +1238,44 @@
+         }
+     }
+ 
++#if defined( Q_OS_IOS )
++    if ( IsTopLevel() )
++    {
++        // [KiCad-IOS port] Clamp the requested position so the window
++        // stays inside the screen's available geometry (launch fix
++        // round 9, KiCad-Spike-v11). This platform has no window
++        // manager: QWidget::move() applies the coordinates literally,
++        // and KiCad restores frame positions from its settings and
++        // creates its manager frame at 775 x -1 with the default
++        // position -- on device the manager window could open
++        // partially off-screen with no way to drag it back (the iOS
++        // QPA draws no titlebar and implements neither
++        // startSystemMove() nor any other move affordance). Only the
++        // position is adjusted here; the size is the caller's (the
++        // wxTopLevelWindowQt::Show() clamp shrinks oversized windows
++        // at show time). Non-top-level windows are positioned by
++        // their parent and are not touched.
++        if ( QScreen *screen = QGuiApplication::primaryScreen() )
++        {
++            const QRect avail = screen->availableGeometry();
++
++            if ( width > 0 && width <= avail.width() )
++                x = qBound( avail.left(), x, avail.right() - width + 1 );
++            else if ( width > avail.width() )
++                x = avail.left();
++            else
++                x = qBound( avail.left(), x, avail.right() );
++
++            if ( height > 0 && height <= avail.height() )
++                y = qBound( avail.top(), y, avail.bottom() - height + 1 );
++            else if ( height > avail.height() )
++                y = avail.top();
++            else
++                y = qBound( avail.top(), y, avail.bottom() );
++        }
++    }
++#endif // Q_OS_IOS
++
+     qtWidget->move( x, y );
+ }
+ 
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -12,6 +12,19 @@
+ #include "wx/qt/private/converter.h"
+ #include <QtGui/QIcon>
+ #include <QtWidgets/QWidget>
++#if defined( Q_OS_IOS )
++#include <QtCore/QEasingCurve>
++#include <QtCore/QMap>
++#include <QtCore/QPropertyAnimation>
++#include <QtCore/QVector>
++#include <QtGui/qevent.h>
++#include <QtGui/QGuiApplication>
++#include <QtGui/QScreen>
++#include <QtGui/QWindow>
++#include <QtWidgets/QApplication>
++#include <QtWidgets/QHBoxLayout>
++#include <QtWidgets/QPushButton>
++#endif // Q_OS_IOS
+ 
+ wxTopLevelWindowQt::wxTopLevelWindowQt(wxWindow *parent,
+            wxWindowID winId,
+@@ -48,6 +61,49 @@
+ 
+ bool wxTopLevelWindowQt::Show(bool show)
+ {
++#if defined( Q_OS_IOS )
++    // [KiCad-IOS port] Last-chance geometry clamp before a top-level
++    // window becomes visible (launch fix round 9, KiCad-Spike-v11).
++    // wxWindowQt::DoMoveWindow() clamps positions as they are set,
++    // but a window can also reach show time with geometry that never
++    // passed through wx (Qt's own default placement) or that was
++    // computed against a since-changed screen. There is no window
++    // manager on this platform to rescue an off-screen window and
++    // the user cannot drag it back (no decorations, no
++    // startSystemMove() in the iOS QPA), so intersect the frame
++    // geometry with the screen's available geometry here: shrink
++    // what is larger than the screen, move what sticks out back
++    // inside. Maximized and full-screen windows manage their own
++    // geometry and are left alone.
++    if ( show )
++    {
++        QWidget *widget = GetHandle();
++
++        if ( widget && !widget->isMaximized() && !widget->isFullScreen() )
++        {
++            if ( QScreen *screen = QGuiApplication::primaryScreen() )
++            {
++                const QRect avail = screen->availableGeometry();
++                QRect geo = widget->frameGeometry();
++
++                if ( geo.width() > 0 && geo.height() > 0 && !avail.contains( geo ) )
++                {
++                    if ( geo.width() > avail.width() )
++                        geo.setWidth( avail.width() );
++                    if ( geo.height() > avail.height() )
++                        geo.setHeight( avail.height() );
++
++                    geo.moveLeft( qBound( avail.left(), geo.left(),
++                                          avail.right() - geo.width() + 1 ) );
++                    geo.moveTop( qBound( avail.top(), geo.top(),
++                                         avail.bottom() - geo.height() + 1 ) );
++                    widget->setGeometry( geo );
++                }
++            }
++        }
++    }
++#endif // Q_OS_IOS
++
+     if ( !wxTopLevelWindowBase::Show(show) )
+         return false;
+ 
+@@ -242,3 +298,374 @@
+ 
+     wxTopLevelWindowBase::DoSetSizeHints(minW, minH, maxW, maxH, incW, incH);
+ }
++
++// ---------------------------------------------------------------------------
++// [KiCad-IOS port] Floating window controls for iOS (added 2026-11-07,
++// launch fix round 9, KiCad-Spike-v11).
++//
++// On this platform the bridge gives top-level windows no working
++// native controls: Qt's iOS QPA draws no window decorations and does
++// not implement startSystemMove()/startSystemResize() (verified in
++// the Qt 6.9.3 iOS plugin sources: src/plugins/platforms/ios/
++// qioswindow.mm implements neither), so a wx frame has no titlebar
++// to drag and no close or minimize affordance at all. The port
++// therefore provides a small floating control bar, installed once by
++// wxQtIOSInstallFloatingWindowControls(), which:
++//
++//   * floats above every window of the process, modal dialogs
++//     included -- it is a Qt::Tool window with
++//     Qt::WindowStaysOnTopHint, the controller below re-raises it
++//     whenever any real top-level window is shown or activated, and
++//     its buttons are hit-tested in an application-level event
++//     filter because Qt's own modality handling can swallow input
++//     to a non-modal window while a modal dialog is up (application
++//     event filters run before that check);
++//   * offers Close, which closes the current (most recently shown
++//     or activated) top-level window through QWidget::close() --
++//     the ordinary close path, so the manager runs the
++//     application's normal quit flow, editor frames run their
++//     normal close flow, and a modal dialog is cancelled, exactly
++//     as a desktop titlebar close button behaves;
++//   * offers Minimize, which animates the current window down to a
++//     narrow strip docked at the left edge of the screen
++//     (Stage-Manager-style); tapping the strip restores the window
++//     to its saved geometry. The strip is the window itself,
++//     resized live -- its widget and QWindow minimum sizes are
++//     suspended while it is docked, because a KiCad frame's
++//     declared minimum is far wider than the strip -- and no
++//     content or state is discarded.
++//
++// The implementation compiles only for iOS (Q_OS_IOS); other wxQt
++// builds get the empty stub at the bottom.
++// ---------------------------------------------------------------------------
++
++#if defined( Q_OS_IOS )
++
++namespace
++{
++
++class wxQtIOSFloatingControls : public QObject
++{
++public:
++    wxQtIOSFloatingControls( QObject *parent )
++        : QObject( parent ),
++          m_bar( nullptr ),
++          m_closeBtn( nullptr ),
++          m_minBtn( nullptr ),
++          m_current( nullptr )
++    {
++        m_bar = new QWidget( nullptr,
++                             Qt::Tool | Qt::FramelessWindowHint
++                                     | Qt::WindowStaysOnTopHint
++                                     | Qt::WindowDoesNotAcceptFocus );
++        m_bar->setObjectName( QStringLiteral( "wxQtIOSFloatingControls" ) );
++
++        m_closeBtn = new QPushButton( QStringLiteral( "Close" ), m_bar );
++        m_minBtn = new QPushButton( QStringLiteral( "Minimize" ), m_bar );
++
++        QHBoxLayout *layout = new QHBoxLayout( m_bar );
++        layout->setContentsMargins( 4, 4, 4, 4 );
++        layout->setSpacing( 4 );
++        layout->addWidget( m_minBtn );
++        layout->addWidget( m_closeBtn );
++
++        m_bar->setStyleSheet( QStringLiteral(
++            "QWidget { background-color: rgba(24, 24, 28, 225);"
++            "          border-radius: 10px; }"
++            "QPushButton { color: white;"
++            "              background-color: rgba(255, 255, 255, 28);"
++            "              border: none; border-radius: 7px;"
++            "              padding: 10px 14px; font-size: 15px; }"
++            "QPushButton:pressed { background-color: rgba(255, 255, 255, 60); }" ) );
++        m_bar->resize( m_bar->sizeHint() );
++        m_bar->hide();
++
++        if ( QScreen *screen = QGuiApplication::primaryScreen() )
++        {
++            QObject::connect( screen, &QScreen::availableGeometryChanged, this,
++                              [this]( const QRect & ) { positionBar(); } );
++        }
++        positionBar();
++    }
++
++    bool eventFilter( QObject *watched, QEvent *event ) override
++    {
++        switch ( event->type() )
++        {
++        case QEvent::Show:
++        case QEvent::WindowActivate:
++            if ( QWidget *win = windowOf( watched ) )
++            {
++                if ( isRealWindow( win ) )
++                {
++                    m_current = win;
++                    refreshBar();
++                }
++            }
++            break;
++
++        case QEvent::Hide:
++            refreshBar();
++            break;
++
++        case QEvent::Destroy:
++            if ( watched == m_current )
++                m_current = nullptr;
++            if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
++            {
++                m_docked.remove( w );
++                m_dockOrder.removeAll( w );
++                m_savedMinSize.remove( w );
++                m_savedWindowMinSize.remove( w );
++            }
++            break;
++
++        case QEvent::MouseButtonPress:
++        case QEvent::TouchBegin:
++        {
++            const QPoint globalPos = eventGlobalPos( event );
++
++            if ( !globalPos.isNull() )
++            {
++                // The bar's own buttons first: hit-test them here
++                // rather than relying on QPushButton::clicked,
++                // because while a modal dialog is up Qt blocks input
++                // delivery to other windows -- but application event
++                // filters still see the press.
++                if ( globalPosIn( m_closeBtn, globalPos ) )
++                {
++                    closeCurrent();
++                    return true;
++                }
++                if ( globalPosIn( m_minBtn, globalPos ) )
++                {
++                    minimizeCurrent();
++                    return true;
++                }
++
++                // A tap on a docked strip restores its window.
++                if ( QWidget *win = windowOf( watched ) )
++                {
++                    if ( m_docked.contains( win ) )
++                        restoreWindow( win );
++                }
++            }
++            break;
++        }
++
++        default:
++            break;
++        }
++
++        return false;   // observe only; never swallow other events
++    }
++
++private:
++    static QPoint eventGlobalPos( QEvent *event )
++    {
++        if ( event->type() == QEvent::MouseButtonPress )
++        {
++            const QPointF pos = static_cast<QMouseEvent *>( event )->globalPosition();
++            return pos.toPoint();
++        }
++        if ( event->type() == QEvent::TouchBegin )
++        {
++            QTouchEvent *touch = static_cast<QTouchEvent *>( event );
++            if ( !touch->points().isEmpty() )
++                return touch->points().first().globalPosition().toPoint();
++        }
++        return QPoint();
++    }
++
++    static bool globalPosIn( QWidget *widget, const QPoint &globalPos )
++    {
++        if ( !widget || !widget->isVisible() )
++            return false;
++        const QRect globalRect( widget->mapToGlobal( QPoint( 0, 0 ) ), widget->size() );
++        return globalRect.contains( globalPos );
++    }
++
++    // The top-level window an event object belongs to, or nullptr.
++    QWidget *windowOf( QObject *obj ) const
++    {
++        QWidget *top = nullptr;
++
++        for ( QObject *o = obj; o; o = o->parent() )
++        {
++            if ( QWidget *w = qobject_cast<QWidget *>( o ) )
++                top = w;
++        }
++
++        return ( top && top->isWindow() ) ? top : nullptr;
++    }
++
++    bool isRealWindow( QWidget *w ) const
++    {
++        if ( !w || w == m_bar || !w->isWindow() )
++            return false;
++
++        // Only frames and dialogs count as "the current window":
++        // menus (Popup), tooltips, splash screens and tool windows
++        // (including this bar) must never steal the role.
++        const Qt::WindowType type = w->windowType();
++        return type == Qt::Window || type == Qt::Dialog || type == 0;
++    }
++
++    void positionBar()
++    {
++        if ( !m_bar )
++            return;
++
++        if ( QScreen *screen = QGuiApplication::primaryScreen() )
++        {
++            const QRect avail = screen->availableGeometry();
++            m_bar->move( avail.right() - m_bar->width() - 10, avail.top() + 8 );
++        }
++    }
++
++    void refreshBar()
++    {
++        bool anyVisible = false;
++
++        for ( QWidget *w : QApplication::topLevelWidgets() )
++        {
++            if ( isRealWindow( w ) && w->isVisible() )
++            {
++                anyVisible = true;
++                break;
++            }
++        }
++
++        if ( anyVisible )
++        {
++            positionBar();
++            if ( !m_bar->isVisible() )
++                m_bar->show();
++            m_bar->raise();
++        }
++        else if ( m_bar->isVisible() )
++        {
++            m_bar->hide();
++        }
++    }
++
++    void closeCurrent()
++    {
++        if ( m_current && m_current != m_bar )
++            m_current->close();
++    }
++
++    void minimizeCurrent()
++    {
++        QWidget *w = m_current;
++
++        if ( !w || w == m_bar || m_docked.contains( w ) )
++            return;
++
++        QScreen *screen = QGuiApplication::primaryScreen();
++        if ( !screen )
++            return;
++
++        const QRect avail = screen->availableGeometry();
++        const QRect cur = w->geometry();
++
++        // QWidget::setGeometry() clamps to the widget minimum size
++        // and the QWindow clamps likewise; a KiCad frame's minimum
++        // is far wider than the dock strip, so suspend both minimum
++        // sizes while the window is docked (restoreWindow() puts
++        // them back when the window returns to full size).
++        m_savedMinSize[w] = w->minimumSize();
++        w->setMinimumSize( 0, 0 );
++        if ( QWindow *qw = w->windowHandle() )
++        {
++            m_savedWindowMinSize[w] = qw->minimumSize();
++            qw->setMinimumSize( QSize( 0, 0 ) );
++        }
++
++        m_docked.insert( w, cur );
++
++        const int slot = m_dockOrder.size();
++        m_dockOrder.append( w );
++
++        const int dockW = 84;
++        const int dockH = qBound( 150, cur.height() / 2, 460 );
++        int dockY = avail.top() + 72 + slot * ( dockH + 12 );
++        if ( dockY + dockH > avail.bottom() + 1 )
++            dockY = avail.bottom() - dockH + 1;
++
++        animateTo( w, QRect( avail.left() + 4, dockY, dockW, dockH ) );
++    }
++
++    void restoreWindow( QWidget *w )
++    {
++        if ( !m_docked.contains( w ) )
++            return;
++
++        const QRect target = m_docked.take( w );
++        m_dockOrder.removeAll( w );
++        m_current = w;
++
++        QPropertyAnimation *anim = animateTo( w, target );
++        QObject::connect( anim, &QPropertyAnimation::finished, this,
++                          [this, w]()
++        {
++            if ( m_savedMinSize.contains( w ) )
++                w->setMinimumSize( m_savedMinSize.take( w ) );
++            if ( m_savedWindowMinSize.contains( w ) )
++            {
++                if ( QWindow *qw = w->windowHandle() )
++                    qw->setMinimumSize( m_savedWindowMinSize[w] );
++                m_savedWindowMinSize.remove( w );
++            }
++        } );
++        w->raise();
++    }
++
++    QPropertyAnimation *animateTo( QWidget *w, const QRect &rect )
++    {
++        QPropertyAnimation *anim = new QPropertyAnimation( w, "geometry", this );
++        anim->setDuration( 220 );
++        anim->setEasingCurve( QEasingCurve::InOutQuad );
++        anim->setStartValue( w->geometry() );
++        anim->setEndValue( rect );
++        anim->start( QAbstractAnimation::DeleteWhenStopped );
++        return anim;
++    }
++
++    QWidget *m_bar;
++    QPushButton *m_closeBtn;
++    QPushButton *m_minBtn;
++    QWidget *m_current;
++    QMap<QWidget *, QRect> m_docked;
++    QMap<QWidget *, QSize> m_savedMinSize;
++    QMap<QWidget *, QSize> m_savedWindowMinSize;
++    QVector<QWidget *> m_dockOrder;
++};
++
++} // anonymous namespace
++
++void wxQtIOSInstallFloatingWindowControls()
++{
++    static bool installed = false;
++
++    if ( installed )
++        return;
++    installed = true;
++
++    if ( !QGuiApplication::instance() )
++        return;
++
++    wxQtIOSFloatingControls *controls =
++        new wxQtIOSFloatingControls( QGuiApplication::instance() );
++    QGuiApplication::instance()->installEventFilter( controls );
++}
++
++#else // !defined( Q_OS_IOS )
++
++void wxQtIOSInstallFloatingWindowControls()
++{
++    // Not an iOS build: the platform's own window decorations
++    // provide close/minimize, so there is nothing to install.
++}
++
++#endif // Q_OS_IOS
