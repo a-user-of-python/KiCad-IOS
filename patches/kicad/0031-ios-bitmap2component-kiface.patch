@@ -1,0 +1,52 @@
+--- a/bitmap2component/CMakeLists.txt
++++ b/bitmap2component/CMakeLists.txt
+@@ -57,6 +57,49 @@
+     potrace
+     )
+ 
++# [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix round 9,
++# KiCad-Spike-v11): upstream builds bitmap2component executable-only
++# -- it is the one KiCad tool with no <tool>_kiface MODULE target,
++# even though bitmap2cmp_main.cpp implements the full KIFACE
++# interface exactly like the other tools' main sources. This port
++# is a single process with no standalone executables to launch, so
++# without a kiface module the manager's Image Converter could never
++# open. Mirror pcb_calculator's kiface target, from the same
++# sources minus common/single_top.cpp (the standalone launcher
++# glue), so the kiway can load _bitmap2component.kiface in-process.
++# The upstream target definitions above are unchanged.
++add_library( bitmap2component_kiface MODULE
++    bitmap2cmp_control.cpp
++    bitmap2cmp_main.cpp
++    bitmap2cmp_settings.cpp
++    bitmap2component.cpp
++    bitmap2cmp_panel_base.cpp
++    bitmap2cmp_frame.cpp
++    bitmap2cmp_panel.cpp
++    )
++
++set_target_properties( bitmap2component_kiface PROPERTIES
++    OUTPUT_NAME     bitmap2component
++    PREFIX          ${KIFACE_PREFIX}
++    SUFFIX          ${KIFACE_SUFFIX}
++    )
++
++target_link_libraries( bitmap2component_kiface
++    common
++    kicommon
++    ${wxWidgets_LIBRARIES}
++    potrace
++    )
++
++set_source_files_properties( bitmap2cmp_main.cpp PROPERTIES
++    # The KIFACE is in bitmap2cmp_main.cpp, export it:
++    COMPILE_DEFINITIONS     "BUILD_KIWAY_DLL;COMPILING_DLL"
++    )
++
++# if building bitmap2component, then also build
++# bitmap2component_kiface if out of date.
++add_dependencies( bitmap2component bitmap2component_kiface )
++
+ if( APPLE )
+     set_target_properties( bitmap2component PROPERTIES
+         MACOSX_BUNDLE_INFO_PLIST ${PROJECT_BINARY_DIR}/bitmap2component/Info.plist
