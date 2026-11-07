@@ -686,3 +686,186 @@ the window's userInterfaceStyle, the iOS system palette's dynamic
 UIColors resolve to their light variants, the Fusion style (the
 iOS theme's StyleNames hint) paints from that palette, and wxQt
 maps wxSYS_COLOUR_* from the same palette.
+
+### KiCad patch 0027 — ios-kiface-frameworks-search (launch fix round 9, KiCad-Spike-v11)
+
+**`common/kiway.cpp`** — 2026-11-07 —
+`patches/kicad/0027-ios-kiface-frameworks-search.patch`.
+Device verdict for v10: the manager stands and the wizard completes,
+but KiCad cannot load any editor kiface — the error names
+`<bundle>/KiCad.app/_eeschema.kiface`. In 10.0.1,
+`KIWAY::dso_search_path()` builds the kiface path from
+`wxStandardPaths::Get().GetExecutablePath()` under
+`#ifndef __WXMAC__` (wxQt never defines `__WXMAC__`): the executable
+directory, i.e. the bundle root. The port packages the kifaces in
+`Frameworks/`, where every other binary lives and where dyld
+resolves their `@rpath` dependencies, so nothing loaded — the
+manager's own startup preload (`PreloadAllLibraries`, which loads
+the schematic and PCB kifaces as soon as the frame stands) raised
+the error before any user action, and every editor launch would
+have failed the same way, since all kiface loads funnel through
+this one function. The patch, gated on `KICAD_IOS_PORT` (already
+defined for the `common` target by patch 0026), appends the
+`Frameworks` directory to the search path, so the dlopen target
+becomes `<exe dir>/Frameworks/_<tool>.kiface` — the packaged
+location. Desktop behaviour is untouched (the added block compiles
+only for this port), and no duplicate kiface copies are shipped.
+
+### KiCad patch 0028 — ios-stock-eda-path (launch fix round 9, KiCad-Spike-v11)
+
+**`common/paths.cpp`** — 2026-11-07 —
+`patches/kicad/0028-ios-stock-eda-path.patch`.
+Device verdict for v10: first-run setup "couldn't reach the default
+libraries". Two causes. The bundle shipped no stock content (fixed
+by the packaging change below). And the paths themselves were
+broken: `LIBRARY_MANAGER::StockTablePath()` builds the stock
+sym-lib-table / fp-lib-table paths from
+`PATHS::GetStockTemplatesPath()`, which roots in
+`PATHS::GetStockEDALibraryPath()`; its generic branch returns the
+compiled-in `KICAD_LIBRARY_DATA`, which KiCad's CMake only sets
+under `if(NOT APPLE)` — on Apple it is empty (verified: the shipped
+v10 binaries contain no `share/kicad` path, and the baked
+`KICAD_DATA` string is a macOS install path that does not exist in
+the sandbox). Every stock path — symbols, footprints, templates,
+design blocks, 3D models, and the `KICAD10_*_DIR` environment
+defaults derived from them — therefore resolved relative to the
+process working directory. The patch mirrors the existing Windows
+branch: under `KICAD_IOS_PORT`, the stock EDA library root is
+`GetStockDataPath()`, which patch 0024 already resolves to
+`<bundle>/share` via `KICAD_STOCK_DATA_HOME`. Compiled only for
+this port.
+
+### KiCad patch 0029 — ios-floating-window-controls-hook (launch fix round 9, KiCad-Spike-v11)
+
+**`kicad/kicad.cpp`** — 2026-11-07 —
+`patches/kicad/0029-ios-floating-window-controls-hook.patch`.
+Adds an `extern` declaration for the wxQt port's
+`wxQtIOSInstallFloatingWindowControls()` (wx patch 0009) and calls
+it from `APP_KICAD::OnInit()` under `KICAD_IOS_PORT`, right after
+platform initialisation succeeds and before program initialisation
+creates the first windows — so the floating Close/Minimize control
+bar also covers the first-run wizard. No upstream logic is
+altered; the call compiles only for this port.
+
+### KiCad patch 0030 — ios-manager-execute-inprocess (launch fix round 9, KiCad-Spike-v11)
+
+**`kicad/tools/kicad_manager_control.cpp`** — 2026-11-07 —
+`patches/kicad/0030-ios-manager-execute-inprocess.patch`.
+Manager-functionality audit for v11: `KICAD_MANAGER_CONTROL::
+Execute()` hands the Gerber viewer, Image Converter, PCB
+Calculator, Drawing Sheet Editor, Edit Other Schematic/PCB and the
+text-editor action to `COMMON_CONTROL::Execute()`, which
+`wxExecute()`s the standalone tool executables or the configured
+external editor. This port is a single process — the bundle
+contains no standalone executables and iOS cannot spawn processes
+— so those Tools-menu items and launcher buttons could only fail
+or silently no-op on device. Under `KICAD_IOS_PORT`, `Execute()`
+routes the six KiCad tools to their in-process kiway players (the
+mechanism `ShowPlayer()` already uses for the schematic and PCB
+editors; a file parameter opens in the player, a directory
+parameter just shows it), and the text-editor action shows an
+explanatory dialog instead. `ExploreProject()` (View ▸ Open
+Project Directory) likewise showed nothing on device —
+`LaunchExternal()` cannot open a folder on iOS — so under the
+same define it reports the project's folder and where the Files
+app shows the app's Documents. Desktop paths are unchanged.
+
+### wx patch 0009 — qt-ios-window-geometry-and-floating-controls (launch fix round 9, KiCad-Spike-v11)
+
+**`src/qt/window.cpp` + `src/qt/toplevel.cpp`** (wxWidgets 3.3.4) —
+2026-11-07 —
+`patches/wx/0009-qt-ios-window-geometry-and-floating-controls.patch`.
+All changes are inside `#if defined( Q_OS_IOS )` in the wxQt port;
+nothing changes for any other platform or for desktop wxQt.
+
+*Geometry clamp.* Device verdict for v10: the app's floating
+(Stage Manager) window sometimes clips off the screen; a black
+band sits above the manager content. In this port a wx top-level
+is a QWidget/QWindow inside the single UIKit window; Qt 6.9.3's
+iOS QPA implements neither `QPlatformWindow::startSystemMove()` nor
+`startSystemResize()` (no occurrences in the iOS QPA sources) and
+draws no window decorations, so there is no titlebar to drag —
+limitation (ii) of the round brief is not achievable without QPA
+bridge surgery and is recorded as such in the spike report. What
+the port can own is initial geometry: `wxWindowQt::DoMoveWindow()`
+moved top-levels with no clamping at all. The patch clamps
+top-level positions into `QGuiApplication::primaryScreen()->
+availableGeometry()` (which the iOS QPA maintains as the root
+view's bounds, so it tracks the Stage Manager scene) in
+`DoMoveWindow()`, and intersects a frame's geometry with the
+available area once more in `wxTopLevelWindowQt::Show()` before
+the window first appears (shrinking a window larger than the
+screen, which a position-only clamp cannot fix). Sizes themselves
+are otherwise untouched.
+
+*Floating window controls.* The substitute for the missing native
+controls, built to the user's design: a small always-on-top bar
+("Minimize" / "Close" text buttons, installed by patch 0029's
+`OnInit` hook) that floats at the top-right of the screen above
+every app window. An application-level Qt event filter tracks the
+current window (the most recently shown/activated real top-level:
+frames and dialogs, excluding menus, tooltips and the bar itself)
+and hit-tests the bar's buttons in the filter, so taps reach it
+even while a modal dialog is up — Qt delivers input events to the
+application event filters before modal delivery restrictions
+apply. Close calls the current window's ordinary `close()`, so
+each window keeps its own wx close semantics (the manager runs
+KiCad's normal quit flow). Minimize animates the window's
+geometry to an 84 pt-wide strip docked at the left edge (stacked
+downward from the top when several windows are docked), first
+suspending the widget and QWindow minimum sizes that would
+otherwise forbid the strip width; tapping a docked strip animates
+it back to its saved geometry and restores the minimum sizes.
+Window geometry animation is plain QWidget property animation —
+no QPA support is needed.
+
+### KiCad patch 0031 — ios-bitmap2component-kiface (launch fix round 9, KiCad-Spike-v11)
+
+**`bitmap2component/CMakeLists.txt`** — 2026-11-07 —
+`patches/kicad/0031-ios-bitmap2component-kiface.patch`.
+New-file finding of the round-9 manager audit: bitmap2component
+is the one KiCad tool upstream builds executable-only — there is
+no `_bitmap2component.kiface` in any KiCad install — even though
+`bitmap2cmp_main.cpp` implements the complete KIFACE interface
+(`BMP2CMP::IFACE`, `CreateKiWindow` → `BITMAP2CMP_FRAME`) exactly
+like the other tools. On desktop this is invisible because the
+manager launches the executable (the path patch 0030 reroutes).
+This single-process port has no executable to launch, so the
+patch adds the missing kiface MODULE target, mirroring
+pcb_calculator's: same sources minus `common/single_top.cpp`
+(the standalone launcher glue), `OUTPUT_NAME`/`PREFIX`/`SUFFIX`
+from the standard kiface variables, the executable's own link
+set, and `BUILD_KIWAY_DLL;COMPILING_DLL` on the KIFACE source so
+the getter is exported. Upstream's target definitions are
+untouched; the addition compiles the same sources a second way.
+
+### Content (no upstream change) — stock libraries and demos bundled (launch fix round 9, KiCad-Spike-v11)
+
+2026-11-07 — `scripts/stage-kicad-ios.sh`,
+`scripts/package_ios.py`, `scripts/ci-common.sh`. The stage now
+fetches the official KiCad library repos at tag 10.0.1
+(kicad-symbols `7058584a0fbe9aa2f1c9ff2acf7847726ff6922c`,
+kicad-footprints `3d2b27e687a44c97f02109afb2acfeebbc8dd75f`,
+kicad-templates `3ed4538b0f965d821df63a5fffc4441e723cfe7f`; pins in
+ci-common.sh) and fails closed on incomplete trees. The packager
+installs the layout KiCad's own CMake installs use: all 222
+`.kicad_symdir` symbol libraries (+ the `.sp` file) to
+`share/symbols`, all 155 `.pretty` footprint libraries to
+`share/footprints`, and `sym-lib-table` + `fp-lib-table` + the
+templates repo's `Projects/*` and `Worksheets/*.kicad_wks` to
+`share/template` (232.6 MB + 155.8 MB + 5.3 MB uncompressed).
+Upstream's `KICAD_PACK_SYM_LIBRARIES` option packs the symdirs
+into single `.kicad_sym` files; this port ships the repo-native
+symdir form with the repos' own checked-in tables (KiCad 10 loads
+both forms; running the library repos' pack machinery in CI was
+avoided). There is no design-block library in the 10.0.1 content
+set (the kicad-design-blocks project has no 10.0.1 tag), so that
+stock table is created empty by setup, as upstream does when the
+file is absent. The 10.0.1 demo projects are bundled to
+`share/demos` (the manager's File ▸ Open Demo Project item only
+exists when that directory does) EXCEPT four projects that are
+mostly one huge board/model file each — vme-wren (126 MB),
+jetson-agx-thor-baseboard (97 MB), cm5_minima (50 MB),
+tiny_tapeout (31 MB); the other 32 projects (50 MB) ship
+complete. The trim, and the exact resulting bundle size growth,
+are disclosed in the spike report.
