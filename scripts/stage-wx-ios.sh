@@ -28,6 +28,37 @@ printf '#pragma once\n#include <OpenGLES/ES1/gl.h>\n#include <OpenGLES/ES1/glext
 
 BLD="$WORK/build-wx-ios"
 mkdir -p "$BLD"
+
+# --- One libpng owns the bundle (launch fix round 7) -------------------
+# Until v8 this stage configured wx with CMAKE_PREFIX_PATH="$QT_IOS"
+# only, so wx's find_package(PNG) could not see the deps sysroot and
+# png.cmake silently forced wxUSE_LIBPNG=builtin: the executable ended
+# up with TWO libpng implementations -- wx's bundled 1.6.59 (wx_png_*)
+# serving wxPNGHandler, and the sysroot 1.6.43 linked by everything
+# else -- whose png_struct layouts diverge, all exported into one flat
+# namespace. On device (KiCad-Spike-v8) startup died inside
+# wx_png_destroy_read_struct during the first BITMAP_STORE icon load
+# with libmalloc's "pointer being freed was not allocated". Fix at the
+# convicted layer: the sysroot is on wx's find path, wxUSE_LIBPNG is
+# forced to "sys", and this stage FAILS CLOSED if the sysroot copies
+# are absent or if a bundled wxpng/wxzlib archive is produced anyway
+# (wx's png.cmake/zlib.cmake fall back to builtin silently when the
+# find fails, so the -D alone is not sufficient). Zlib and expat ride
+# the same find path (both are "sys" by default on Apple and fell back
+# the same way).
+PNG_LIB=""
+for cand in "$SYSROOT/lib/libpng16.a" "$SYSROOT/lib/libpng.a"; do
+    [ -f "$cand" ] && PNG_LIB="$cand" && break
+done
+if [ -z "$PNG_LIB" ] || [ ! -f "$SYSROOT/include/png.h" ] \
+    || [ ! -f "$SYSROOT/lib/libz.a" ] || [ ! -f "$SYSROOT/lib/libexpat.a" ]; then
+    echo "RESULT: deps sysroot incomplete (need libpng/libz/libexpat under $SYSROOT) --"
+    echo "refusing to configure wx: a missing find would silently select wx's"
+    echo "bundled libpng 1.6.59 next to the sysroot 1.6.43 (the v8 crash class)."
+    exit 2
+fi
+echo "wx third-party resolution: PNG=$PNG_LIB ZLIB=$SYSROOT/lib/libz.a EXPAT=$SYSROOT/lib/libexpat.a"
+
 set -x
 cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$QT_IOS/lib/cmake/Qt6/qt.toolchain.cmake" \
@@ -44,10 +75,19 @@ cmake -S "$SRC/wx" -B "$BLD" -G Ninja \
     -DwxUSE_MIMETYPE=OFF \
     -DwxUSE_JOYSTICK=OFF \
     -DwxUSE_XRC=OFF \
+    -DwxUSE_LIBPNG=sys \
+    -DwxUSE_ZLIB=sys \
+    -DwxUSE_EXPAT=sys \
+    -DPNG_PNG_INCLUDE_DIR="$SYSROOT/include" \
+    -DPNG_LIBRARY="$PNG_LIB" \
+    -DZLIB_INCLUDE_DIR="$SYSROOT/include" \
+    -DZLIB_LIBRARY="$SYSROOT/lib/libz.a" \
+    -DEXPAT_INCLUDE_DIR="$SYSROOT/include" \
+    -DEXPAT_LIBRARY="$SYSROOT/lib/libexpat.a" \
     -DwxBUILD_SAMPLES=OFF \
     -DwxBUILD_TESTS=OFF \
     -DwxBUILD_DEMOS=OFF \
-    -DCMAKE_PREFIX_PATH="$QT_IOS" \
+    -DCMAKE_PREFIX_PATH="$QT_IOS;$SYSROOT" \
     -DCMAKE_C_FLAGS="-I$WORK/glshim" \
     -DCMAKE_CXX_FLAGS="-I$WORK/glshim -DwxUSE_OPENGL_EMULATION=1 -DwxHAS_OPENGL_ES" \
     2>&1 | tee "$WORK/logs/wx-ios-configure.log"
@@ -77,6 +117,15 @@ if [ "$BLD_RC" = "0" ]; then
     # sysroot) — a build-tree wx outside it can never verify.
     cmake --install "$BLD" 2>&1 | tail -2
     ls "$SYSROOT/lib/" | grep '^libwx' | head -20
+    # Fail closed on the round-7 invariant: no bundled wx png/zlib
+    # archives may exist, and the cache must show the system values.
+    grep -E '^wxUSE_(LIBPNG|ZLIB|EXPAT):' "$BLD/CMakeCache.txt" || true
+    if ls "$SYSROOT"/lib/libwxpng*.a "$SYSROOT"/lib/libwxzlib*.a >/dev/null 2>&1; then
+        echo "RESULT: bundled wxpng/wxzlib archive present despite wxUSE_*=sys --"
+        echo "wx silently fell back to its bundled libpng (the v8 crash class). Stopping."
+        exit 3
+    fi
+    echo "wx third-party check: no libwxpng/libwxzlib archives (system libpng/zlib in use)"
     find "$BLD" -name "libwx*" | head -30
     # sanity: the libs must be arm64 iOS objects
     LIB=$(find "$BLD" -name "libwx_baseu-*.a" | head -1)
