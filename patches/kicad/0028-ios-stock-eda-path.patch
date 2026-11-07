@@ -1,0 +1,27 @@
+--- a/common/paths.cpp
++++ b/common/paths.cpp
+@@ -286,6 +286,24 @@
+     path = GetOSXKicadMachineDataDir();
+ #elif defined( __WXMSW__ )
+     path = GetStockDataPath( false );
++#elif defined( KICAD_IOS_PORT )
++    // [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix round 9,
++    // KiCad-Spike-v11): the generic branch below roots the stock EDA
++    // library tree (symbols/, footprints/, template/, blocks/,
++    // 3dmodels/) in the compiled-in KICAD_LIBRARY_DATA -- a value
++    // KiCad's CMake only ever sets on non-Apple hosts (on Apple it
++    // stays empty; macOS builds are served by the __WXMAC__ branch
++    // above, which the wxQt port never takes). In this build the
++    // function therefore returned an empty path and every stock
++    // library path resolved relative to the process working
++    // directory -- on device the first-run wizard "couldn't reach
++    // the default libraries". The bundle's share/ directory is this
++    // platform's machine data root (the same root GetStockDataPath()
++    // resolves through the KICAD_STOCK_DATA_HOME the iOS startup
++    // object sets, patch 0024), and the packaging step installs the
++    // pinned stock libraries there -- so root the EDA tree in it,
++    // exactly as the Windows branch roots it in the stock data path.
++    path = GetStockDataPath( false );
+ #else
+     if( wxGetEnv( wxT( "APPDIR" ), &path ) )
+         path += wxT( "/share/kicad" );
