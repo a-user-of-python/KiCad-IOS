@@ -919,3 +919,31 @@ rpaths, independent of the kiface's own location; the Python
 module's separate `_pcbnew.so` copy is untouched. Cost: the
 eight modules total 160,119,512 bytes uncompressed, disclosed
 in the spike report.
+
+### KiCad patch 0033 — ios-library-table-chain-repair (launch fix round 10, KiCad-Spike-v12)
+
+**`include/libraries/library_manager.h`,
+`common/libraries/library_manager.cpp`, `kicad/kicad.cpp`** —
+2026-11-07 — `patches/kicad/0033-ios-library-table-chain-repair.patch`.
+The upgrade half of the library failure. The wizard's
+USE_DEFAULTS flow freezes the then-computed ABSOLUTE stock
+table path into the user's global tables as a chained row
+(nickname "KiCad"); in v10/v11 that path was built from the
+empty compiled-in `KICAD_LIBRARY_DATA` (patch 0028 inert, see
+patch 0032), so the chain target does not exist and the stock
+libraries never load. Nothing upstream repairs this on later
+launches: the user table file parses, so
+`GlobalTablesValid()` stays true and the wizard's library page
+is never offered again; the one upstream rewrite of such rows
+lives in the wizard's IMPORT-settings flow, which an in-place
+upgrade never runs. This patch adds
+`LIBRARY_MANAGER::RepairStockTableChains()` (iOS-gated,
+declared and defined only in this port's build) and calls it
+from the manager's startup, just before the start wizard runs
+and before `LoadGlobalTables`: for each global table type, if
+the chained "KiCad" row names a file that is not a valid table
+while the stock table path computed now is valid, the row is
+re-pointed at the current stock path and the table saved —
+the same rewrite upstream's migration performs, hoisted to
+every launch. Fresh installs and users' own chained tables
+are untouched. Upstream logic is not altered.
