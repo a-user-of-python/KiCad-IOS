@@ -947,3 +947,86 @@ re-pointed at the current stock path and the table saved —
 the same rewrite upstream's migration performs, hoisted to
 every launch. Fresh installs and users' own chained tables
 are untouched. Upstream logic is not altered.
+
+### wx patch 0010 — qt-ios-floating-controls-child-overlay-and-drag (launch fix round 11, KiCad-Spike-v13)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-07 —
+`patches/wx/0010-qt-ios-floating-controls-child-overlay-and-drag.patch`.
+Reworks only the floating-controls block patch 0009 added; still
+entirely inside `#if defined( Q_OS_IOS )`, no other platform or
+desktop wxQt behaviour changes.
+
+*Why.* Device verdict for v11 (the same bar code shipped in v12):
+the floating Minimize/Close bar was never seen — not over the
+first-run wizard, not over the manager. The install hook itself
+was proven present in the shipped executable (patch 0029's call
+compiles into the `kicad` target; disassembly shows
+`APP_KICAD::OnInit` calling the installer), so the defect is in
+the bar's construction. As built by patch 0009 the bar is a
+separate top-level `QWidget` (`Qt::Tool | Qt::FramelessWindowHint
+| Qt::WindowStaysOnTopHint`). On Qt's iOS QPA every top-level
+window becomes its own `UIWindow` and stacking between UIWindows
+is governed by `windowLevel`: a non-modal tool window earns no
+level above the ordinary windows, a modal dialog does get a
+raised level, and `QWidget::raise()` does not reorder UIWindows.
+The bar was first shown during the modal wizard; every later
+window stacked above it, and the controller never recovered,
+because at the Qt level the bar stayed "visible" (so it was
+never re-shown) while `raise()` changed nothing on screen. Its
+position was also computed against the SCREEN's top-right
+corner, which under Stage Manager can be outside the app's
+window entirely.
+
+*Fix — the bar stops being a window.* It is now a plain child
+widget that the controller re-parents into whichever top-level
+window is current — the manager, an editor frame, or the modal
+dialog itself. Inside one `UIWindow`, Qt child stacking is
+deterministic: a child raised last paints and hit-tests above
+its siblings, and as part of a modal window the bar's buttons
+receive input through the normal path (the application-filter
+hit-test from patch 0009 is kept as belt-and-braces). The
+controller tracks a most-recent-first history of real windows:
+the bar re-attaches and re-raises whenever the current window
+changes, and when a dialog closes the bar falls back to the
+window beneath. The bar rides at the host window's own top-right
+corner and follows its resizes. Because the bar is a child, a
+host the application destroys (the stack-allocated wizard,
+a torn-down editor frame) destroys the bar too: the bar members
+are `QPointer`s, the controller drops them on the bar's Destroy
+event, refresh after a Destroy cascade is deferred to the event
+loop, and `refreshBar()` builds a fresh bar when it finds none.
+A docked (minimized) window never hosts the bar — it is narrower
+than the bar — so Minimize detaches the bar before the dock
+animation and re-hosts it on the next window down, or hides it
+when none is left.
+
+*Window dragging.* The iOS QPA has no titlebars and no
+`startSystemMove()`, so the bar doubles as the move handle:
+a press on its non-button area arms a drag of the host window;
+past an 8 pt threshold the window follows the pointer
+(absolute-delta positioning, clamped to the screen's available
+geometry with the same rule patch 0009 put in
+`wxWindowQt::DoMoveWindow()`), and the child bar follows for
+free. Moving the Qt widget directly is the same input a desktop
+window manager's move produces, and wxQt absorbs it through its
+ordinary Qt move-event handling. Docked strips get the same
+tap-versus-drag distinction: a strip press is now tracked
+instead of restoring immediately; a release that never crossed
+the threshold restores the window, a drag repositions the strip
+itself (it stays docked; its saved restore geometry is
+untouched), and strip presses are swallowed either way so the
+squished frame beneath never receives them. Presses are also
+ignored while a popup menu owns the screen, so a menu item that
+happens to overlap the bar's rectangle is never stolen.
+
+*Verification.* Code presence is gated from the shipped bytes
+(the binary gate asserts `APP_KICAD::OnInit` calls the
+installer — a regression guard; it passed v11/v12 too, since
+installation was never the defect). The controller logic is
+host-verified: the patched block, extracted verbatim, was run
+under desktop Qt on the offscreen platform — 27 checks covering
+attach/position, re-parenting into a dialog, fallback on dialog
+hide and on window close, recreation after host destruction,
+drag threshold and delta, dock/strip tap/drag/restore, and the
+Close button all pass. Whether the bar is visible on the iPad
+is, as ever, the device's verdict.
