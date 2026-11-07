@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KiCad‑iOS — The Actual KiCad, Running on iPad</title>
+<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. It builds, installs, launches, completes KiCad's first-run wizard and opens the KiCad project manager on a real iPad.">
+<style>
+  :root{
+    --bg:#0a0d12;
+    --bg2:#0e1219;
+    --panel:#131926;
+    --panel2:#171f2e;
+    --line:#26324a;
+    --text:#f2f5f9;
+    --muted:#a9bcd4;
+    --accent:#57a8ff;
+    --accent2:#ff7a59;
+    --good:#4ade80;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;
+    font-size:18px;
+  }
+  a{color:var(--accent)}
+  a:hover{color:#8cc2ff}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+
+  /* ---------- hero ---------- */
+  header{
+    position:relative;
+    overflow:hidden;
+    background:
+      radial-gradient(1100px 500px at 85% -10%, rgba(87,168,255,.16), transparent 60%),
+      radial-gradient(800px 420px at 8% 110%, rgba(255,122,89,.10), transparent 60%),
+      linear-gradient(180deg,var(--bg2),var(--bg));
+    border-bottom:1px solid var(--line);
+  }
+  header .traces{position:absolute;inset:0;opacity:.35;pointer-events:none}
+  .hero{position:relative;padding:88px 0 72px;text-align:left}
+  .kicker{
+    display:inline-block;
+    font-size:.85rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);
+    border:1px solid var(--line);border-radius:999px;
+    padding:6px 14px;background:rgba(87,168,255,.08);
+  }
+  h1{
+    font-size:clamp(2.6rem,6.5vw,4.4rem);
+    line-height:1.05;font-weight:800;letter-spacing:-.02em;
+    margin:26px 0 8px;
+  }
+  h1 .thin{display:block;color:var(--text)}
+  h1 .glow{
+    display:block;
+    background:linear-gradient(92deg,var(--accent),#9fd0ff 55%,var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .sub{
+    font-size:clamp(1.1rem,2.4vw,1.35rem);
+    color:var(--muted);max-width:46rem;margin-top:18px;
+  }
+  .sub strong{color:var(--text)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+  .chip{
+    font-size:.95rem;font-weight:600;color:var(--text);
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:999px;padding:8px 16px;
+  }
+  .chip b{color:var(--good);font-weight:800}
+  .cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+  .btn{
+    display:inline-block;text-decoration:none;font-weight:700;
+    padding:14px 26px;border-radius:12px;font-size:1.02rem;
+  }
+  .btn-primary{background:var(--accent);color:#06121f}
+  .btn-primary:hover{background:#7db9ff;color:#06121f}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--text)}
+
+  /* ---------- sections ---------- */
+  section{padding:72px 0 8px}
+  h2{
+    font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;letter-spacing:-.01em;
+    margin-bottom:14px;
+  }
+  h2 .bar{color:var(--accent2)}
+  .lead{color:var(--muted);max-width:52rem;font-size:1.08rem}
+  .lead strong{color:var(--text)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:30px}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px 24px 20px;
+  }
+  .card h3{font-size:1.12rem;font-weight:750;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:1rem}
+  .card .tick{color:var(--good);font-weight:800;margin-right:8px}
+  .card .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;border-radius:10px;margin-bottom:14px;
+    background:rgba(87,168,255,.12);color:var(--accent);font-weight:800;
+    border:1px solid var(--line);
+  }
+
+  .status-band{
+    margin-top:30px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:var(--radius);padding:28px;
+  }
+  .status-band h3{font-size:1.2rem;margin-bottom:6px}
+  .status-band p{color:var(--muted)}
+  .status-band p strong{color:var(--text)}
+  .status-list{list-style:none;margin-top:18px}
+  .status-list li{
+    padding:12px 0;border-top:1px solid var(--line);color:var(--muted);
+  }
+  .status-list li:first-child{border-top:none}
+  .status-list li strong{color:var(--text)}
+  .tag{
+    display:inline-block;font-size:.78rem;font-weight:800;letter-spacing:.06em;
+    text-transform:uppercase;border-radius:6px;padding:2px 9px;margin-right:10px;
+    vertical-align:1px;
+  }
+  .tag-proven{background:rgba(74,222,128,.14);color:var(--good);border:1px solid rgba(74,222,128,.4)}
+  .tag-now{background:rgba(87,168,255,.14);color:var(--accent);border:1px solid rgba(87,168,255,.4)}
+
+  ol.install{margin:22px 0 0 1.4rem;color:var(--muted)}
+  ol.install li{padding:6px 0}
+  ol.install strong{color:var(--text)}
+  code{
+    background:#0b1220;border:1px solid var(--line);border-radius:6px;
+    padding:1px 7px;font-size:.92em;color:#cfe4ff;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+
+  footer{
+    margin-top:84px;border-top:1px solid var(--line);
+    background:var(--bg2);padding:44px 0 54px;color:var(--muted);font-size:.95rem;
+  }
+  footer strong{color:var(--text)}
+  footer .fine{margin-top:16px;font-size:.88rem;color:#8298b3}
+  footer a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<header>
+  <svg class="traces" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
+    <g fill="none" stroke="#2c4a73" stroke-width="1.5">
+      <path d="M-10 90 H420 L470 140 H900 L950 90 H1400"/>
+      <path d="M-10 300 H260 L330 230 H760 L820 300 H1400"/>
+      <path d="M120 -10 V180 L190 250 V520"/>
+      <path d="M1120 -10 V150 L1040 230 V520"/>
+    </g>
+    <g fill="#2c4a73">
+      <circle cx="470" cy="140" r="5"/><circle cx="330" cy="230" r="5"/>
+      <circle cx="190" cy="250" r="5"/><circle cx="1040" cy="230" r="5"/>
+      <circle cx="950" cy="90" r="5"/><circle cx="820" cy="300" r="5"/>
+    </g>
+  </svg>
+  <div class="wrap hero">
+    <span class="kicker">KiCad‑iOS &middot; Unofficial Port</span>
+    <h1>
+      <span class="thin">KiCad runs on iPad.</span>
+      <span class="glow">The real KiCad.</span>
+    </h1>
+    <p class="sub">
+      This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
+      its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
+      It installs on a real iPad, completes KiCad's first-run wizard, and opens the
+      <strong>KiCad project manager</strong>.
+    </p>
+    <div class="chips">
+      <span class="chip">Upstream <b>KiCad 10.0.1</b></span>
+      <span class="chip">Target <b>iOS arm64</b></span>
+      <span class="chip">Runs on <b>M‑series iPad</b></span>
+      <span class="chip">License <b>GPLv3</b></span>
+      <span class="chip">Status <b>Manager up on hardware</b></span>
+    </div>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
+      <a class="btn btn-ghost" href="#install">How to install</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="what">
+    <h2><span class="bar">/</span> What this is</h2>
+    <p class="lead">
+      KiCad is the world's leading open-source electronics design suite — schematic capture,
+      PCB layout, and a family of companion tools driven from one project manager. It ships on
+      Windows, macOS and Linux. <strong>Now it runs on the iPad too.</strong> Launch the app and
+      KiCad's project manager stands up: the real menu bar, the Project Files tree, the launcher
+      column with the real colour icons, and the tool descriptions — in KiCad's light desktop
+      appearance, driven by touch, Apple Pencil, keyboard and mouse.
+    </p>
+  </section>
+
+  <section id="works">
+    <h2><span class="bar">/</span> What works today</h2>
+    <p class="lead">Every item here is verified — on the build host by automated gates, and on a real iPad by running it.</p>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="tick">✓</span>Builds end to end</h3>
+        <p>The whole of KiCad 10.0.1 compiles and links for iOS arm64 — 1,591 of 1,591 build steps: the manager, every editor module, and the supporting libraries.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Installs and launches</h3>
+        <p>The unsigned IPA sideloads onto an M‑series iPad and opens. Signing, the iOS entry point, and the first paint all check out on hardware.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>First-run wizard completes</h3>
+        <p>KiCad's genuine setup wizard is walkable from the first page to the last — its navigation renders, its pages advance, setup finishes.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>The manager stands up</h3>
+        <p>Real menus, real icons, the project tree and the description pane — the same manager window KiCad opens on the desktop.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Python is in</h3>
+        <p>KiCad's embedded Python ships whole: the CPython standard library, the compiled <code>pcbnew</code> module, stock scripting plugins and footprint wizards, plus the PCBWay and JLCPCB addons from the official PCM index.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Files are reachable</h3>
+        <p>File sharing is on. Projects live in the app's Documents folder and move on and off the iPad the normal way.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="built">
+    <h2><span class="bar">/</span> How it's built</h2>
+    <p class="lead">
+      KiCad was never written for iOS. Four walls stand between its source and a tablet,
+      and the port answers each one with working machinery:
+    </p>
+    <div class="grid">
+      <div class="card">
+        <span class="num">1</span>
+        <h3>The wxQt bridge</h3>
+        <p>KiCad's interface is written in wxWidgets, which has no iOS port. Here it runs on wxWidgets' Qt backend — wx 3.3 over Qt 6.9.3 — and Qt runs natively on iOS. KiCad's own build system already recognises the Qt port of wx.</p>
+      </div>
+      <div class="card">
+        <span class="num">2</span>
+        <h3>Single-process Kiway</h3>
+        <p>On the desktop, KiCad's editors run as separate processes. iOS apps are single-process, so each editor ships as a <em>kiface</em> module loaded inside the one app process, opening as its own window.</p>
+      </div>
+      <div class="card">
+        <span class="num">3</span>
+        <h3>Embedded Python</h3>
+        <p>KiCad's build requires Python, and its scripting is part of the program. A full CPython 3.13 sysroot is cross-compiled for iOS and embedded in the app, so Python initialises at startup and <code>import pcbnew</code> resolves to the real compiled module.</p>
+      </div>
+      <div class="card">
+        <span class="num">4</span>
+        <h3>A canvas that fits the platform</h3>
+        <p>The desktop canvas is OpenGL; iOS offers no OpenGL. KiCad's built-in Cairo software canvas carries the editors on iPad — correct rendering on the platform's own terms.</p>
+      </div>
+    </div>
+    <div class="status-band">
+      <h3>One of everything, verified before it ships</h3>
+      <p>
+        The bundle carries exactly one libpng, one zlib and one expat, shared by every component —
+        and the build <strong>fails closed</strong> if a bundled duplicate tries to sneak back in.
+        Every package passes automated gates before release: full symbol-closure audit across all
+        images, Qt resource checks, the libpng unity gate, and deep signing verification.
+        A build that fails a gate does not ship.
+      </p>
+    </div>
+  </section>
+
+  <section id="status">
+    <h2><span class="bar">/</span> Current status</h2>
+    <p class="lead">
+      <strong>Build v10 is the current release</strong> — device-proven on 2026‑11‑06.
+      <strong>v11 is in active development</strong> and lands the next layer:
+    </p>
+    <ul class="status-list">
+      <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware.</li>
+      <li><span class="tag tag-now">In v11</span><strong>Editors open on tap.</strong> The module search learns the iOS bundle layout, so the manager starts clean and each editor — schematic, PCB, and the rest — loads when opened.</li>
+      <li><span class="tag tag-now">In v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's symbol, footprint and template libraries ship with the app, and the default library tables point at them. Setup finds the defaults in place.</li>
+      <li><span class="tag tag-now">In v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control.</li>
+      <li><span class="tag tag-now">In v11</span><strong>A floating window control.</strong> A control that floats above every window at all times, with Close and Minimize. Minimize shrinks the window and docks it to the left edge, Stage Manager style; a tap restores it. Windows stay inside the screen and move by their titlebars.</li>
+    </ul>
+    <p class="lead" style="margin-top:22px">
+      When v11 lands, the editors get their own on-device pass: open a schematic, draw, save, reopen.
+      The full change ledger for the port lives in the repository's
+      <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
+    </p>
+  </section>
+
+  <section id="install">
+    <h2><span class="bar">/</span> Install</h2>
+    <p class="lead">
+      Builds are produced by the repository's <strong>Spike</strong> workflow as unsigned
+      <code>.ipa</code> files (≈134&nbsp;MB). The install is a standard sideload:
+    </p>
+    <ol class="install">
+      <li><strong>Download</strong> the <code>.ipa</code> artifact from a workflow run in the repository.</li>
+      <li><strong>Sideload</strong> it with a signer such as Signulous, or your own signing setup.</li>
+      <li><strong>Launch KiCad (spike).</strong> The first-run wizard walks through setup, and the project manager opens behind it.</li>
+    </ol>
+    <p class="lead" style="margin-top:18px"><strong>Requirements:</strong> an M‑series iPad running iPadOS 17 or later.</p>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      <strong>KiCad‑iOS</strong> is an unofficial port of
+      <a href="https://www.kicad.org/">KiCad</a> 10.0.1
+      (upstream source: <a href="https://gitlab.com/kicad/code/kicad">gitlab.com/kicad/code/kicad</a>,
+      baseline commit <code>2db9e5a7</code>).
+    </p>
+    <p style="margin-top:12px">
+      KiCad is © its many contributors and the KiCad project. This port is licensed under the
+      <strong>GNU General Public License v3.0 or later</strong>, matching upstream — the full text
+      ships in the repository as <code>LICENSE</code>, and every change to upstream files is recorded
+      in <code>MODIFICATIONS.md</code> per GPL §5.
+    </p>
+    <p class="fine">
+      Disclaimer: this is an unofficial port and an independent experiment. It is not affiliated with,
+      sponsored by, or endorsed by the KiCad project, CERN, or any KiCad sponsor. “KiCad” is a trademark
+      of the KiCad project; it is used here descriptively, to identify the upstream software this port is
+      based on, and for no other purpose.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

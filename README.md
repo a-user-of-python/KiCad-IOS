@@ -4,69 +4,96 @@
 
 ### *The actual KiCad — running on iPad.*
 
-**An experimental port of the real, upstream [KiCad](https://www.kicad.org/) source code to iOS / iPadOS.**
-Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tablets.
+**The real, upstream [KiCad](https://www.kicad.org/) 10.0.1, running on iOS / iPadOS.**
+Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tablets — and proven on real hardware.
 
 [![Build Spike](https://github.com/a-user-of-python/KiCad-IOS/actions/workflows/spike.yml/badge.svg)](https://github.com/a-user-of-python/KiCad-IOS/actions/workflows/spike.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
-[![Platform](https://img.shields.io/badge/platform-iPadOS-lightgrey.svg)](#)
-[![Status](https://img.shields.io/badge/status-spike%20%2F%20work%20in%20progress-yellow.svg)](#-honest-status)
+[![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
+[![Status](https://img.shields.io/badge/status-runs%20on%20iPad-brightgreen.svg)](#-status)
+
+**[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)**
 
 </div>
 
 ---
 
-> ⚠️ **Unofficial spike — read this first.**
+> ⚠️ **Unofficial port — read this first.**
 > This is an independent experiment. It is **not** affiliated with, sponsored by, or endorsed by the KiCad project or CERN. "KiCad" is a trademark of the KiCad project; the name is used here only to describe what this port is a port *of*.
-> **Current reality:** this repository is at the *investigation & first-build* stage. There is no finished app yet, and nothing here should be read as claiming one. Progress — including hard blockers, when we hit them — is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md) and the spike reports.
+> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). The work in progress is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md), where every change to upstream code is recorded.
 
 ---
 
 ## ✨ What this is
 
-KiCad is the world's leading open-source electronics design suite — schematic capture, PCB layout, and a family of companion tools, all in one project manager. It runs on Windows, macOS and Linux… but not on the iPad in your bag.
+KiCad is the world's leading open-source electronics design suite — schematic capture, PCB layout, and a family of companion tools, all driven from one project manager. It runs on Windows, macOS and Linux. Now it runs on iPad too.
 
-This project asks a simple question with a complicated answer:
+This repository contains a port of the **actual upstream KiCad source code** (pinned at **10.0.1**) to iOS. KiCad's own windows, KiCad's own menus, KiCad's own buttons — the same code that ships on the desktop, compiled for the tablet:
 
-> **Can the actual KiCad program — its own source code, its own windows, its own buttons — run on an M‑series iPad?**
+1. Launch the app → KiCad's **project manager** window stands up.
+2. The **first-run wizard** runs, exactly as it does on a fresh desktop install.
+3. Every editor ships in the bundle as a loadable module, opened in its own window inside the one app process.
+4. Touch, Apple Pencil, keyboard and mouse all drive the real interface.
 
-The goal experience:
+## ✅ What runs today — proven on a real iPad
 
-1. Launch the app → KiCad's familiar **project manager** window appears.
-2. Tap **Schematic Editor** → the real `eeschema` opens in its own window.
-3. Tap **PCB Editor** → the real `pcbnew` opens in its own window.
-4. Every button, switch, toggle and control is **really there and really works** — with touch, Apple Pencil, keyboard and mouse.
+- **Builds end to end.** The whole of KiCad 10.0.1 compiles and links for iOS arm64 (1,591/1,591 build steps): the manager, every editor module, and the supporting libraries.
+- **Installs and launches.** The unsigned IPA sideloads and opens on a real M‑series iPad.
+- **First-run wizard completes.** KiCad's genuine setup wizard is walkable from the first page to the last — its navigation buttons render and work.
+- **The project manager stands up.** Real menu bar (File / Edit / View / Tools / Preferences), the Project Files tree, the launcher column with the real colour icons, and the tool description pane — in KiCad's light desktop appearance.
+- **Python is in.** KiCad's embedded Python environment ships whole: the CPython standard library, the compiled `pcbnew` module, KiCad's stock scripting plugins and footprint wizards, plus two addons from the official PCM index — the PCBWay plug‑in and the JLCPCB Fabrication Toolkit — each with its own license.
+- **Files are reachable.** File sharing is on: projects live in the app's Documents folder and move on and off the iPad the normal way.
+- **One of everything.** The bundle carries exactly one libpng, one zlib, one expat — shared by every component — so the icon pipeline loads KiCad's 5,000+ bitmap resources without conflict.
 
-## 🧭 How it works — the route
+## 🧭 How it works — the architecture
 
-KiCad was never written for iOS. Four walls stand between its source code and an iPad, and this port has a deliberate answer for each:
+KiCad was never written for iOS. Four walls stand between its source code and an iPad, and the port has a concrete answer for each:
 
-| # | The wall | The route around it |
-|---|----------|--------------------|
-| 1 | KiCad's UI is built on **wxWidgets**, which has no iOS port. | **wxQt bridge** — KiCad's wx code runs on wxWidgets' Qt backend (`wxQt`), and Qt *does* run on iOS (proven in this workspace by a full Qt Widgets app port). KiCad's own CMake already recognises a `qt` wx port. KiCad's patched wx fork is audited patch-by-patch against wxQt. |
-| 2 | KiCad's editors normally run as **separate processes** (Kiway). iOS apps are single-process. | **Single-process hosting** — each editor opens as its own window inside one app process. |
-| 3 | **Python** scripting is baked into desktop builds. | **Off.** Built with scripting disabled — schematic/footprint library import (`.kicad_sym` / `.kicad_mod`) is core KiCad code and needs no Python. |
-| 4 | The drawing canvas is **desktop OpenGL**, which iOS doesn't provide. | **Correctness first:** KiCad's built-in software (Cairo) fallback canvas for the spike; GL translation (Zink over MoltenVK) is the stretch goal. |
+| # | The wall | The answer in this port |
+|---|----------|-------------------------|
+| 1 | KiCad's UI is built on **wxWidgets**, which has no iOS port. | **wxQt bridge** — KiCad's wx code runs on wxWidgets' Qt backend (wx 3.3.x), and Qt 6.9.3 runs natively on iOS. KiCad's own CMake already recognises a `qt` wx port. |
+| 2 | KiCad's editors normally run as **separate processes** (Kiway). iOS apps are single-process. | **Single-process hosting** — each editor is a *kiface* module loaded in-process, opening as its own window inside the app. |
+| 3 | **Python** scripting is baked into KiCad and its build requires it. | **A full CPython 3.13 sysroot is cross-compiled for iOS and embedded** in the app; the port sets its Python home at startup, so `import pcbnew` resolves to the real compiled module. |
+| 4 | The drawing canvas is **desktop OpenGL**, which iOS doesn't provide. | **KiCad's built-in Cairo software canvas** carries the editors on iOS — correct rendering first; the GLU calls some 3D helpers expect are shimmed. |
 
-Under the hood, the heavy lifting reuses a Qt‑for‑iOS toolchain (Qt 6 via `aqtinstall`, desktop + iOS kits) already proven on a shipping Qt Widgets iPad app.
+Two more pieces of the foundation: a real **iODBC** is cross-compiled into the sysroot, so KiCad's database-library support is genuine code, not a stub; and the wx build is locked to the **shared sysroot libraries** (libpng / zlib / expat) — the build fails closed rather than silently falling back to bundled copies.
 
-## 📊 Honest status
+## 📊 Status
 
 | Milestone | State |
 |---|---|
 | Upstream pinned (KiCad **10.0.1**, commit `2db9e5a7…`) | ✅ Done |
 | Repo, licensing & attribution in place | ✅ Done |
-| wx fork patch audit vs. wxQt | ✅ Done — wxQt (wx 3.3.4 + Qt 6.9.3) carries it; see `MODIFICATIONS.md` |
-| wxQt compiled for iOS (arm64) | ✅ Done |
-| KiCad configured for iOS (wxPython off) | ✅ Done |
-| **Whole KiCad compiles + links for iOS arm64** | ✅ **Done — 1591/1591 build steps, manager + all 7 editors (kifaces) + 3D plugins (CI run 42112954275)** |
-| Unsigned IPA packaged | ✅ Done — 490 MB, valid iPad bundle, Qt iOS platform plugin linked into the executable |
-| KiCad project manager launches on iPad | 🧪 **Awaiting device test** — install the IPA (Signulous), first launch is the verdict |
-| Schematic / PCB editors open as windows | 🧪 Awaiting device test (the binaries are in the bundle; KiCad loads its editors in-process by design) |
-| Real `.kicad_sch` edited on device | ⏳ After launch verdict |
+| wxQt (wx 3.3.x + Qt 6.9.3) compiled for iOS arm64 | ✅ Done |
+| Whole KiCad compiles + links for iOS arm64 | ✅ Done — manager + all editor modules |
+| Unsigned IPA packaged, deep-verified (symbol closure, resources, signing) | ✅ Done |
+| Installs, signs and launches on a real iPad | ✅ **Device-proven** (v2–v10) |
+| Python initialises inside the app; manager window constructs | ✅ **Device-proven** (v8, v9) |
+| Split-libpng crash in icon loading found and fixed at the root | ✅ **Device-proven** (v9) |
+| First-run wizard completable end to end; manager stands, light appearance | ✅ **Device-proven** (v10, 2026‑11‑06) |
 
-*This table is updated as the spike moves. A well-evidenced "this is blocked, and here is exactly why" is a valid spike outcome — a fake UI is not.*
+### In active development — v11
+
+The current build round lands the next layer, all of it already scoped and under way:
+
+- **Editors open on tap.** The kiface module search learns the iOS bundle layout (modules live in `Frameworks/`), so the manager starts clean and each editor loads when opened.
+- **Stock libraries ship in the bundle.** KiCad 10.0.1's symbol, footprint and template libraries, with the default library tables wired to them — first-run setup finds the defaults in place.
+- **The manager screen, fully functional.** Every menu opens, every item acts, every button on the manager does its real job — audited control by control.
+- **A floating window control.** A port-level control that floats above every window at all times, offering Close and Minimize; minimize shrinks the window and docks it to the left edge, Stage Manager style, and tapping it restores the window.
+- **Windows stay on screen.** Top-level geometry is clamped to the visible area, and windows move by their titlebars.
+
+When v11 lands, the editors get their own on-device pass: open a schematic, draw, save, reopen.
+
+## 📲 Installing
+
+Builds are produced by the **Spike** workflow as unsigned `.ipa` files (≈134 MB). To run one:
+
+1. Download the `.ipa` artifact from a workflow run.
+2. Sideload it with a signer such as Signulous (or your own signing setup).
+3. Launch **KiCad (spike)** — the first-run wizard walks you through setup, and the project manager opens behind it.
+
+**Requirements:** an M‑series iPad running iPadOS 17 or later.
 
 ## 🛠️ Building
 
@@ -76,24 +103,14 @@ Builds run on free, standard GitHub Actions macOS runners (public repo) — noth
 Actions → "Spike" workflow → Run workflow
 ```
 
-The pipeline stages live in [`scripts/`](scripts/) and are deliberately staged so each wall above is attacked — and its result logged — separately:
+The pipeline stages live in [`scripts/`](scripts/) and are deliberately staged so each part of the port builds — and is verified — separately:
 
-1. `qt` — install Qt 6 (desktop + iOS kits).
-2. `wx` — build wxWidgets (KiCad's fork) with the **Qt backend** for iOS arm64.
-3. `kicad-configure` — configure upstream KiCad 10.0.1 against that wx, scripting **off**.
-4. `kicad-build` — compile as far as the source allows; package an unsigned `.ipa` if a binary links.
+1. `sysroot` — cross-compile the dependency sysroot for iOS arm64 (libpng, zlib, expat, iODBC, CPython, …).
+2. `wx-ios` — build wxWidgets with the **Qt backend** against that sysroot; fails closed if a bundled third-party library sneaks in.
+3. `kicad-ios` — compile upstream KiCad 10.0.1 with the port's patch series applied.
+4. `package` — assemble the `.ipa`; audit symbol closure, Qt resources, libpng unity and signing before anything ships.
 
-## 🗺️ Roadmap
-
-- [x] Pin upstream, set up repo & GPL hygiene
-- [ ] Catalogue KiCad's wx-fork patches; mark each *carried / workaround / blocker*
-- [ ] wxQt-for-iOS compiles and links a test frame
-- [ ] KiCad CMake configure passes for iOS
-- [ ] `common` + `gal` libraries compile
-- [ ] Project manager binary links; packaged as unsigned IPA
-- [ ] Manager launches on device; editors open as windows (single-process Kiway)
-- [ ] Touch pass: every control reachable & operable by finger, Pencil, keyboard + mouse
-- [ ] Stretch: open & edit a real `.kicad_sch`; GL canvas via Zink/MoltenVK
+Every patch the port applies to upstream code is iOS-gated and recorded in [`MODIFICATIONS.md`](MODIFICATIONS.md).
 
 ## 📜 License & attribution
 
@@ -108,6 +125,6 @@ KiCad is free and open-source software, and so is this port — there is no othe
 <div align="center">
 
 *Built with respect for the KiCad project and its contributors.*
-*If this spike succeeds, the credit is upstream's. If it fails, the report will say exactly where.*
+*KiCad runs on iPad. The manager is up. The editors are next.*
 
 </div>
