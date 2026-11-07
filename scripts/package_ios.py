@@ -550,6 +550,27 @@ def main():
         # looks for them.
         "UIFileSharingEnabled": True,
         "LSSupportsOpeningDocumentsInPlace": True,
+        # Appearance (launch fix round 8, KiCad-Spike-v10): pin the
+        # app to the light appearance. Desktop KiCad is a light-theme
+        # application: it mixes wx system colours with hardcoded light
+        # colours and does not adapt to a dark system appearance. With
+        # no UIUserInterfaceStyle key (v9 and earlier) the app followed
+        # the device appearance, and on a dark-mode device the whole
+        # wxQt UI resolved dark -- the first-run wizard rendered white
+        # text on a black page, with widget backgrounds a different
+        # colour from the page around them. The key propagates through
+        # every layer this port renders with, verified against the
+        # Qt 6.9.3 sources: UIKit resolves each QUIWindow's trait
+        # collection from it, QIOSTheme::colorScheme() reads the
+        # window's userInterfaceStyle and reports Qt::ColorScheme::
+        # Light, the iOS system palette's dynamic UIColors (label,
+        # systemGroupedBackground, secondarySystemBackground, ...)
+        # resolve to their light variants, the Fusion style (the iOS
+        # theme's StyleNames hint) paints from that palette, and wxQt
+        # maps wxSYS_COLOUR_* from the same palette -- so the wizard,
+        # the manager and every dialog render with desktop KiCad's
+        # light colours.
+        "UIUserInterfaceStyle": "Light",
     }
     with open(os.path.join(APP, "Info.plist"), "wb") as fh:
         plistlib.dump(plist, fh)

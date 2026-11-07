@@ -641,3 +641,48 @@ Each modified upstream file also carries an in-file notice of the form:
   string exists bundle-wide, and the executable defines the plain
   `png_*` entry points the wx handler now binds. Upstream KiCad and
   wx sources are untouched by this round.
+
+### KiCad patch 0026 — ios-wizard-nav-buttons (launch fix round 8, KiCad-Spike-v10)
+
+**`common/startwizard/startwizard.cpp` + `common/CMakeLists.txt`** —
+2026-11-06 — `patches/kicad/0026-ios-wizard-nav-buttons.patch`.
+Device verdict for v9: the app runs and KiCad's genuine first-run
+wizard renders, but the wizard's Back/Next/Cancel row is absent —
+the user is stuck on page 1 ("just are not there", device report).
+The generic wxWizard creates the three buttons unconditionally
+(wxWizard::DoCreateControls), the shipped v9 binary contains the
+creation code and the button labels, and a host build of the same
+wxWidgets 3.3.4 wxQt sources against desktop Qt, driven through
+KiCad's exact creation order (manager frame created hidden at
+775×-1 DIP, wizard run before the frame is shown), lays the row
+out correctly (80×25, visible, inside the client area) — so the
+loss is specific to this port's startup environment, where two wx
+mechanisms can each remove the row: wxDialog layout adaptation
+(reparents all controls into a scrolled window and rebuilds the
+dialog's sizer if the display metrics it samples are degenerate,
+leaving the row below the scrolled fold) and any first layout
+computed against a client size the dialog does not keep (a Qt
+control laid out at zero size stays hidden). The patch, gated on
+KICAD_IOS_PORT (the define patch 0023 sets for the kicad target;
+this patch sets it for the common target the same way), disables
+layout adaptation for the wizard dialog — a no-op on any healthy
+display, where the adapter's MustScroll test is already 0 — and,
+via wxEvtHandler::CallAfter queued before RunWizard, re-shows the
+navigation buttons and re-runs the sizer layout once the modal
+loop is running at the dialog's real geometry (verified on the
+host wxQt build to fire inside RunWizard and to leave healthy
+geometry unchanged). No upstream logic is altered; the block is
+compiled only for this port.
+
+**Packaging (no upstream change):** `scripts/package_ios.py` now
+writes `UIUserInterfaceStyle = Light` into the app Info.plist.
+Desktop KiCad is a light-theme application that mixes wx system
+colours with hardcoded light colours; with no key (v9) the app
+followed the device appearance and rendered the wizard white-on-
+black on a dark-mode device. Verified against the Qt 6.9.3
+sources: UIKit resolves each window's trait collection from the
+key, QIOSTheme::colorScheme() derives the Qt colour scheme from
+the window's userInterfaceStyle, the iOS system palette's dynamic
+UIColors resolve to their light variants, the Fusion style (the
+iOS theme's StyleNames hint) paints from that palette, and wxQt
+maps wxSYS_COLOUR_* from the same palette.

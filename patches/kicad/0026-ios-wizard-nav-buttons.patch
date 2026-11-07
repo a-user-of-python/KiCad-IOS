@@ -1,0 +1,82 @@
+--- a/common/CMakeLists.txt
++++ b/common/CMakeLists.txt
+@@ -863,6 +863,15 @@
+     $<TARGET_OBJECTS:netlist_reader_obj>
+     )
+ 
++# [KiCad-IOS port] Modified 2026-11-06 for iOS: mark the common
++# library so startwizard.cpp compiles its iOS-only block (launch
++# fix round 8, KiCad-Spike-v10; see the matching KICAD_IOS_PORT
++# block in common/startwizard/startwizard.cpp). The kicad
++# executable target gets the same define from patch 0023.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( common PRIVATE KICAD_IOS_PORT )
++endif()
++
+ if( KICAD_USE_PCH )
+     target_precompile_headers( common
+         PRIVATE
+--- a/common/startwizard/startwizard.cpp
++++ b/common/startwizard/startwizard.cpp
+@@ -254,6 +254,61 @@
+                 }
+             } );
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-06 for iOS (launch fix round 8,
++    // KiCad-Spike-v10): on device in v9 the wizard's welcome page
++    // rendered but its Back/Next/Cancel row never appeared -- the
++    // buttons "just are not there" (device report verbatim), so the
++    // wizard could not be advanced past page 1. The generic wxWizard
++    // creates the three buttons unconditionally in
++    // wxWizard::DoCreateControls(), and a host build of the same
++    // wxWidgets 3.3.4 wxQt sources against desktop Qt, driven through
++    // KiCad's exact creation order (parent frame created hidden at
++    // 775x-1, wizard run before the frame is ever shown), lays them
++    // out correctly: 80x25, visible, inside the client area. The loss
++    // is therefore specific to this port's startup environment: the
++    // wizard is created and exec'd from APP_KICAD::OnInit inside a
++    // QIOS view hierarchy that is still settling, where two wx
++    // mechanisms can each take the row out -- wxDialog layout
++    // adaptation, which reparents every control of a dialog into a
++    // scrolled window and rebuilds its sizer if the display metrics
++    // it samples are degenerate (leaving the button row below the
++    // scrolled fold), and any first layout computed against a client
++    // size the dialog does not actually keep (a Qt control laid out
++    // at zero size stays hidden). Counter both at the point of use:
++    //
++    // 1) Disable layout adaptation for this dialog. On any healthy
++    //    display it never triggers for the wizard anyway (the
++    //    adapter's MustScroll test is 0 when the dialog fits the
++    //    display client area, as here), so this only removes the
++    //    degenerate-metrics failure mode; the sizer chain KiCad and
++    //    wxWizard built stays the dialog's sizer.
++    // 2) Once the modal loop is running and the dialog holds its
++    //    real geometry, explicitly re-show the navigation buttons
++    //    and re-run the sizer layout at the true client size, then
++    //    repaint. On a healthy startup this is a no-op (verified on
++    //    the host wxQt build: the CallAfter fires inside RunWizard's
++    //    modal loop and the button geometry is unchanged by it).
++    m_wizard->SetLayoutAdaptationLevel( wxDIALOG_ADAPTATION_NONE );
++
++    wxWizard* iosWizard = m_wizard;
++
++    iosWizard->CallAfter(
++            [iosWizard]()
++            {
++                for( int id : { wxID_BACKWARD, wxID_FORWARD, wxID_CANCEL, wxID_HELP } )
++                {
++                    if( wxWindow* btn = wxWindow::FindWindowById( id, iosWizard ) )
++                        btn->Show( true );
++                }
++
++                if( wxSizer* sizer = iosWizard->GetSizer() )
++                    sizer->Layout();
++
++                iosWizard->Refresh();
++            } );
++#endif
++
+     if( m_wizard->RunWizard( firstPage ) )
+     {
+         for( std::unique_ptr<STARTWIZARD_PROVIDER>& provider : m_providers )
