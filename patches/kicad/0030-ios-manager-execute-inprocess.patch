@@ -1,0 +1,133 @@
+--- a/kicad/tools/kicad_manager_control.cpp
++++ b/kicad/tools/kicad_manager_control.cpp
+@@ -622,9 +622,25 @@
+ 
+ int KICAD_MANAGER_CONTROL::ExploreProject( const TOOL_EVENT& aEvent )
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix round 9,
++    // KiCad-Spike-v11): LaunchExternal() hands the folder to the host
++    // file explorer; iOS offers an app no way to open a folder in
++    // one, so on device the action silently did nothing. The bundle
++    // enables file sharing, so say where the files actually are.
++    DisplayInfoMessage( m_frame,
++                        wxString::Format( _( "This project's folder is:\n\n%s\n\n"
++                                             "Projects stored in the app's Documents "
++                                             "folder can be browsed in the Files app "
++                                             "under \"KiCad (spike)\"." ),
++                                          Prj().GetProjectPath() ),
++                        wxEmptyString );
++    return 0;
++#else
+     // Open project directory in host OS's file explorer
+     LaunchExternal( Prj().GetProjectPath() );
+     return 0;
++#endif
+ }
+ 
+ int KICAD_MANAGER_CONTROL::RestoreLocalHistory( const TOOL_EVENT& aEvent )
+@@ -882,6 +898,104 @@
+     else
+         wxFAIL_MSG( "Execute(): unexpected request" );
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix round 9,
++    // KiCad-Spike-v11): upstream hands these actions to
++    // COMMON_CONTROL::Execute(), which wxExecute()s the standalone
++    // tool executables (gerbview, bitmap2component, pcb_calculator,
++    // pl_editor, eeschema, pcbnew) or the user's configured text
++    // editor. This port is a single process: there are no standalone
++    // executables in the bundle and iOS cannot spawn processes at
++    // all, so on device every one of these Tools-menu items and
++    // launcher buttons could only fail (or, with no text editor
++    // configured, silently do nothing). Route the KiCad tools to
++    // their in-process kiway players instead -- the same mechanism
++    // ShowPlayer() uses for the schematic and PCB editors -- and
++    // give the text-editor action, external by definition, an
++    // explanatory dialog rather than a dead click.
++    if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::viewGerbers )
++        || aEvent.IsAction( &KICAD_MANAGER_ACTIONS::convertImage )
++        || aEvent.IsAction( &KICAD_MANAGER_ACTIONS::showCalculator )
++        || aEvent.IsAction( &KICAD_MANAGER_ACTIONS::editDrawingSheet )
++        || aEvent.IsAction( &KICAD_MANAGER_ACTIONS::editOtherSch )
++        || aEvent.IsAction( &KICAD_MANAGER_ACTIONS::editOtherPCB ) )
++    {
++        FRAME_T frameType;
++
++        if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::viewGerbers ) )
++            frameType = FRAME_GERBER;
++        else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::convertImage ) )
++            frameType = FRAME_BM2CMP;
++        else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::showCalculator ) )
++            frameType = FRAME_CALC;
++        else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::editDrawingSheet ) )
++            frameType = FRAME_PL_EDITOR;
++        else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::editOtherSch ) )
++            frameType = FRAME_SCH;
++        else
++            frameType = FRAME_PCB_EDITOR;
++
++        wxString param;
++
++        if( aEvent.Parameter<wxString*>() )
++            param = *aEvent.Parameter<wxString*>();
++        else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::viewGerbers )
++                 && m_frame->IsProjectActive() )
++            param = m_frame->Prj().GetProjectPath();
++
++        KIWAY_PLAYER* player = nullptr;
++
++        try
++        {
++            player = m_frame->Kiway().Player( frameType, true );
++        }
++        catch( const IO_ERROR& err )
++        {
++            wxLogError( _( "Application failed to load:\n" ) + err.What() );
++            return -1;
++        }
++
++        if( !player )
++        {
++            wxLogError( _( "Application cannot start." ) );
++            return -1;
++        }
++
++        if( !player->IsVisible() )
++        {
++            // A file parameter (Edit Other Schematic/PCB, a dropped
++            // Gerber file) opens directly. A directory parameter
++            // (the project folder, for the Gerber viewer) just shows
++            // the tool; its own Open command takes it from there.
++            if( !param.IsEmpty() && wxFileName::FileExists( param ) )
++            {
++                std::vector<wxString> files{ param };
++
++                if( !player->OpenProjectFiles( files ) )
++                {
++                    player->Destroy();
++                    return -1;
++                }
++            }
++
++            player->Show( true );
++        }
++
++        player->Raise();
++        return 0;
++    }
++    else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::openTextEditor ) )
++    {
++        DisplayInfoMessage( m_frame,
++                            _( "iOS cannot launch an external text editor, so files "
++                               "cannot be opened in one from here. Files in the app's "
++                               "Documents folder can be browsed in the Files app under "
++                               "\"KiCad (spike)\"." ),
++                            wxEmptyString );
++        return 0;
++    }
++#endif
++
+     if( execFile.IsEmpty() )
+         return 0;
+ 
