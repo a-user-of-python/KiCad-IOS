@@ -1,0 +1,703 @@
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -15,6 +15,8 @@
+ #if defined( Q_OS_IOS )
+ #include <QtCore/QEasingCurve>
+ #include <QtCore/QMap>
++#include <QtCore/QPointer>
++#include <QtCore/QTimer>
+ #include <QtCore/QPropertyAnimation>
+ #include <QtCore/QVector>
+ #include <QtGui/qevent.h>
+@@ -301,7 +303,8 @@
+ 
+ // ---------------------------------------------------------------------------
+ // [KiCad-IOS port] Floating window controls for iOS (added 2026-11-07,
+-// launch fix round 9, KiCad-Spike-v11).
++// launch fix round 9, KiCad-Spike-v11; reworked 2026-11-07, launch
++// fix round 11, KiCad-Spike-v13 -- see the round 11 note below).
+ //
+ // On this platform the bridge gives top-level windows no working
+ // native controls: Qt's iOS QPA draws no window decorations and does
+@@ -312,14 +315,12 @@
+ // therefore provides a small floating control bar, installed once by
+ // wxQtIOSInstallFloatingWindowControls(), which:
+ //
+-//   * floats above every window of the process, modal dialogs
+-//     included -- it is a Qt::Tool window with
+-//     Qt::WindowStaysOnTopHint, the controller below re-raises it
+-//     whenever any real top-level window is shown or activated, and
+-//     its buttons are hit-tested in an application-level event
+-//     filter because Qt's own modality handling can swallow input
+-//     to a non-modal window while a modal dialog is up (application
+-//     event filters run before that check);
++//   * floats above the current window of the process, modal dialogs
++//     included (round 11 mechanism, below), with its buttons
++//     hit-tested in an application-level event filter because Qt's
++//     own modality handling can swallow input to a non-modal window
++//     while a modal dialog is up (application event filters run
++//     before that check);
+ //   * offers Close, which closes the current (most recently shown
+ //     or activated) top-level window through QWidget::close() --
+ //     the ordinary close path, so the manager runs the
+@@ -333,7 +334,58 @@
+ //     resized live -- its widget and QWindow minimum sizes are
+ //     suspended while it is docked, because a KiCad frame's
+ //     declared minimum is far wider than the strip -- and no
+-//     content or state is discarded.
++//     content or state is discarded;
++//   * (round 11) doubles as the window-move handle this platform
++//     otherwise lacks: press-and-drag on the bar's non-button area
++//     moves the window it rides on. The bar is a child of that
++//     window, so it follows the move exactly.
++//
++// Round 11 rework -- why the bar was never seen on device, and what
++// changed. As shipped in v11/v12 the bar was a separate top-level
++// QWidget (Qt::Tool | Qt::FramelessWindowHint |
++// Qt::WindowStaysOnTopHint). On the iOS QPA every top-level window
++// becomes its own UIWindow, and stacking between UIWindows is
++// governed by UIWindowLevel, not by QWidget::raise():
++// WindowStaysOnTopHint earns a non-modal tool window no level above
++// the ordinary windows, while a modal dialog DOES get a raised
++// level. The bar was shown early (during the modal first-run
++// wizard), every later window's UIWindow stacked above it, and the
++// controller could not recover: at the Qt level the bar stayed
++// "visible", so refreshBar() skipped re-showing it and raise() does
++// not reorder UIWindows. Position made it worse: the bar was placed
++// at the SCREEN's top-right corner, which under Stage Manager is
++// outside the app's window altogether. The v11 device report --
++// the bar never appeared, in the wizard or in the manager -- is
++// exactly what that construction predicts.
++//
++// The fix removes the second window from the equation: the bar is
++// now a plain child widget that the controller RE-PARENTS into
++// whichever top-level window is current -- the manager, an editor
++// frame, or the modal dialog itself. Inside one UIWindow, Qt child
++// stacking is deterministic: a child raised last paints and
++// hit-tests above its siblings, and because the bar is part of the
++// modal window while a dialog is up, its buttons receive input
++// through the normal path too (the filter hit-test remains as
++// belt-and-braces). The bar rides at the host window's own
++// top-right corner, so it is on the window the user is looking at
++// in every Stage Manager arrangement, and it is re-attached and
++// re-raised whenever the current window changes and whenever a
++// window closes and the one beneath becomes current again.
++//
++// Dragging, and the docked strip: a press on the bar that is not on
++// a button arms a drag of the host window; past an 8 pt threshold
++// the window follows the pointer (absolute-delta positioning,
++// clamped to the screen's available geometry with the same rule
++// wxWindowQt::DoMoveWindow() applies), and the child bar follows
++// for free. Moving the Qt widget directly is the same input a
++// desktop window manager's move produces, and wxQt absorbs it
++// through its ordinary Qt move-event handling. A docked strip now
++// distinguishes tap from drag by the same threshold: the press is
++// tracked instead of restoring immediately, a release that never
++// crossed the threshold restores the window, and a drag moves the
++// strip itself (it stays docked; its saved restore geometry is
++// untouched). Presses on a docked strip are swallowed either way --
++// the squished frame beneath must not receive them.
+ //
+ // The implementation compiles only for iOS (Q_OS_IOS); other wxQt
+ // builds get the empty stub at the bottom.
+@@ -349,43 +401,19 @@
+ public:
+     wxQtIOSFloatingControls( QObject *parent )
+         : QObject( parent ),
+-          m_bar( nullptr ),
+-          m_closeBtn( nullptr ),
+-          m_minBtn( nullptr ),
+-          m_current( nullptr )
+-    {
+-        m_bar = new QWidget( nullptr,
+-                             Qt::Tool | Qt::FramelessWindowHint
+-                                     | Qt::WindowStaysOnTopHint
+-                                     | Qt::WindowDoesNotAcceptFocus );
+-        m_bar->setObjectName( QStringLiteral( "wxQtIOSFloatingControls" ) );
+-
+-        m_closeBtn = new QPushButton( QStringLiteral( "Close" ), m_bar );
+-        m_minBtn = new QPushButton( QStringLiteral( "Minimize" ), m_bar );
+-
+-        QHBoxLayout *layout = new QHBoxLayout( m_bar );
+-        layout->setContentsMargins( 4, 4, 4, 4 );
+-        layout->setSpacing( 4 );
+-        layout->addWidget( m_minBtn );
+-        layout->addWidget( m_closeBtn );
+-
+-        m_bar->setStyleSheet( QStringLiteral(
+-            "QWidget { background-color: rgba(24, 24, 28, 225);"
+-            "          border-radius: 10px; }"
+-            "QPushButton { color: white;"
+-            "              background-color: rgba(255, 255, 255, 28);"
+-            "              border: none; border-radius: 7px;"
+-            "              padding: 10px 14px; font-size: 15px; }"
+-            "QPushButton:pressed { background-color: rgba(255, 255, 255, 60); }" ) );
+-        m_bar->resize( m_bar->sizeHint() );
+-        m_bar->hide();
++          m_current( nullptr ),
++          m_host( nullptr ),
++          m_pressArmed( false ),
++          m_dragging( false ),
++          m_dragIsStrip( false )
++    {
++        createBar();
+ 
+         if ( QScreen *screen = QGuiApplication::primaryScreen() )
+         {
+             QObject::connect( screen, &QScreen::availableGeometryChanged, this,
+                               [this]( const QRect & ) { positionBar(); } );
+         }
+-        positionBar();
+     }
+ 
+     bool eventFilter( QObject *watched, QEvent *event ) override
+@@ -394,64 +422,169 @@
+         {
+         case QEvent::Show:
+         case QEvent::WindowActivate:
++            if ( isBarObject( watched ) )
++                break;
+             if ( QWidget *win = windowOf( watched ) )
+             {
+                 if ( isRealWindow( win ) )
+                 {
+-                    m_current = win;
++                    noteWindow( win );
+                     refreshBar();
+                 }
+             }
+             break;
+ 
+         case QEvent::Hide:
++            if ( isBarObject( watched ) )
++                break;
++            if ( QWidget *win = windowOf( watched ) )
++            {
++                // Only the window's own Hide matters here (children
++                // hide constantly): if the current window went away,
++                // the bar falls back to the window beneath -- this
++                // is the "dialog closed" re-raise path.
++                if ( watched == win && win == m_current )
++                    m_current = fallbackCurrent();
++                if ( watched == win && win == m_dragWindow.data() )
++                    resetDrag();
++            }
+             refreshBar();
+             break;
+ 
+         case QEvent::Destroy:
+-            if ( watched == m_current )
+-                m_current = nullptr;
++            if ( watched == m_bar.data() )
++            {
++                // The bar is a CHILD of its host window, so a host
++                // that is destroyed (the stack-allocated wizard
++                // dialog, an editor frame KiCad tears down) takes
++                // the bar with it. Drop the pointers explicitly --
++                // do not rely on QPointer's clearing order relative
++                // to this event -- and let refreshBar() below build
++                // a fresh bar for the next host.
++                m_bar.clear();
++                m_closeBtn.clear();
++                m_minBtn.clear();
++                m_host = nullptr;
++                resetDrag();
++            }
+             if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
+             {
++                m_history.removeAll( w );
+                 m_docked.remove( w );
+                 m_dockOrder.removeAll( w );
+                 m_savedMinSize.remove( w );
+                 m_savedWindowMinSize.remove( w );
++                if ( w == m_current )
++                    m_current = fallbackCurrent();
++                if ( w == m_host )
++                {
++                    m_host = nullptr;
++                    detachBar();
++                }
++                if ( w == m_dragWindow.data() )
++                    resetDrag();
++                // Deferred, not synchronous: this event fires in
++                // the middle of a teardown cascade (a dying host
++                // takes the bar, its own child, down first), and
++                // re-hosting the bar must wait until the cascade
++                // has finished and the history above is final.
++                QTimer::singleShot( 0, this, [this]() { refreshBar(); } );
+             }
+             break;
+ 
++        case QEvent::Resize:
++            // The bar rides the host's top-right corner.
++            if ( watched == m_host )
++                positionBar();
++            break;
++
+         case QEvent::MouseButtonPress:
+         case QEvent::TouchBegin:
+         {
+             const QPoint globalPos = eventGlobalPos( event );
+ 
+-            if ( !globalPos.isNull() )
++            if ( globalPos.isNull() )
++                break;
++
++            QWidget *targetWin = windowOf( watched );
++
++            // While a popup (menu) is up it owns the screen: a tap
++            // that happens to land on the bar's rectangle belongs
++            // to the menu, not to the bar.
++            if ( targetWin && targetWin->windowType() == Qt::Popup )
++                break;
++
++            // The bar's own buttons first: hit-test them here
++            // rather than relying on QPushButton::clicked, because
++            // while a modal dialog is up Qt blocks input delivery
++            // to other windows -- but application event filters
++            // still see the press.
++            if ( globalPosIn( m_closeBtn.data(), globalPos ) )
+             {
+-                // The bar's own buttons first: hit-test them here
+-                // rather than relying on QPushButton::clicked,
+-                // because while a modal dialog is up Qt blocks input
+-                // delivery to other windows -- but application event
+-                // filters still see the press.
+-                if ( globalPosIn( m_closeBtn, globalPos ) )
+-                {
+-                    closeCurrent();
+-                    return true;
+-                }
+-                if ( globalPosIn( m_minBtn, globalPos ) )
+-                {
+-                    minimizeCurrent();
+-                    return true;
+-                }
++                closeCurrent();
++                return true;
++            }
++            if ( globalPosIn( m_minBtn.data(), globalPos ) )
++            {
++                minimizeCurrent();
++                return true;
++            }
+ 
+-                // A tap on a docked strip restores its window.
+-                if ( QWidget *win = windowOf( watched ) )
++            // A press on the bar's non-button area arms a drag of
++            // the window the bar rides on.
++            if ( m_host && targetWin == m_host
++                    && globalPosIn( m_bar.data(), globalPos ) )
++            {
++                armDrag( m_host, globalPos, false );
++                return true;
++            }
++
++            // A press on a docked strip arms its tap/drag tracking
++            // (tap restores, drag repositions the strip).
++            if ( targetWin && m_docked.contains( targetWin ) )
++            {
++                armDrag( targetWin, globalPos, true );
++                return true;
++            }
++            break;
++        }
++
++        case QEvent::MouseMove:
++        case QEvent::TouchUpdate:
++            if ( m_pressArmed )
++            {
++                const QPoint globalPos = eventGlobalPos( event );
++
++                if ( !globalPos.isNull() )
+                 {
+-                    if ( m_docked.contains( win ) )
+-                        restoreWindow( win );
++                    updateDrag( globalPos );
++                    if ( m_dragging )
++                        return true;   // the drag owns the pointer now
+                 }
+             }
+             break;
+-        }
++
++        case QEvent::MouseButtonRelease:
++        case QEvent::TouchEnd:
++            if ( m_pressArmed )
++            {
++                const bool wasDragging = m_dragging;
++                const bool wasStrip = m_dragIsStrip;
++                QWidget *win = m_dragWindow.data();
++
++                resetDrag();
++
++                // A strip tap (press + release, never dragged)
++                // restores the window; a strip drag just leaves
++                // the strip where it was dropped.
++                if ( wasStrip && !wasDragging && win )
++                    restoreWindow( win );
++
++                // The matching press was swallowed, so the release
++                // is ours too.
++                return true;
++            }
++            break;
+ 
+         default:
+             break;
+@@ -461,18 +594,32 @@
+     }
+ 
+ private:
++    // Past this pointer travel (logical pixels) a press counts as
++    // a drag rather than a tap.
++    static const int kDragThreshold = 8;
++
+     static QPoint eventGlobalPos( QEvent *event )
+     {
+-        if ( event->type() == QEvent::MouseButtonPress )
++        switch ( event->type() )
++        {
++        case QEvent::MouseButtonPress:
++        case QEvent::MouseButtonRelease:
++        case QEvent::MouseMove:
+         {
+             const QPointF pos = static_cast<QMouseEvent *>( event )->globalPosition();
+             return pos.toPoint();
+         }
+-        if ( event->type() == QEvent::TouchBegin )
++        case QEvent::TouchBegin:
++        case QEvent::TouchUpdate:
++        case QEvent::TouchEnd:
+         {
+             QTouchEvent *touch = static_cast<QTouchEvent *>( event );
+             if ( !touch->points().isEmpty() )
+                 return touch->points().first().globalPosition().toPoint();
++            break;
++        }
++        default:
++            break;
+         }
+         return QPoint();
+     }
+@@ -485,6 +632,12 @@
+         return globalRect.contains( globalPos );
+     }
+ 
++    bool isBarObject( QObject *obj ) const
++    {
++        return obj == m_bar.data() || obj == m_closeBtn.data()
++                || obj == m_minBtn.data();
++    }
++
+     // The top-level window an event object belongs to, or nullptr.
+     QWidget *windowOf( QObject *obj ) const
+     {
+@@ -501,57 +654,144 @@
+ 
+     bool isRealWindow( QWidget *w ) const
+     {
+-        if ( !w || w == m_bar || !w->isWindow() )
++        if ( !w || w == m_bar.data() || !w->isWindow() )
+             return false;
+ 
+         // Only frames and dialogs count as "the current window":
+         // menus (Popup), tooltips, splash screens and tool windows
+-        // (including this bar) must never steal the role.
++        // must never steal the role.
+         const Qt::WindowType type = w->windowType();
+         return type == Qt::Window || type == Qt::Dialog || type == 0;
+     }
+ 
+-    void positionBar()
++    void noteWindow( QWidget *win )
+     {
+-        if ( !m_bar )
+-            return;
++        m_history.removeAll( win );
++        m_history.prepend( win );
++        m_current = win;
++    }
+ 
+-        if ( QScreen *screen = QGuiApplication::primaryScreen() )
++    // The most recently noted window that is still visible.
++    QWidget *fallbackCurrent() const
++    {
++        for ( QWidget *w : m_history )
+         {
+-            const QRect avail = screen->availableGeometry();
+-            m_bar->move( avail.right() - m_bar->width() - 10, avail.top() + 8 );
++            if ( w->isVisible() )
++                return w;
+         }
++        return nullptr;
+     }
+ 
+-    void refreshBar()
++    // The window the bar should ride on: the current window if it
++    // can host the bar, else the most recent visible window that
++    // can. A docked strip never hosts the bar -- it is narrower
++    // than the bar, and the bar belongs to the active full-size
++    // window.
++    QWidget *pickHost()
+     {
+-        bool anyVisible = false;
++        if ( m_current && m_current->isVisible()
++                && isRealWindow( m_current )
++                && !m_docked.contains( m_current ) )
++            return m_current;
+ 
+-        for ( QWidget *w : QApplication::topLevelWidgets() )
++        for ( QWidget *w : m_history )
+         {
+-            if ( isRealWindow( w ) && w->isVisible() )
++            if ( w->isVisible() && isRealWindow( w )
++                    && !m_docked.contains( w ) )
+             {
+-                anyVisible = true;
+-                break;
++                m_current = w;
++                return w;
+             }
+         }
++        return nullptr;
++    }
++
++    // The bar widget itself. A plain child widget, deliberately
++    // NOT a top-level window: see the round 11 note above. It is
++    // created parentless and hidden; refreshBar() parents it into
++    // the current window before ever showing it. Because it lives
++    // as a child, a host destroyed by the application destroys the
++    // bar too -- the members are QPointer and refreshBar() simply
++    // builds a fresh bar when it finds none.
++    void createBar()
++    {
++        QWidget *bar = new QWidget( nullptr );
++        bar->setObjectName( QStringLiteral( "wxQtIOSFloatingControls" ) );
++
++        QPushButton *closeBtn = new QPushButton( QStringLiteral( "Close" ), bar );
++        QPushButton *minBtn = new QPushButton( QStringLiteral( "Minimize" ), bar );
++
++        QHBoxLayout *layout = new QHBoxLayout( bar );
++        layout->setContentsMargins( 4, 4, 4, 4 );
++        layout->setSpacing( 4 );
++        layout->addWidget( minBtn );
++        layout->addWidget( closeBtn );
++
++        bar->setStyleSheet( QStringLiteral(
++            "QWidget { background-color: rgba(24, 24, 28, 225);"
++            "          border-radius: 10px; }"
++            "QPushButton { color: white;"
++            "              background-color: rgba(255, 255, 255, 28);"
++            "              border: none; border-radius: 7px;"
++            "              padding: 10px 14px; font-size: 15px; }"
++            "QPushButton:pressed { background-color: rgba(255, 255, 255, 60); }" ) );
++        bar->resize( bar->sizeHint() );
++        bar->hide();
++
++        m_bar = bar;
++        m_closeBtn = closeBtn;
++        m_minBtn = minBtn;
++    }
++
++    void detachBar()
++    {
++        m_host = nullptr;
++        if ( !m_bar.isNull() && m_bar->parentWidget() )
++        {
++            m_bar->hide();
++            m_bar->setParent( nullptr );
++        }
++    }
++
++    void positionBar()
++    {
++        if ( m_bar.isNull() || !m_host )
++            return;
++
++        const int x = qMax( 0, m_host->width() - m_bar->width() - 10 );
++        m_bar->move( x, 8 );
++    }
+ 
+-        if ( anyVisible )
++    void refreshBar()
++    {
++        if ( m_bar.isNull() )
++            createBar();
++
++        QWidget *host = pickHost();
++
++        if ( !host )
+         {
+-            positionBar();
+-            if ( !m_bar->isVisible() )
+-                m_bar->show();
+-            m_bar->raise();
++            detachBar();
++            m_bar->hide();
++            return;
+         }
+-        else if ( m_bar->isVisible() )
++
++        if ( host != m_host )
+         {
+             m_bar->hide();
++            m_bar->setParent( host );
++            m_host = host;
+         }
++
++        positionBar();
++        if ( !m_bar->isVisible() )
++            m_bar->show();
++        m_bar->raise();
+     }
+ 
+     void closeCurrent()
+     {
+-        if ( m_current && m_current != m_bar )
++        if ( m_current && m_current != m_bar.data() )
+             m_current->close();
+     }
+ 
+@@ -559,7 +799,7 @@
+     {
+         QWidget *w = m_current;
+ 
+-        if ( !w || w == m_bar || m_docked.contains( w ) )
++        if ( !w || w == m_bar.data() || m_docked.contains( w ) )
+             return;
+ 
+         QScreen *screen = QGuiApplication::primaryScreen();
+@@ -593,7 +833,15 @@
+         if ( dockY + dockH > avail.bottom() + 1 )
+             dockY = avail.bottom() - dockH + 1;
+ 
++        // The bar cannot ride into the strip (it is wider than the
++        // strip and belongs to the active full-size window): detach
++        // it before the animation, then let refreshBar() re-host it
++        // on the next window down, or hide it if none is left.
++        if ( m_host == w )
++            detachBar();
++
+         animateTo( w, QRect( avail.left() + 4, dockY, dockW, dockH ) );
++        refreshBar();
+     }
+ 
+     void restoreWindow( QWidget *w )
+@@ -603,7 +851,7 @@
+ 
+         const QRect target = m_docked.take( w );
+         m_dockOrder.removeAll( w );
+-        m_current = w;
++        noteWindow( w );
+ 
+         QPropertyAnimation *anim = animateTo( w, target );
+         QObject::connect( anim, &QPropertyAnimation::finished, this,
+@@ -618,6 +866,11 @@
+                 m_savedWindowMinSize.remove( w );
+             }
+         } );
++
++        // The bar re-attaches at once and follows the window's
++        // top-right corner out through the animation (the Resize
++        // branch of the event filter repositions it per step).
++        refreshBar();
+         w->raise();
+     }
+ 
+@@ -632,14 +885,92 @@
+         return anim;
+     }
+ 
+-    QWidget *m_bar;
+-    QPushButton *m_closeBtn;
+-    QPushButton *m_minBtn;
++    // --- window dragging (bar handle + docked strips) --------------
++
++    void armDrag( QWidget *win, const QPoint &globalPos, bool isStrip )
++    {
++        m_dragWindow = win;
++        m_dragIsStrip = isStrip;
++        m_pressArmed = true;
++        m_dragging = false;
++        m_pressGlobal = globalPos;
++        m_dragStartPos = win->pos();
++    }
++
++    void resetDrag()
++    {
++        m_dragWindow = nullptr;
++        m_dragIsStrip = false;
++        m_pressArmed = false;
++        m_dragging = false;
++    }
++
++    void updateDrag( const QPoint &globalPos )
++    {
++        if ( m_dragWindow.isNull() )
++        {
++            resetDrag();
++            return;
++        }
++
++        const QPoint delta = globalPos - m_pressGlobal;
++
++        if ( !m_dragging && delta.manhattanLength() <= kDragThreshold )
++            return;
++
++        m_dragging = true;
++        m_dragWindow->move( clampedWindowPos( m_dragWindow,
++                                              m_dragStartPos + delta ) );
++    }
++
++    // The same position clamp wxWindowQt::DoMoveWindow() applies
++    // on this platform (patch 0009): keep the window inside the
++    // screen's available geometry.
++    static QPoint clampedWindowPos( QWidget *w, const QPoint &pos )
++    {
++        QScreen *screen = QGuiApplication::primaryScreen();
++        if ( !screen )
++            return pos;
++
++        const QRect avail = screen->availableGeometry();
++        const QSize size = w->size();
++        int x = pos.x();
++        int y = pos.y();
++
++        if ( size.width() > 0 && size.width() <= avail.width() )
++            x = qBound( avail.left(), x, avail.right() - size.width() + 1 );
++        else if ( size.width() > avail.width() )
++            x = avail.left();
++        else
++            x = qBound( avail.left(), x, avail.right() );
++
++        if ( size.height() > 0 && size.height() <= avail.height() )
++            y = qBound( avail.top(), y, avail.bottom() - size.height() + 1 );
++        else if ( size.height() > avail.height() )
++            y = avail.top();
++        else
++            y = qBound( avail.top(), y, avail.bottom() );
++
++        return QPoint( x, y );
++    }
++
++    QPointer<QWidget> m_bar;
++    QPointer<QPushButton> m_closeBtn;
++    QPointer<QPushButton> m_minBtn;
+     QWidget *m_current;
++    QWidget *m_host;
++    QVector<QWidget *> m_history;
+     QMap<QWidget *, QRect> m_docked;
+     QMap<QWidget *, QSize> m_savedMinSize;
+     QMap<QWidget *, QSize> m_savedWindowMinSize;
+     QVector<QWidget *> m_dockOrder;
++
++    QPointer<QWidget> m_dragWindow;
++    QPoint m_pressGlobal;
++    QPoint m_dragStartPos;
++    bool m_pressArmed;
++    bool m_dragging;
++    bool m_dragIsStrip;
+ };
+ 
+ } // anonymous namespace
