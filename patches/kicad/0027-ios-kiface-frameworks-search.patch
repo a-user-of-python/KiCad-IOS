@@ -1,0 +1,28 @@
+--- a/common/kiway.cpp
++++ b/common/kiway.cpp
+@@ -159,6 +159,25 @@
+ 
+     fn.SetName( name );
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix round 9,
++    // KiCad-Spike-v11): the generic branch above resolves every kiface
++    // to the executable's own directory -- on desktop the standalone
++    // binaries and the manager share a bin/ dir with the .kiface
++    // modules. The iOS bundle is flat: the executable sits at the
++    // bundle root and the kiface modules are packaged in Frameworks/
++    // alongside the other shared libraries (their @rpath dependencies
++    // resolve there). On device in v10 the manager's own startup
++    // library preload (KICAD_MANAGER_FRAME::PreloadAllLibraries ->
++    // KiFACE( FACE_SCH )) raised "Failed to load shared library
++    // '<bundle>/KiCad.app/_eeschema.kiface'", and every editor launch
++    // hit the same path. Redirect the search into Frameworks/; the
++    // desktop and macOS branches above are untouched. (The
++    // KICAD_RUN_FROM_BUILD_DIR remapping below is a host-development
++    // facility and is never set on iOS.)
++    fn.AppendDir( wxT( "Frameworks" ) );
++#endif
++
+     // To speed up development, it's sometimes nice to run kicad from inside
+     // the build path.  In that case, each program will be in a subdirectory.
+     // To find the DSOs, we need to go up one directory and then enter a subdirectory.
