@@ -1,6 +1,6 @@
 --- a/bitmap2component/CMakeLists.txt
 +++ b/bitmap2component/CMakeLists.txt
-@@ -57,6 +57,49 @@
+@@ -57,6 +57,64 @@
      potrace
      )
  
@@ -46,6 +46,21 @@
 +# if building bitmap2component, then also build
 +# bitmap2component_kiface if out of date.
 +add_dependencies( bitmap2component bitmap2component_kiface )
++
++# these 2 binaries are a matched set, keep them together (mirrors
++# the other tools' kiface targets, e.g. cvpcb):
++if( APPLE )
++    # puts binaries into the *.app bundle while linking -- this is
++    # also the directory scripts/package_ios.py collects kifaces
++    # from, so without it the module links into the build tree's
++    # bitmap2component/ folder and never reaches the bundle.
++    set_target_properties( bitmap2component_kiface PROPERTIES
++        LIBRARY_OUTPUT_DIRECTORY ${OSX_BUNDLE_BUILD_KIFACE_DIR}
++        )
++    set_target_properties( bitmap2component_kiface PROPERTIES INSTALL_RPATH
++            "@executable_path/../Frameworks;@executable_path/../Frameworks/Python.framework" )
++    set_target_properties( bitmap2component_kiface PROPERTIES BUILD_WITH_INSTALL_RPATH 1 )
++endif()
 +
  if( APPLE )
      set_target_properties( bitmap2component PROPERTIES
