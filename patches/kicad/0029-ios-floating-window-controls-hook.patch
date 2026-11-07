@@ -1,0 +1,35 @@
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -191,6 +191,17 @@
+ extern int qInitResources_qprintdialog();
+ extern int qInitResources_qprintdialog1();
+ 
++// [KiCad-IOS port] Floating window controls (launch fix round 9,
++// KiCad-Spike-v11): implemented by the wxQt port (wx patch 0009,
++// src/qt/toplevel.cpp). iOS gives this port's top-level windows no
++// native decorations and no way to move them, so the port installs
++// a small always-on-top control bar offering Close and
++// Minimize-to-left-dock for the current window. Called once from
++// APP_KICAD::OnInit below, after the QApplication exists and before
++// program initialisation creates the first windows (the first-run
++// wizard included).
++extern void wxQtIOSInstallFloatingWindowControls();
++
+ namespace
+ {
+ struct KICAD_IOS_STARTUP
+@@ -708,6 +719,14 @@
+         if( !KIPLATFORM::APP::Init() )
+             return false;
+ 
++#ifdef KICAD_IOS_PORT
++        // [KiCad-IOS port] Install the floating Close/Minimize
++        // window controls (see the declaration note near the top of
++        // this file) before program initialisation creates the
++        // first windows.
++        wxQtIOSInstallFloatingWindowControls();
++#endif
++
+ #ifndef DEBUG
+         // Enable logging traces to the console in release build.
+         // This is usually disabled, but it can be useful for users to run to help
