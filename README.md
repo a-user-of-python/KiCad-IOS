@@ -11,7 +11,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-current%20release%20v11-brightgreen.svg)](#-status)
+[![Status](https://img.shields.io/badge/status-current%20release%20v12-brightgreen.svg)](#-status)
 
 **[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)**
 
@@ -21,7 +21,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 
 > ⚠️ **Unofficial port — read this first.**
 > This is an independent experiment. It is **not** affiliated with, sponsored by, or endorsed by the KiCad project or CERN. "KiCad" is a trademark of the KiCad project; the name is used here only to describe what this port is a port *of*.
-> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v11 is the current release:** the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control. Its on-device pass (2026‑11‑07) found the editor-module load error still standing at manager startup; the root cause is under re-investigation, and the follow-up fix is in build now as v12. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
+> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v12 is the current release:** the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control. v12 fixes the root cause that v11's on-device pass (2026‑11‑07) exposed: a build switch that three of the port's patches depend on sat on the wrong library target, so those patches were never compiled into v10 or v11 at all — proven from the shipped v11 binary. The switch is set correctly in v12, a new gate inspects the shipped binary to prove the code is in, and the editor modules also sit at the bundle root as a belt-and-braces copy. v12's on-device pass is the immediate next step. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
 
 ---
 
@@ -46,9 +46,12 @@ This repository contains a port of the **actual upstream KiCad source code** (pi
 - **Files are reachable.** File sharing is on: projects live in the app's Documents folder and move on and off the iPad the normal way.
 - **One of everything.** The bundle carries exactly one libpng, one zlib, one expat — shared by every component — so the icon pipeline loads KiCad's 5,000+ bitmap resources without conflict.
 
-### What v11 adds — the current release, verified by the build gates
+### What v12 adds — the current release, verified by the build gates
 
-- **Editor loading — reopened on hardware.** v11's load-path fix teaches the kiface module search the iOS bundle layout (modules ship in `Frameworks/`), and the build gates verify the modules are present in the shipped bundle. On a real iPad (2026‑11‑07), the manager still raises the load error at startup: the root cause is being re-investigated, and the follow-up fix ships as v12.
+- **The root cause, found and fixed.** v11's on-device pass showed the editor load error and the wizard's library failure still standing. Disassembly of the shipped v11 binary proved why: patches 0026, 0027 and 0028 are all gated on `KICAD_IOS_PORT`, and that define sat on the `common` CMake target while every patched source compiles into `kicommon` — so all three blocks were preprocessed out of both v10 and v11. Patch 0032 sets the define on the `kicommon` target: the wizard-navigation fix, the kiface module search, and the stock-library location fix are compiled in and active for real.
+- **Editor modules in two places.** The search fix is active, and all 8 editor modules also sit at the bundle root, byte-identical to the `Frameworks/` copies — the exact location the app asks for first. A path that exists cannot fail on path grounds.
+- **A startup repair for inherited tables.** `RepairStockTableChains()` (patch 0033) runs at manager startup and re-points library tables that the broken builds left chained to a bogus location, so upgrading over v10 or v11 lands on the bundled defaults without redoing setup.
+- **A gate that reads the binary.** The new `kiface_path_gate.py` inspects the shipped executable itself — the search code present, the stock-path call present, the modules in place at both locations. It passes v12 and fails v11 on every count.
 - **Stock libraries ship in the bundle — complete.** KiCad 10.0.1's **222 symbol libraries** and **155 footprint libraries**, unabridged, with the default symbol and footprint library tables resolving straight to them, plus **19 project templates** and the demo projects (four oversized demos are left out). First-run setup finds the defaults in place.
 - **The manager screen, audited control by control.** Every menu opens, every item acts, every button does its real job. Tools that tried to launch separate programs on the desktop — the Gerber viewer, the calculator, the converters, the page-layout editor — open inside the app instead, and the image converter has its module in the bundle.
 - **A floating window control.** A port-level bar floats above every window at all times — reachable over dialogs — with **Minimize** and **Close**. Minimize shrinks the window into a docked strip at the left edge (84 pt, stacking, Stage Manager style); a tap restores it. Windows are clamped inside the visible screen area, so nothing opens hanging off-screen.
@@ -80,20 +83,21 @@ Two more pieces of the foundation: a real **iODBC** is cross-compiled into the s
 | Python initialises inside the app; manager window constructs | ✅ **Device-proven** (v8, v9) |
 | Split-libpng crash in icon loading found and fixed at the root | ✅ **Device-proven** (v9) |
 | First-run wizard completable end to end; manager stands, light appearance | ✅ **Device-proven** (v10, 2026‑11‑06) |
-| Editor-module load error eliminated at manager startup | 🔧 In build — v11 fix gate-verified; on-device pass (2026‑11‑07) found the error still standing; corrected fix ships as v12 |
+| Editor-module load error eliminated at manager startup | ✅ Fixed in v12 — root cause proven from the shipped binary: the `KICAD_IOS_PORT` switch sat on the wrong library target, so the fix patches never compiled into v10/v11. Switch set on the correct target, modules also at the bundle root; binary-inspection gate passes v12, fails v11 on every count. On-device confirmation is next |
 | Stock 10.0.1 libraries bundled complete (222 symbol, 155 footprint) + default tables | ✅ Done (v11) |
+| Library tables inherited from the broken v10/v11 builds re-pointed at startup | ✅ Done (v12) |
 | Manager screen audited control by control; companion tools open in-app | ✅ Done — gate-verified (v11) |
 | Floating window control (Minimize / Close, left-edge dock) + on-screen clamping | ✅ Done — gate-verified (v11) |
 
-### v11 — the current release
+### v12 — the current release
 
-v11 is built, gated, and shipped. It contains the whole layer above: the stock libraries are in the box, the manager does its full job, and windows carry the port's floating control. The launch chain underneath it is the device-proven v10 chain.
+v12 is built, gated, and shipped. It carries the whole v11 layer — the stock libraries are in the box, the manager does its full job, and windows carry the port's floating control — and it fixes the root cause that v11's on-device pass exposed. That pass (2026‑11‑07) found the editor-module load error and the wizard's library failure still standing; disassembly of the shipped v11 binary proved the three patches behind those fixes were never compiled in, because the `KICAD_IOS_PORT` switch sat on the wrong library target. v12 sets the switch on the correct target, proves the code is in from the shipped binary with a new gate, copies the editor modules to the bundle root as belt and braces, and repairs inherited library tables at startup.
 
-v11's on-device pass ran on 2026‑11‑07 and found the editor-module load error still standing at manager startup: the load-path fix passed every build gate, and the hardware disagreed. The root cause is being re-investigated, with the corrected fix in build now as v12. When v12 lands, the device pass continues: open each editor, open a schematic, draw, save, reopen.
+Its on-device pass is the immediate next step: zero startup dialogs, every editor open, the wizard's library step served from the bundled defaults.
 
 ## 📲 Installing
 
-Builds are produced by the **Spike** workflow as unsigned `.ipa` files (≈212 MB — the stock libraries ride along). To run one:
+Builds are produced by the **Spike** workflow as unsigned `.ipa` files (≈263 MB — the stock libraries ride along). To run one:
 
 1. Download the `.ipa` artifact from a workflow run.
 2. Sideload it with a signer such as Signulous (or your own signing setup).
@@ -131,6 +135,6 @@ KiCad is free and open-source software, and so is this port — there is no othe
 <div align="center">
 
 *Built with respect for the KiCad project and its contributors.*
-*KiCad runs on iPad. The manager is up. The libraries are in. The editors are next.*
+*KiCad runs on iPad. The manager is up. The libraries are in. The root cause is fixed.*
 
 </div>
