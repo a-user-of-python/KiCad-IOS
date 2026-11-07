@@ -686,6 +686,32 @@ def main():
     with open(os.path.join(APP, "Info.plist"), "wb") as fh:
         plistlib.dump(plist, fh)
 
+    # Belt-and-braces: duplicate every kiface module at the bundle
+    # root (launch fix round 10, KiCad-Spike-v12). Device evidence
+    # across v10 and v11: the manager's startup library preload
+    # dlopens "<exe dir>/_<tool>.kiface" -- the bundle root -- and
+    # raised "Failed to load shared library" for it on both builds,
+    # because patch 0027's Frameworks redirect never reached the
+    # shipped libkicommon (its KICAD_IOS_PORT define sat on the
+    # `common` CMake target, which compiles none of the patched
+    # sources; patch 0032 puts the define on the `kicommon` target,
+    # so the Frameworks search is live in v12 as well). Shipping the
+    # modules in BOTH places means every kiface path the loader has
+    # ever constructed on device names a file that exists. The
+    # copies are taken from the final Frameworks bytes (after all
+    # install-name rewriting above), so the two populations are
+    # byte-identical; a kiface's dependencies are @rpath names
+    # resolved through @executable_path-based rpaths, which do not
+    # depend on the kiface's own location. Cost: the eight modules
+    # total 160,119,512 bytes uncompressed.
+    root_kifaces = []
+    for name in sorted(os.listdir(FW)):
+        src = os.path.join(FW, name)
+        if name.endswith(".kiface") and os.path.isfile(src):
+            shutil.copy2(src, os.path.join(APP, name))
+            root_kifaces.append(name)
+    print("kiface bundle-root copies:", ", ".join(root_kifaces) or "(none)")
+
     ipa = os.path.join(WORK, "KiCad-Spike-unsigned.ipa")
     if os.path.exists(ipa):
         os.remove(ipa)
