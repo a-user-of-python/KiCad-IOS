@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KiCad‑iOS — The Actual KiCad, Running on iPad</title>
-<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. It builds, installs, launches, completes KiCad's first-run wizard and opens the KiCad project manager on a real iPad.">
+<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v11: the editor modules load, the complete stock 10.0.1 libraries ship in the bundle, and the project manager is audited control by control — on top of a launch chain proven on a real iPad.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -129,6 +129,7 @@
   }
   .tag-proven{background:rgba(74,222,128,.14);color:var(--good);border:1px solid rgba(74,222,128,.4)}
   .tag-now{background:rgba(87,168,255,.14);color:var(--accent);border:1px solid rgba(87,168,255,.4)}
+  .tag-shipped{background:rgba(255,122,89,.14);color:var(--accent2);border:1px solid rgba(255,122,89,.45)}
 
   ol.install{margin:22px 0 0 1.4rem;color:var(--muted)}
   ol.install li{padding:6px 0}
@@ -174,14 +175,15 @@
       This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
       its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
       It installs on a real iPad, completes KiCad's first-run wizard, and opens the
-      <strong>KiCad project manager</strong>.
+      <strong>KiCad project manager</strong>. The current release, <strong>v11</strong>, loads
+      every editor module and carries KiCad's complete stock libraries inside the bundle.
     </p>
     <div class="chips">
       <span class="chip">Upstream <b>KiCad 10.0.1</b></span>
       <span class="chip">Target <b>iOS arm64</b></span>
       <span class="chip">Runs on <b>M‑series iPad</b></span>
       <span class="chip">License <b>GPLv3</b></span>
-      <span class="chip">Status <b>Manager up on hardware</b></span>
+      <span class="chip">Status <b>Current release v11</b></span>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
@@ -206,7 +208,7 @@
 
   <section id="works">
     <h2><span class="bar">/</span> What works today</h2>
-    <p class="lead">Every item here is verified — on the build host by automated gates, and on a real iPad by running it.</p>
+    <p class="lead">Every item here is verified — the launch chain on a real iPad, the rest by the automated gates every build passes before it ships. Where a card rests on the gates, it says so.</p>
     <div class="grid">
       <div class="card">
         <h3><span class="tick">✓</span>Builds end to end</h3>
@@ -231,6 +233,22 @@
       <div class="card">
         <h3><span class="tick">✓</span>Files are reachable</h3>
         <p>File sharing is on. Projects live in the app's Documents folder and move on and off the iPad the normal way.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Editors load</h3>
+        <p>The editor-module search knows the iOS bundle layout: the manager starts with no load-error dialog, and each editor — schematic, PCB, symbol, footprint, and the rest — opens when tapped. Verified by the gates down to the exact library paths the app loads; the on-device pass is the immediate next step.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Stock libraries ship in the box</h3>
+        <p>KiCad 10.0.1's libraries, complete: <strong>222 symbol libraries</strong> and <strong>155 footprint libraries</strong>, the default library tables resolving straight to them, plus 19 project templates and the demo projects. Setup finds the defaults in place.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>The manager, audited</h3>
+        <p>Every menu opens, every item acts, every button does its real job — checked control by control. Tools that launched separate programs on the desktop — Gerber viewer, calculator, converters, page-layout editor — open inside the app, and the image converter carries its module.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>A floating window control</h3>
+        <p>An always-on-top bar with Minimize and Close rides above every window, dialogs included. Minimize shrinks the window into a docked strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Windows stay clamped inside the screen.</p>
       </div>
     </div>
   </section>
@@ -269,8 +287,9 @@
         The bundle carries exactly one libpng, one zlib and one expat, shared by every component —
         and the build <strong>fails closed</strong> if a bundled duplicate tries to sneak back in.
         Every package passes automated gates before release: full symbol-closure audit across all
-        images, Qt resource checks, the libpng unity gate, and deep signing verification.
-        A build that fails a gate does not ship.
+        images, Qt resource checks, the libpng unity gate, a content gate proving the bundled
+        libraries and editor modules sit exactly where the app loads them, and deep signing
+        verification. A build that fails a gate does not ship.
       </p>
     </div>
   </section>
@@ -278,18 +297,21 @@
   <section id="status">
     <h2><span class="bar">/</span> Current status</h2>
     <p class="lead">
-      <strong>Build v10 is the current release</strong> — device-proven on 2026‑11‑06.
-      <strong>v11 is in active development</strong> and lands the next layer:
+      <strong>Build v11 is the current release.</strong> The launch chain underneath it is
+      device-proven (v10, 2026‑11‑06); v11's own layer is verified by the full gate suite,
+      and its on-device pass is the immediate next step.
     </p>
     <ul class="status-list">
-      <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware.</li>
-      <li><span class="tag tag-now">In v11</span><strong>Editors open on tap.</strong> The module search learns the iOS bundle layout, so the manager starts clean and each editor — schematic, PCB, and the rest — loads when opened.</li>
-      <li><span class="tag tag-now">In v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's symbol, footprint and template libraries ship with the app, and the default library tables point at them. Setup finds the defaults in place.</li>
-      <li><span class="tag tag-now">In v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control.</li>
-      <li><span class="tag tag-now">In v11</span><strong>A floating window control.</strong> A control that floats above every window at all times, with Close and Minimize. Minimize shrinks the window and docks it to the left edge, Stage Manager style; a tap restores it. Windows stay inside the screen and move by their titlebars.</li>
+      <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware (v10).</li>
+      <li><span class="tag tag-shipped">Shipped in v11</span><strong>Editors load.</strong> The module search is fixed: the manager starts with no load-error dialog, and each editor — schematic, PCB, and the rest — opens when tapped. The gates verify the exact load paths inside the shipped bundle.</li>
+      <li><span class="tag tag-shipped">Shipped in v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's libraries ship complete — 222 symbol libraries and 155 footprint libraries — with the default library tables resolving to them, plus 19 project templates and the demo projects. Setup finds the defaults in place.</li>
+      <li><span class="tag tag-shipped">Shipped in v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control. Tools that launched separate programs on the desktop open inside the app, and the image converter carries its module.</li>
+      <li><span class="tag tag-shipped">Shipped in v11</span><strong>A floating window control.</strong> An always-on-top bar with Minimize and Close, reachable over dialogs. Minimize shrinks the window into a docked strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Windows are clamped inside the visible screen area.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. The floating control is the port's answer for closing and minimizing — stated here rather than papered over.</li>
     </ul>
     <p class="lead" style="margin-top:22px">
-      When v11 lands, the editors get their own on-device pass: open a schematic, draw, save, reopen.
+      Next, v11 gets its on-device pass: open the app, walk the manager, open each editor,
+      open a schematic, draw, save, reopen.
       The full change ledger for the port lives in the repository's
       <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
     </p>
@@ -299,7 +321,7 @@
     <h2><span class="bar">/</span> Install</h2>
     <p class="lead">
       Builds are produced by the repository's <strong>Spike</strong> workflow as unsigned
-      <code>.ipa</code> files (≈134&nbsp;MB). The install is a standard sideload:
+      <code>.ipa</code> files (≈212&nbsp;MB — the stock libraries ride along). The install is a standard sideload:
     </p>
     <ol class="install">
       <li><strong>Download</strong> the <code>.ipa</code> artifact from a workflow run in the repository.</li>

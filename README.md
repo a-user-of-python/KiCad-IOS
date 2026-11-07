@@ -11,7 +11,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-runs%20on%20iPad-brightgreen.svg)](#-status)
+[![Status](https://img.shields.io/badge/status-current%20release%20v11-brightgreen.svg)](#-status)
 
 **[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)**
 
@@ -21,7 +21,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 
 > ⚠️ **Unofficial port — read this first.**
 > This is an independent experiment. It is **not** affiliated with, sponsored by, or endorsed by the KiCad project or CERN. "KiCad" is a trademark of the KiCad project; the name is used here only to describe what this port is a port *of*.
-> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). The work in progress is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md), where every change to upstream code is recorded.
+> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v11 is the current release:** the editor modules load, the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control; v11's on-device pass is the immediate next step. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
 
 ---
 
@@ -45,6 +45,14 @@ This repository contains a port of the **actual upstream KiCad source code** (pi
 - **Python is in.** KiCad's embedded Python environment ships whole: the CPython standard library, the compiled `pcbnew` module, KiCad's stock scripting plugins and footprint wizards, plus two addons from the official PCM index — the PCBWay plug‑in and the JLCPCB Fabrication Toolkit — each with its own license.
 - **Files are reachable.** File sharing is on: projects live in the app's Documents folder and move on and off the iPad the normal way.
 - **One of everything.** The bundle carries exactly one libpng, one zlib, one expat — shared by every component — so the icon pipeline loads KiCad's 5,000+ bitmap resources without conflict.
+
+### What v11 adds — the current release, verified by the build gates
+
+- **Editors load.** The kiface module search knows the iOS bundle layout (modules ship in `Frameworks/`), so the manager starts with no load-error dialog and each editor — schematic, PCB, symbol, footprint, and the rest — opens when tapped. The gates verify the exact library paths the app loads, inside the shipped bundle.
+- **Stock libraries ship in the bundle — complete.** KiCad 10.0.1's **222 symbol libraries** and **155 footprint libraries**, unabridged, with the default symbol and footprint library tables resolving straight to them, plus **19 project templates** and the demo projects (four oversized demos are left out). First-run setup finds the defaults in place.
+- **The manager screen, audited control by control.** Every menu opens, every item acts, every button does its real job. Tools that tried to launch separate programs on the desktop — the Gerber viewer, the calculator, the converters, the page-layout editor — open inside the app instead, and the image converter has its module in the bundle.
+- **A floating window control.** A port-level bar floats above every window at all times — reachable over dialogs — with **Minimize** and **Close**. Minimize shrinks the window into a docked strip at the left edge (84 pt, stacking, Stage Manager style); a tap restores it. Windows are clamped inside the visible screen area, so nothing opens hanging off-screen.
+- **One honest limitation:** windows do not drag by their titlebars. Qt's iOS layer draws no titlebar and provides no system window move — the floating control is the port's answer for closing and minimizing.
 
 ## 🧭 How it works — the architecture
 
@@ -72,22 +80,20 @@ Two more pieces of the foundation: a real **iODBC** is cross-compiled into the s
 | Python initialises inside the app; manager window constructs | ✅ **Device-proven** (v8, v9) |
 | Split-libpng crash in icon loading found and fixed at the root | ✅ **Device-proven** (v9) |
 | First-run wizard completable end to end; manager stands, light appearance | ✅ **Device-proven** (v10, 2026‑11‑06) |
+| Editor modules load from the bundle; manager starts with no load-error dialog | ✅ Done — gate-verified (v11) |
+| Stock 10.0.1 libraries bundled complete (222 symbol, 155 footprint) + default tables | ✅ Done (v11) |
+| Manager screen audited control by control; companion tools open in-app | ✅ Done — gate-verified (v11) |
+| Floating window control (Minimize / Close, left-edge dock) + on-screen clamping | ✅ Done — gate-verified (v11) |
 
-### In active development — v11
+### v11 — the current release
 
-The current build round lands the next layer, all of it already scoped and under way:
+v11 is built, gated, and shipped. It contains the whole layer above: the editors load, the stock libraries are in the box, the manager does its full job, and windows carry the port's floating control. The launch chain underneath it is the device-proven v10 chain.
 
-- **Editors open on tap.** The kiface module search learns the iOS bundle layout (modules live in `Frameworks/`), so the manager starts clean and each editor loads when opened.
-- **Stock libraries ship in the bundle.** KiCad 10.0.1's symbol, footprint and template libraries, with the default library tables wired to them — first-run setup finds the defaults in place.
-- **The manager screen, fully functional.** Every menu opens, every item acts, every button on the manager does its real job — audited control by control.
-- **A floating window control.** A port-level control that floats above every window at all times, offering Close and Minimize; minimize shrinks the window and docks it to the left edge, Stage Manager style, and tapping it restores the window.
-- **Windows stay on screen.** Top-level geometry is clamped to the visible area, and windows move by their titlebars.
-
-When v11 lands, the editors get their own on-device pass: open a schematic, draw, save, reopen.
+The on-device pass for v11 is the immediate next step: open the app, walk the manager, open each editor, open a schematic, draw, save, reopen.
 
 ## 📲 Installing
 
-Builds are produced by the **Spike** workflow as unsigned `.ipa` files (≈134 MB). To run one:
+Builds are produced by the **Spike** workflow as unsigned `.ipa` files (≈212 MB — the stock libraries ride along). To run one:
 
 1. Download the `.ipa` artifact from a workflow run.
 2. Sideload it with a signer such as Signulous (or your own signing setup).
@@ -120,11 +126,11 @@ KiCad is free and open-source software, and so is this port — there is no othe
 - **Copyright:** KiCad is © its many contributors and the KiCad project; see [`NOTICE.md`](NOTICE.md) for attribution and the exact upstream baseline.
 - **Headers:** upstream copyright & license headers in KiCad source files are never stripped or altered.
 - **Changes:** every modification to upstream files is listed in [`MODIFICATIONS.md`](MODIFICATIONS.md) and carries a prominent change notice in the file itself, per GPL §5.
-- **Libraries:** KiCad's symbol/footprint libraries carry their own license (KiCad Library License / CC BY-SA 4.0 with exception); if they are ever bundled here, that will be honoured and noted separately.
+- **Libraries:** KiCad's symbol/footprint libraries carry their own license (KiCad Library License / CC BY-SA 4.0 with exception); they ship in the bundle as of v11 under those terms.
 
 <div align="center">
 
 *Built with respect for the KiCad project and its contributors.*
-*KiCad runs on iPad. The manager is up. The editors are next.*
+*KiCad runs on iPad. The manager is up. The editors load. The libraries are in.*
 
 </div>
