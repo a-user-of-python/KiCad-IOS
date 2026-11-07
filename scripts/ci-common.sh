@@ -20,6 +20,17 @@ KICAD_TARBALL="https://gitlab.com/kicad/code/kicad/-/archive/${KICAD_TAG}/kicad-
 WX_FORK_REPO="https://github.com/wxWidgets/wxWidgets.git"
 WX_FORK_BRANCH="v3.3.4"
 
+# --- Stock library content -------------------------------------------
+# Launch fix round 9 (KiCad-Spike-v11): the bundle ships KiCad's stock
+# symbol/footprint libraries and project templates so the first-run
+# setup can reach the default libraries. Official library repos,
+# pinned to the tag matching KiCad 10.0.1; commit ids recorded so a
+# moved tag is visible. Do NOT bump these independently of KICAD_TAG.
+KICAD_LIBS_TAG="10.0.1"
+KICAD_SYMBOLS_COMMIT="7058584a0fbe9aa2f1c9ff2acf7847726ff6922c"
+KICAD_FOOTPRINTS_COMMIT="3d2b27e687a44c97f02109afb2acfeebbc8dd75f"
+KICAD_TEMPLATES_COMMIT="3ed4538b0f965d821df63a5fffc4441e723cfe7f"
+
 WORK="${WORK:-$PWD/work}"
 SYSROOT="$WORK/sysroot-ios"
 export SYSROOT
