@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KiCad‑iOS — The Actual KiCad, Running on iPad</title>
-<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v12: the root cause behind the editor-load and library-location failures is found — proven from the shipped binary — and fixed, with the complete stock 10.0.1 libraries in the bundle, on top of a launch chain proven on a real iPad.">
+<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v13: the root cause behind the editor-load and library-location failures is found — proven from the shipped binary — and fixed, the complete stock 10.0.1 libraries ride in the bundle, and the floating window control is rebuilt inside the window as its drag handle, on top of a launch chain proven on a real iPad.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -175,16 +175,17 @@
       This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
       its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
       It installs on a real iPad, completes KiCad's first-run wizard, and opens the
-      <strong>KiCad project manager</strong>. The current release, <strong>v12</strong>,
-      carries KiCad's complete stock libraries inside the bundle and fixes the root cause
-      that kept the editor modules from loading in v11.
+      <strong>KiCad project manager</strong>. The current release, <strong>v13</strong>,
+      carries KiCad's complete stock libraries inside the bundle, fixes the root cause
+      that kept the editor modules from loading in v11, and rebuilds the floating window
+      control inside the window — as the handle that drags it.
     </p>
     <div class="chips">
       <span class="chip">Upstream <b>KiCad 10.0.1</b></span>
       <span class="chip">Target <b>iOS arm64</b></span>
       <span class="chip">Runs on <b>M‑series iPad</b></span>
       <span class="chip">License <b>GPLv3</b></span>
-      <span class="chip">Status <b>Current release v12</b></span>
+      <span class="chip">Status <b>Current release v13</b></span>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
@@ -245,7 +246,7 @@
       </div>
       <div class="card">
         <h3><span class="tick">✓</span>A floating window control</h3>
-        <p>An always-on-top bar with Minimize and Close rides above every window, dialogs included. Minimize shrinks the window into a docked strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Windows stay clamped inside the screen.</p>
+        <p>Rebuilt in v13: the Minimize/Close bar lives <strong>inside</strong> the current window as an overlay — manager, editor, or dialog — instead of floating as a separate window iOS layering could bury (v11's device pass never saw that design). Drag the bar and the window moves with it; minimize still docks the window to the left edge and a tap restores it. Shipped and gate-verified — the gate proves the installer call in the shipped binary; the on-device pass runs next. Windows stay clamped inside the screen.</p>
       </div>
     </div>
   </section>
@@ -288,7 +289,8 @@
         libraries and editor modules ship complete in the bundle, and deep signing
         verification. New in v12, a binary-inspection gate reads the shipped executable itself
         and proves the port's code is actually compiled in — the check that would have caught
-        v11's miss; run against v11, it fails on every count. A build that fails a gate does not ship.
+        v11's miss; run against v11, it fails on every count. In v13 the same gate also proves
+        the floating-controls installer call is present in the shipped executable. A build that fails a gate does not ship.
       </p>
     </div>
   </section>
@@ -296,24 +298,27 @@
   <section id="status">
     <h2><span class="bar">/</span> Current status</h2>
     <p class="lead">
-      <strong>Build v12 is the current release.</strong> It fixes the root cause that v11's
-      on-device pass (2026‑11‑07) exposed: a build switch that three of the port's patches
-      depend on sat on the wrong library target, so those patches were never compiled into
-      v10 or v11 at all — a fact proven from the shipped v11 binary itself. The launch chain
-      underneath is device-proven (v10, 2026‑11‑06). <strong>v12's on-device pass is the
-      immediate next step.</strong>
+      <strong>Build v13 is the current release.</strong> It carries v12's fix for the root
+      cause that v11's on-device pass (2026‑11‑07) exposed: a build switch that three of the
+      port's patches depend on sat on the wrong library target, so those patches were never
+      compiled into v10 or v11 at all — a fact proven from the shipped v11 binary itself.
+      On top of that, v13 rebuilds the floating window control inside the window and makes
+      it the window's drag handle. The launch chain underneath is device-proven (v10,
+      2026‑11‑06); beyond it, nothing in v12 or v13 is device-proven yet.
+      <strong>v13's on-device pass is the immediate next step.</strong>
     </p>
     <ul class="status-list">
       <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware (v10).</li>
+      <li><span class="tag tag-shipped">Shipped in v13</span><strong>The window controls, rebuilt.</strong> The floating Minimize/Close bar no longer floats as a separate window: that construction could be buried by iOS window layering, and v11's on-device pass never saw the bar. In v13 the bar is a child overlay re-parented into whichever window is current — the manager, an editor frame, or the modal dialog itself — and it is the window's drag handle: drag it and the window moves with it, with a small movement threshold keeping taps and drags apart. Minimize still docks the window into a strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Shipped and gate-verified: the binary gate proves the installer call in the shipped executable. The on-device pass runs next.</li>
       <li><span class="tag tag-shipped">Shipped in v12</span><strong>The root cause, fixed.</strong> With the build switch set on the correct target, the editor-module search fix and the stock-library location fix are compiled in and active for real. The editor modules also sit at the bundle root — a belt-and-braces copy in the exact location the app asks for first — and a startup repair re-points library tables inherited from the broken builds, so an upgrade lands on the bundled defaults without redoing setup. A new gate inspects the shipped binary and verifies all of it; against v11 it fails on every count.</li>
       <li><span class="tag tag-shipped">Shipped in v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's libraries ship complete — 222 symbol libraries and 155 footprint libraries — with the default library tables resolving to them, plus 19 project templates and the demo projects. Setup finds the defaults in place.</li>
       <li><span class="tag tag-shipped">Shipped in v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control. Tools that launched separate programs on the desktop open inside the app, and the image converter carries its module.</li>
-      <li><span class="tag tag-shipped">Shipped in v11</span><strong>A floating window control.</strong> An always-on-top bar with Minimize and Close, reachable over dialogs. Minimize shrinks the window into a docked strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Windows are clamped inside the visible screen area.</li>
-      <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. The floating control is the port's answer for closing and minimizing — stated here rather than papered over.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. In v13 the floating bar is the handle instead — drag it and the window follows. Windows are clamped inside the visible screen area.</li>
     </ul>
     <p class="lead" style="margin-top:22px">
-      v12's on-device pass runs next: clean startup with no load dialogs, each editor open,
-      the wizard's library step served from the bundled defaults.
+      v13's on-device pass runs next: clean startup with no load dialogs, each editor open,
+      the wizard's library step served from the bundled defaults, the bar present inside the
+      window and dragging it.
       The full change ledger for the port lives in the repository's
       <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
     </p>

@@ -11,7 +11,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-current%20release%20v12-brightgreen.svg)](#-status)
+[![Status](https://img.shields.io/badge/status-current%20release%20v13-brightgreen.svg)](#-status)
 
 **[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)**
 
@@ -21,7 +21,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 
 > ⚠️ **Unofficial port — read this first.**
 > This is an independent experiment. It is **not** affiliated with, sponsored by, or endorsed by the KiCad project or CERN. "KiCad" is a trademark of the KiCad project; the name is used here only to describe what this port is a port *of*.
-> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v12 is the current release:** the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control. v12 fixes the root cause that v11's on-device pass (2026‑11‑07) exposed: a build switch that three of the port's patches depend on sat on the wrong library target, so those patches were never compiled into v10 or v11 at all — proven from the shipped v11 binary. The switch is set correctly in v12, a new gate inspects the shipped binary to prove the code is in, and the editor modules also sit at the bundle root as a belt-and-braces copy. v12's on-device pass is the immediate next step. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
+> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v13 is the current release:** the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control. v13 carries v12's root-cause fix: a build switch that three of the port's patches depend on sat on the wrong library target, so those patches were never compiled into v10 or v11 at all — proven from the shipped v11 binary; the switch is set correctly, a gate inspects the shipped binary to prove the code is in, and the editor modules also sit at the bundle root as a belt-and-braces copy. On top of that, v13 rebuilds the floating window control: the bar now lives inside the current window as an overlay instead of floating as a separate window — the design iOS layering could bury, and which v11's on-device pass never saw — and the bar doubles as the window's drag handle. v13's on-device pass is the immediate next step; beyond the v10 launch chain, nothing in v12 or v13 is device-proven yet. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
 
 ---
 
@@ -46,16 +46,18 @@ This repository contains a port of the **actual upstream KiCad source code** (pi
 - **Files are reachable.** File sharing is on: projects live in the app's Documents folder and move on and off the iPad the normal way.
 - **One of everything.** The bundle carries exactly one libpng, one zlib, one expat — shared by every component — so the icon pipeline loads KiCad's 5,000+ bitmap resources without conflict.
 
-### What v12 adds — the current release, verified by the build gates
+### What v13 adds — the current release, verified by the build gates
 
-- **The root cause, found and fixed.** v11's on-device pass showed the editor load error and the wizard's library failure still standing. Disassembly of the shipped v11 binary proved why: patches 0026, 0027 and 0028 are all gated on `KICAD_IOS_PORT`, and that define sat on the `common` CMake target while every patched source compiles into `kicommon` — so all three blocks were preprocessed out of both v10 and v11. Patch 0032 sets the define on the `kicommon` target: the wizard-navigation fix, the kiface module search, and the stock-library location fix are compiled in and active for real.
+- **The floating bar, rebuilt inside the window.** Through v12 the Minimize/Close bar floated as a separate top-level window; iOS window layering can stack the app's own windows above a window like that, and v11's on-device pass never saw the bar at all. In v13 the bar is a child overlay that the controller re-parents into whichever window is current — the manager, an editor frame, or the modal dialog itself — so it rides inside the one window iOS is actually showing. Shipped and gate-verified: the binary gate proves the installer call is present in the shipped executable. Its on-device pass runs next.
+- **The bar is now the window's handle.** Drag the bar and the current window moves with it — the port's answer to window dragging on a platform layer that draws no titlebars and provides no system window move. A small movement threshold (8 pt) separates a tap on Minimize/Close from a drag, and the minimize behaviour is unchanged: the window shrinks into a docked strip at the left edge (84 pt, stacking, Stage Manager style) and a tap restores it.
+- **The root cause, found and fixed (v12, carried in v13).** v11's on-device pass showed the editor load error and the wizard's library failure still standing. Disassembly of the shipped v11 binary proved why: patches 0026, 0027 and 0028 are all gated on `KICAD_IOS_PORT`, and that define sat on the `common` CMake target while every patched source compiles into `kicommon` — so all three blocks were preprocessed out of both v10 and v11. Patch 0032 sets the define on the `kicommon` target: the wizard-navigation fix, the kiface module search, and the stock-library location fix are compiled in and active for real.
 - **Editor modules in two places.** The search fix is active, and all 8 editor modules also sit at the bundle root, byte-identical to the `Frameworks/` copies — the exact location the app asks for first. A path that exists cannot fail on path grounds.
 - **A startup repair for inherited tables.** `RepairStockTableChains()` (patch 0033) runs at manager startup and re-points library tables that the broken builds left chained to a bogus location, so upgrading over v10 or v11 lands on the bundled defaults without redoing setup.
 - **A gate that reads the binary.** The new `kiface_path_gate.py` inspects the shipped executable itself — the search code present, the stock-path call present, the modules in place at both locations. It passes v12 and fails v11 on every count.
 - **Stock libraries ship in the bundle — complete.** KiCad 10.0.1's **222 symbol libraries** and **155 footprint libraries**, unabridged, with the default symbol and footprint library tables resolving straight to them, plus **19 project templates** and the demo projects (four oversized demos are left out). First-run setup finds the defaults in place.
 - **The manager screen, audited control by control.** Every menu opens, every item acts, every button does its real job. Tools that tried to launch separate programs on the desktop — the Gerber viewer, the calculator, the converters, the page-layout editor — open inside the app instead, and the image converter has its module in the bundle.
-- **A floating window control.** A port-level bar floats above every window at all times — reachable over dialogs — with **Minimize** and **Close**. Minimize shrinks the window into a docked strip at the left edge (84 pt, stacking, Stage Manager style); a tap restores it. Windows are clamped inside the visible screen area, so nothing opens hanging off-screen.
-- **One honest limitation:** windows do not drag by their titlebars. Qt's iOS layer draws no titlebar and provides no system window move — the floating control is the port's answer for closing and minimizing.
+- **Windows stay on screen.** Top-level windows are clamped inside the visible screen area, so nothing opens hanging off-screen.
+- **One honest limitation:** windows do not drag by their titlebars. Qt's iOS layer draws no titlebar and provides no system window move — in v13 the floating bar is the handle instead: drag it and the window follows.
 
 ## 🧭 How it works — the architecture
 
@@ -87,13 +89,15 @@ Two more pieces of the foundation: a real **iODBC** is cross-compiled into the s
 | Stock 10.0.1 libraries bundled complete (222 symbol, 155 footprint) + default tables | ✅ Done (v11) |
 | Library tables inherited from the broken v10/v11 builds re-pointed at startup | ✅ Done (v12) |
 | Manager screen audited control by control; companion tools open in-app | ✅ Done — gate-verified (v11) |
-| Floating window control (Minimize / Close, left-edge dock) + on-screen clamping | ✅ Done — gate-verified (v11) |
+| Floating window control (Minimize / Close, left-edge dock) + on-screen clamping | ✅ Rebuilt in v13 — the bar is a child overlay inside the current window and doubles as its drag handle; gate-verified (installer call proven in the shipped binary), on-device pass next |
 
-### v12 — the current release
+### v13 — the current release
 
-v12 is built, gated, and shipped. It carries the whole v11 layer — the stock libraries are in the box, the manager does its full job, and windows carry the port's floating control — and it fixes the root cause that v11's on-device pass exposed. That pass (2026‑11‑07) found the editor-module load error and the wizard's library failure still standing; disassembly of the shipped v11 binary proved the three patches behind those fixes were never compiled in, because the `KICAD_IOS_PORT` switch sat on the wrong library target. v12 sets the switch on the correct target, proves the code is in from the shipped binary with a new gate, copies the editor modules to the bundle root as belt and braces, and repairs inherited library tables at startup.
+v13 is built, gated, and shipped. It carries the whole v12 layer — the stock libraries are in the box, the manager does its full job — and v12's root-cause fix: v11's on-device pass (2026‑11‑07) found the editor-module load error and the wizard's library failure still standing, and disassembly of the shipped v11 binary proved the three patches behind those fixes were never compiled in, because the `KICAD_IOS_PORT` switch sat on the wrong library target. The switch sits on the correct target, a gate proves the code is in from the shipped binary, the editor modules also sit at the bundle root as belt and braces, and inherited library tables are repaired at startup.
 
-Its on-device pass is the immediate next step: zero startup dialogs, every editor open, the wizard's library step served from the bundled defaults.
+v13's own layer is the window-controls round. The floating Minimize/Close bar no longer floats as a separate window — the construction iOS layering could bury, and the one the v11 device pass never saw. The bar now lives inside the current window as an overlay, and it is the window's drag handle: drag it and the window moves with it, with a small movement threshold keeping taps and drags apart. Minimize still docks the window to the left edge, and a tap still restores it.
+
+Its on-device pass is the immediate next step: zero startup dialogs, every editor open, the wizard's library step served from the bundled defaults, the bar present inside the window and dragging it.
 
 ## 📲 Installing
 
@@ -135,6 +139,6 @@ KiCad is free and open-source software, and so is this port — there is no othe
 <div align="center">
 
 *Built with respect for the KiCad project and its contributors.*
-*KiCad runs on iPad. The manager is up. The libraries are in. The root cause is fixed.*
+*KiCad runs on iPad. The manager is up. The libraries are in. The root cause is fixed. The window drags by its bar.*
 
 </div>
