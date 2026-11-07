@@ -21,7 +21,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 
 > ⚠️ **Unofficial port — read this first.**
 > This is an independent experiment. It is **not** affiliated with, sponsored by, or endorsed by the KiCad project or CERN. "KiCad" is a trademark of the KiCad project; the name is used here only to describe what this port is a port *of*.
-> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v11 is the current release:** the editor modules load, the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control; v11's on-device pass is the immediate next step. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
+> **Current reality:** the port runs. KiCad 10.0.1 builds for iOS arm64, installs on a real iPad, completes KiCad's own first-run wizard end to end, and opens the KiCad project manager — real menus, real icons, real windows — verified on hardware on 2026‑11‑06 (build v10). **Build v11 is the current release:** the complete stock KiCad 10.0.1 libraries ship inside the bundle, and the manager screen is audited control by control. Its on-device pass (2026‑11‑07) found the editor-module load error still standing at manager startup; the root cause is under re-investigation, and the follow-up fix is in build now as v12. Every change to upstream code is documented in the open in [`MODIFICATIONS.md`](MODIFICATIONS.md).
 
 ---
 
@@ -48,7 +48,7 @@ This repository contains a port of the **actual upstream KiCad source code** (pi
 
 ### What v11 adds — the current release, verified by the build gates
 
-- **Editors load.** The kiface module search knows the iOS bundle layout (modules ship in `Frameworks/`), so the manager starts with no load-error dialog and each editor — schematic, PCB, symbol, footprint, and the rest — opens when tapped. The gates verify the exact library paths the app loads, inside the shipped bundle.
+- **Editor loading — reopened on hardware.** v11's load-path fix teaches the kiface module search the iOS bundle layout (modules ship in `Frameworks/`), and the build gates verify the modules are present in the shipped bundle. On a real iPad (2026‑11‑07), the manager still raises the load error at startup: the root cause is being re-investigated, and the follow-up fix ships as v12.
 - **Stock libraries ship in the bundle — complete.** KiCad 10.0.1's **222 symbol libraries** and **155 footprint libraries**, unabridged, with the default symbol and footprint library tables resolving straight to them, plus **19 project templates** and the demo projects (four oversized demos are left out). First-run setup finds the defaults in place.
 - **The manager screen, audited control by control.** Every menu opens, every item acts, every button does its real job. Tools that tried to launch separate programs on the desktop — the Gerber viewer, the calculator, the converters, the page-layout editor — open inside the app instead, and the image converter has its module in the bundle.
 - **A floating window control.** A port-level bar floats above every window at all times — reachable over dialogs — with **Minimize** and **Close**. Minimize shrinks the window into a docked strip at the left edge (84 pt, stacking, Stage Manager style); a tap restores it. Windows are clamped inside the visible screen area, so nothing opens hanging off-screen.
@@ -80,16 +80,16 @@ Two more pieces of the foundation: a real **iODBC** is cross-compiled into the s
 | Python initialises inside the app; manager window constructs | ✅ **Device-proven** (v8, v9) |
 | Split-libpng crash in icon loading found and fixed at the root | ✅ **Device-proven** (v9) |
 | First-run wizard completable end to end; manager stands, light appearance | ✅ **Device-proven** (v10, 2026‑11‑06) |
-| Editor modules load from the bundle; manager starts with no load-error dialog | ✅ Done — gate-verified (v11) |
+| Editor-module load error eliminated at manager startup | 🔧 In build — v11 fix gate-verified; on-device pass (2026‑11‑07) found the error still standing; corrected fix ships as v12 |
 | Stock 10.0.1 libraries bundled complete (222 symbol, 155 footprint) + default tables | ✅ Done (v11) |
 | Manager screen audited control by control; companion tools open in-app | ✅ Done — gate-verified (v11) |
 | Floating window control (Minimize / Close, left-edge dock) + on-screen clamping | ✅ Done — gate-verified (v11) |
 
 ### v11 — the current release
 
-v11 is built, gated, and shipped. It contains the whole layer above: the editors load, the stock libraries are in the box, the manager does its full job, and windows carry the port's floating control. The launch chain underneath it is the device-proven v10 chain.
+v11 is built, gated, and shipped. It contains the whole layer above: the stock libraries are in the box, the manager does its full job, and windows carry the port's floating control. The launch chain underneath it is the device-proven v10 chain.
 
-The on-device pass for v11 is the immediate next step: open the app, walk the manager, open each editor, open a schematic, draw, save, reopen.
+v11's on-device pass ran on 2026‑11‑07 and found the editor-module load error still standing at manager startup: the load-path fix passed every build gate, and the hardware disagreed. The root cause is being re-investigated, with the corrected fix in build now as v12. When v12 lands, the device pass continues: open each editor, open a schematic, draw, save, reopen.
 
 ## 📲 Installing
 
@@ -131,6 +131,6 @@ KiCad is free and open-source software, and so is this port — there is no othe
 <div align="center">
 
 *Built with respect for the KiCad project and its contributors.*
-*KiCad runs on iPad. The manager is up. The editors load. The libraries are in.*
+*KiCad runs on iPad. The manager is up. The libraries are in. The editors are next.*
 
 </div>
