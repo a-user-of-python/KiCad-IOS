@@ -267,10 +267,18 @@ PROBE_QT=()
 for q in QtCore QtGui QtWidgets QtOpenGL QtOpenGLWidgets QtPrintSupport QtTest QtSvg; do
     [ -f "$QTDIR_IOS/lib/$q.framework/$q" ] && PROBE_QT+=( "$QTDIR_IOS/lib/$q.framework/$q" )
 done
+# wx's bundled third-party archives: link only the ones that exist.
+# Since launch fix round 7 wx builds against the system libpng/zlib,
+# so libwxpng/libwxzlib are (correctly) absent; jpeg/tiff/webp/regex
+# remain bundled (no sysroot equivalents) and are still linked here.
+WX3P=()
+for l in wxjpeg-3.3 wxpng-3.3 wxtiff-3.3 wxwebp-3.3 wxwebpdemux-3.3 \
+         wxsharpyuv-3.3 wxregexu-3.3 wxzlib-3.3; do
+    [ -f "$SYSROOT/lib/lib${l}.a" ] && WX3P+=( "-l${l}" )
+done
 PROBE_LIBS=(
     "${PROBE_WX[@]}" "${PROBE_QT[@]}"
-    -L"$SYSROOT/lib" -lwxscintilla-3.3 -lwxlexilla-3.3 -lwxjpeg-3.3 -lwxpng-3.3
-    -lwxtiff-3.3 -lwxwebp-3.3 -lwxwebpdemux-3.3 -lwxsharpyuv-3.3 -lwxregexu-3.3
+    -L"$SYSROOT/lib" -lwxscintilla-3.3 -lwxlexilla-3.3 "${WX3P[@]}"
     -lpng16 -lpcre2-16 "$WORK/glshim/libgluadapter.a" -ltess2
     -framework CoreFoundation -framework Foundation -framework UIKit
     -framework Metal -framework IOKit -framework CoreGraphics
