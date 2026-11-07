@@ -527,6 +527,38 @@ fetch_addon jlcpcb \
     "https://raw.githubusercontent.com/bennymeg/Fabrication-Toolkit/v5.3.0/LICENSE" \
     "f1e35329cecb90444923037b38b9d0b9927d70ef33e820a2195837ab6eb9cfc2"
 
+# --- Stock library fetch (launch fix round 9) -------------------------
+# The pinned official library repos (ci-common.sh); this stage script
+# already fetches its addons inline above, so it fetches the libraries
+# the same way rather than relying on the jobs graph. The fetch fails
+# closed on incomplete trees and the packager fails if the trees are
+# missing: a bundle whose setup cannot reach the default libraries
+# must not ship.
+mkdir -p "$WORK/kicad-libs"
+LIBFAIL=0
+fetch_kicad_lib() {
+    # $1 = repo name, $2 = extract dir
+    if [ ! -d "$2" ]; then
+        curl -sL "https://gitlab.com/kicad/libraries/$1/-/archive/${KICAD_LIBS_TAG}/$1-${KICAD_LIBS_TAG}.tar.gz" \
+            -o "$WORK/kicad-libs/$1.tar.gz" \
+        && mkdir -p "$2" \
+        && tar -xzf "$WORK/kicad-libs/$1.tar.gz" -C "$2" --strip-components=1 \
+        || { echo "stock library fetch FAILED: $1"; return 1; }
+    fi
+}
+fetch_kicad_lib kicad-symbols    "$WORK/kicad-libs/symbols"    || LIBFAIL=1
+fetch_kicad_lib kicad-footprints "$WORK/kicad-libs/footprints" || LIBFAIL=1
+fetch_kicad_lib kicad-templates  "$WORK/kicad-libs/templates"  || LIBFAIL=1
+NSYMDIR=$(ls -d "$WORK/kicad-libs/symbols"/*.kicad_symdir 2>/dev/null | wc -l)
+NPRETTY=$(ls -d "$WORK/kicad-libs/footprints"/*.pretty 2>/dev/null | wc -l)
+echo "stock libraries fetched: $NSYMDIR symbol libraries, $NPRETTY footprint libraries"
+if [ "$LIBFAIL" != "0" ] || [ "$NSYMDIR" -lt 200 ] || [ "$NPRETTY" -lt 100 ] \
+   || [ ! -f "$WORK/kicad-libs/symbols/sym-lib-table" ] \
+   || [ ! -f "$WORK/kicad-libs/footprints/fp-lib-table" ]; then
+    echo "RESULT: stock library fetch incomplete -- refusing to package a bundle whose setup cannot reach the default libraries"
+    exit 6
+fi
+
 # Package whatever built (manager + any kifaces) into an unsigned IPA
 # (The user re-signs with their own tooling). Runs last so the kifaces are
 # included. See scripts/package_ios.py for the layout rules.
