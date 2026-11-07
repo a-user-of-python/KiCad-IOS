@@ -836,8 +836,15 @@ pcb_calculator's: same sources minus `common/single_top.cpp`
 (the standalone launcher glue), `OUTPUT_NAME`/`PREFIX`/`SUFFIX`
 from the standard kiface variables, the executable's own link
 set, and `BUILD_KIWAY_DLL;COMPILING_DLL` on the KIFACE source so
-the getter is exported. Upstream's target definitions are
-untouched; the addition compiles the same sources a second way.
+the getter is exported, plus the APPLE matched-set block the
+other tools carry (`LIBRARY_OUTPUT_DIRECTORY` to the bundle's
+PlugIns dir — the directory the packager collects kifaces from —
+with the standard install RPATH). Upstream's target definitions
+are untouched; the addition compiles the same sources a second
+way. (First v11 CI run proved the point: the module built and
+linked, but without the output-directory block it landed in the
+build tree's `bitmap2component/` folder and the packager quite
+correctly never saw it.)
 
 ### Content (no upstream change) — stock libraries and demos bundled (launch fix round 9, KiCad-Spike-v11)
 
