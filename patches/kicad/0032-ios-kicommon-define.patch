@@ -1,0 +1,31 @@
+--- a/common/CMakeLists.txt
++++ b/common/CMakeLists.txt
+@@ -446,7 +446,28 @@
+ endif()
+ 
+ target_compile_definitions( kicommon PRIVATE KICOMMON_DLL=1 )
+ 
++# [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix round 10,
++# KiCad-Spike-v12): define KICAD_IOS_PORT for the kicommon target.
++# Patch 0026 added the same define to the `common` STATIC target --
++# but the sources carrying this port's KICAD_IOS_PORT blocks are all
++# in KICOMMON_SRCS and are compiled by THIS target into libkicommon:
++# kiway.cpp (patch 0027's Frameworks kiface search), paths.cpp
++# (patch 0028's stock EDA library path) and
++# startwizard/startwizard.cpp (patch 0026's wizard navigation
++# block). The `common` target compiles none of them, so in the
++# shipped v10/v11 binaries every one of those blocks was
++# preprocessed out -- proven by disassembly of the shipped v11
++# libkicommon: KIWAY::dso_search_path contains no "Frameworks"
++# append (the device kept raising the bundle-root
++# "_eeschema.kiface" dlopen error) and
++# PATHS::GetStockEDALibraryPath contains no GetStockDataPath call.
++# Defining the macro on the target that actually compiles the
++# sources is what makes patches 0026-0028 real.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( kicommon PRIVATE KICAD_IOS_PORT )
++endif()
++
+ target_include_directories( kicommon
+     PUBLIC
+        .
