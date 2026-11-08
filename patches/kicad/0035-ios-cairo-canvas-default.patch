@@ -1,0 +1,139 @@
+--- a/common/eda_draw_frame.cpp
++++ b/common/eda_draw_frame.cpp
+@@ -969,6 +969,23 @@
+ 
+ EDA_DRAW_PANEL_GAL::GAL_TYPE EDA_DRAW_FRAME::loadCanvasTypeSetting()
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix round 13,
++    // KiCad-Spike-v15): iOS has no OpenGL, so this port's editor
++    // canvas is the Cairo software canvas -- settled when the port
++    // was designed. Upstream's persisted graphics.canvas_type
++    // defaults to GAL_TYPE_OPENGL, so every editor resolved to GL,
++    // attempted it, showed "Could not use OpenGL, falling back to
++    // software rendering" and only then fell back (v14 device
++    // report). Return the software canvas here, at the one point
++    // every editor frame resolves its canvas type through, so the
++    // GL attempt -- and its dialog -- never happen: not on first
++    // run, where the stored default is OpenGL, and not with a
++    // configuration carried over from an earlier build that still
++    // stores OpenGL.
++    return EDA_DRAW_PANEL_GAL::GAL_TYPE_CAIRO;
++#endif
++
+ #ifdef __WXMAC__
+     // Cairo renderer doesn't handle Retina displays so there's really only one game
+     // in town for Mac
+--- a/common/dialogs/panel_common_settings.cpp
++++ b/common/dialogs/panel_common_settings.cpp
+@@ -54,6 +54,16 @@
+     m_renderingSizer->Show( false );
+ #endif
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix round 13,
++    // KiCad-Spike-v15): there is no OpenGL on iOS and the port's
++    // canvas is always the Cairo software canvas, so the
++    // rendering-engine choice does not exist here. Mirrors the
++    // __WXMAC__ case above, which hides the same sizer because
++    // Cairo does not work there.
++    m_renderingSizer->Show( false );
++#endif
++
+     ShowFileManagerWidgets( ADVANCED_CFG::GetCfg().m_EnableLibDir );
+ 
+     m_textEditorBtn->SetBitmap( KiBitmapBundle( BITMAPS::small_folder ) );
+@@ -178,10 +188,19 @@
+ 
+     commonSettings->m_Graphics.aa_mode = m_antialiasing->GetSelection();
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix
++    // round 13, KiCad-Spike-v15): the canvas is fixed to the
++    // software renderer on this port and the choice above is
++    // hidden; never let a stored radio-button state write
++    // OpenGL back into the setting.
++    commonSettings->m_Graphics.canvas_type = EDA_DRAW_PANEL_GAL::GAL_TYPE_CAIRO;
++#else
+     if( m_rbAccelerated->GetValue() )
+         commonSettings->m_Graphics.canvas_type = EDA_DRAW_PANEL_GAL::GAL_TYPE_OPENGL;
+     else
+         commonSettings->m_Graphics.canvas_type = EDA_DRAW_PANEL_GAL::GAL_TYPE_CAIRO;
++#endif
+ 
+     if( m_canvasScaleCtrl )
+     {
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -45,6 +45,7 @@
+ #include <settings/settings_manager.h>
+ #include <settings/kicad_settings.h>
+ #include <settings/common_settings.h>
++#include <class_draw_panel_gal.h>   // [KiCad-IOS port] round 13 (v15): GAL_TYPE for the canvas coercion in OnInit below
+ #include <../include/startwizard/startwizard.h>
+ #include <systemdirsappend.h>
+ #include <thread_pool.h>
+@@ -750,6 +751,21 @@
+         // Python) is addressed by absolute paths and is unaffected.
+         wxSetWorkingDirectory( KIPLATFORM::ENV::GetDocumentsPath() );
+ 
++        // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix
++        // round 13, KiCad-Spike-v15): pin the stored canvas type
++        // to the Cairo software canvas. A few previews read
++        // COMMON_SETTINGS::m_Graphics.canvas_type directly instead
++        // of resolving through
++        // EDA_DRAW_FRAME::loadCanvasTypeSetting() -- the symbol
++        // chooser's fallback branch, the schematic colour-settings
++        // preview and the footprint preview panel -- so forcing
++        // the value itself here, before any window exists, covers
++        // them too. The coerced value is what the settings manager
++        // saves back at exit, so a stored OpenGL value from an
++        // earlier build heals on the next save.
++        if( COMMON_SETTINGS* cfg = Pgm().GetCommonSettings() )
++            cfg->m_Graphics.canvas_type = EDA_DRAW_PANEL_GAL::GAL_TYPE_CAIRO;
++
+         // [KiCad-IOS port] Install the floating Close/Minimize
+         // window controls (see the declaration note near the top of
+         // this file) before program initialisation creates the
+--- a/eeschema/CMakeLists.txt
++++ b/eeschema/CMakeLists.txt
+@@ -597,6 +597,19 @@
+     ${EESCHEMA_COMMON_SRCS}
+     )
+ 
++# [KiCad-IOS port] Modified 2026-11-07 for iOS (launch fix round 13,
++# KiCad-Spike-v15): define KICAD_IOS_PORT for the eeschema kiface
++# objects, the same per-target define patches 0023/0026/0032 place
++# on the kicad, common and kicommon targets. The eeschema sources
++# carry one port block -- dialog_import_symbol_select.cpp's preview
++# canvas type -- and no other KICAD_IOS_PORT blocks exist in the
++# eeschema sources, so the define activates nothing else here.
++# Without it the block would be preprocessed out of the shipped
++# kiface, the failure mode patch 0032 documents for rounds 10-11.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( eeschema_kiface_objects PRIVATE KICAD_IOS_PORT )
++endif()
++
+ if( KICAD_USE_PCH )
+     target_precompile_headers( eeschema_kiface_objects
+         PRIVATE
+--- a/eeschema/dialogs/dialog_import_symbol_select.cpp
++++ b/eeschema/dialogs/dialog_import_symbol_select.cpp
+@@ -54,7 +54,17 @@
+                            nullptr, this );
+ 
+     m_preview = new SYMBOL_PREVIEW_WIDGET( m_previewPanel, &Kiway(), false,
++#ifdef KICAD_IOS_PORT
++                                           // [KiCad-IOS port] Modified 2026-11-07 for
++                                           // iOS (launch fix round 13, KiCad-Spike-v15):
++                                           // no OpenGL on iOS -- the preview uses the
++                                           // software canvas like every other canvas
++                                           // in this port instead of attempting GL and
++                                           // falling back with a dialog.
++                                           EDA_DRAW_PANEL_GAL::GAL_TYPE_CAIRO );
++#else
+                                            EDA_DRAW_PANEL_GAL::GAL_TYPE_OPENGL );
++#endif
+     m_previewSizer->Add( m_preview, 1, wxEXPAND, 0 );
+     m_previewPanel->Layout();
+     m_unitChoice->Enable( false );
