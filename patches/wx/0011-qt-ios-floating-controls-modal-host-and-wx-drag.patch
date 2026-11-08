@@ -1,0 +1,221 @@
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -387,6 +387,34 @@
+ // untouched). Presses on a docked strip are swallowed either way --
+ // the squished frame beneath must not receive them.
+ //
++// Round 12 rework -- what the round 11 mechanism still got wrong,
++// proven on device in v13 and reproduced on the host harness. The
++// bar DID render in v13 (visible at the manager's top-right in the
++// device screenshots), but it never moved onto the modal error
++// dialog: it stayed on the manager, BEHIND the dialog's own
++// window, with the dialog covering its Minimize half. Root cause:
++// windowOf() resolved an event object to a window by walking the
++// QObject parent chain to the OUTERMOST widget ancestor. wxQt
++// creates every dialog's Qt widget parented to its owner frame's
++// widget, so for any parented dialog the walk overshoots the
++// dialog and lands on the owner frame -- the controller's notion
++// of "the current window" was pinned to the manager for every
++// KiCad dialog (the wizard included), and Close/Minimize would
++// have acted on the manager even with an editor in front.
++// windowOf() now uses QWidget::window(), which honours the
++// window flags and returns the dialog itself. Three supporting
++// changes: pickHost() prefers QApplication::activeModalWidget()
++// while a modal dialog is up, so manager-side events during a
++// modal session cannot pull the bar back; the bar is sized with
++// adjustSize() after re-parenting and re-anchored on the host's
++// Move events as well as Resize, with a fully opaque background
++// and a 44 pt hit height so it cannot be missed; and drags now
++// move the window through wxWindowQt::Move() -- the
++// wxWindowQt::DoMoveWindow() path whose iOS clamp (patch 0009)
++// this code previously bypassed with a raw QWidget::move() plus
++// a hand-copied clamp, desyncing wx's geometry bookkeeping from
++// the widget's real position.
++//
+ // The implementation compiles only for iOS (Q_OS_IOS); other wxQt
+ // builds get the empty stub at the bottom.
+ // ---------------------------------------------------------------------------
+@@ -493,7 +521,11 @@
+             break;
+ 
+         case QEvent::Resize:
+-            // The bar rides the host's top-right corner.
++        case QEvent::Move:
++            // The bar rides the host's top-right corner. A move
++            // matters too (round 12): Stage Manager can place or
++            // shift the host without a resize, and the anchor must
++            // follow the frame the user sees.
+             if ( watched == m_host )
+                 positionBar();
+             break;
+@@ -641,15 +673,18 @@
+     // The top-level window an event object belongs to, or nullptr.
+     QWidget *windowOf( QObject *obj ) const
+     {
+-        QWidget *top = nullptr;
+-
+-        for ( QObject *o = obj; o; o = o->parent() )
+-        {
+-            if ( QWidget *w = qobject_cast<QWidget *>( o ) )
+-                top = w;
+-        }
++        // The window a widget belongs to, per Qt's own window
++        // flags: QWidget::window() returns the widget itself when
++        // it is a window, regardless of Qt parenting. The round 11
++        // version walked the QObject parent chain to the outermost
++        // widget ancestor instead, which is wrong for every
++        // parented dialog: wxQt parents a dialog's Qt widget to
++        // its owner frame's widget, so the walk landed on the
++        // owner and the dialog was never seen as a window at all
++        // (round 12 note above).
++        QWidget *w = qobject_cast<QWidget *>( obj );
+ 
+-        return ( top && top->isWindow() ) ? top : nullptr;
++        return w ? w->window() : nullptr;
+     }
+ 
+     bool isRealWindow( QWidget *w ) const
+@@ -689,6 +724,22 @@
+     // window.
+     QWidget *pickHost()
+     {
++        // While a modal dialog is up it is the only window the
++        // user can interact with, so it hosts the bar, full stop.
++        // Qt tracks that authoritatively; the event-inferred
++        // m_current can be flipped back to the window beneath by
++        // a stray Show on one of its children mid-session, and
++        // the bar must not follow it there (round 12).
++        if ( QWidget *modal = QApplication::activeModalWidget() )
++        {
++            if ( modal->isVisible() && isRealWindow( modal )
++                    && !m_docked.contains( modal ) )
++            {
++                m_current = modal;
++                return modal;
++            }
++        }
++
+         if ( m_current && m_current->isVisible()
+                 && isRealWindow( m_current )
+                 && !m_docked.contains( m_current ) )
+@@ -727,14 +778,23 @@
+         layout->addWidget( minBtn );
+         layout->addWidget( closeBtn );
+ 
++        // Fully opaque and at least 44 pt tall (round 12): the
++        // round 11 bar was translucent and short, and in the v13
++        // device screenshots it reads as a faint pill that is easy
++        // to overlook at the window's corner. A solid near-black
++        // bar with solid buttons cannot blend into either the
++        // light manager or a dark surround.
++        minBtn->setMinimumHeight( 36 );
++        closeBtn->setMinimumHeight( 36 );
++        bar->setMinimumHeight( 44 );
+         bar->setStyleSheet( QStringLiteral(
+-            "QWidget { background-color: rgba(24, 24, 28, 225);"
++            "QWidget { background-color: rgb(24, 24, 28);"
+             "          border-radius: 10px; }"
+             "QPushButton { color: white;"
+-            "              background-color: rgba(255, 255, 255, 28);"
++            "              background-color: rgb(62, 62, 68);"
+             "              border: none; border-radius: 7px;"
+-            "              padding: 10px 14px; font-size: 15px; }"
+-            "QPushButton:pressed { background-color: rgba(255, 255, 255, 60); }" ) );
++            "              padding: 12px 16px; font-size: 15px; }"
++            "QPushButton:pressed { background-color: rgb(96, 96, 104); }" ) );
+         bar->resize( bar->sizeHint() );
+         bar->hide();
+ 
+@@ -753,13 +813,34 @@
+         }
+     }
+ 
++    // Anchor the bar to its host's top-right corner, fully
++    // inside with a margin on both axes. The clamp matters: a
++    // child widget is not itself clamped, and the bar must never
++    // hang off the edge if the host is resized smaller. The width
++    // comes from the host's wx-level size when the host is a wx
++    // window (round 12): wx is the layer that owns top-level
++    // geometry in this port and its reported size is the size of
++    // the frame the user actually sees -- exactly the edge the
++    // bar must sit inside -- while the Qt widget's size can lag a
++    // geometry change wx has already applied.
+     void positionBar()
+     {
+         if ( m_bar.isNull() || !m_host )
+             return;
+ 
+-        const int x = qMax( 0, m_host->width() - m_bar->width() - 10 );
+-        m_bar->move( x, 8 );
++        int hostWidth = m_host->width();
++
++        if ( wxWindowQt *wxHost =
++                wxWindowQt::QtRetrieveWindowPointer( m_host ) )
++        {
++            const int wxWidth = wxHost->GetSize().GetWidth();
++
++            if ( wxWidth > 0 )
++                hostWidth = wxWidth;
++        }
++
++        const int x = qMax( 0, hostWidth - m_bar->width() - 12 );
++        m_bar->move( x, 12 );
+     }
+ 
+     void refreshBar()
+@@ -783,10 +864,23 @@
+             m_host = host;
+         }
+ 
++        // Settle the bar's final size under its (possibly new)
++        // parent BEFORE anchoring: a size hint computed parentless
++        // or under a previous host can be stale once the host's
++        // style and fonts apply, and anchoring with a stale width
++        // leaves the bar's right end short of -- or past -- the
++        // corner it is meant to sit in (round 12).
++        m_bar->adjustSize();
+         positionBar();
+         if ( !m_bar->isVisible() )
+             m_bar->show();
+         m_bar->raise();
++
++        // Re-anchor once the current event cascade has settled: a
++        // host's geometry can still change between its Show event
++        // and its first paint (Stage Manager placement above all),
++        // after every synchronous trigger above has already run.
++        QTimer::singleShot( 0, this, [this]() { positionBar(); } );
+     }
+ 
+     void closeCurrent()
+@@ -919,8 +1013,29 @@
+             return;
+ 
+         m_dragging = true;
+-        m_dragWindow->move( clampedWindowPos( m_dragWindow,
+-                                              m_dragStartPos + delta ) );
++        moveWindowTo( m_dragWindow, m_dragStartPos + delta );
++    }
++
++    // Move a top-level window to the given global top-left. wx
++    // windows move through wxWindowQt::Move() (round 12): that is
++    // the wxWindowQt::DoMoveWindow() path whose iOS clamp (patch
++    // 0009) keeps the frame on screen, and it keeps wx's geometry
++    // bookkeeping in step with the widget. The round 11 code moved
++    // the raw QWidget and applied a hand-copied clamp here, so wx
++    // kept the stale position and any wx-side layout or restore
++    // could silently pull the frame back -- one of the reasons a
++    // drag could feel dead. Windows with no wx counterpart (none
++    // in KiCad; the host harness uses them) keep the plain move.
++    void moveWindowTo( QWidget *w, const QPoint &pos )
++    {
++        if ( wxWindowQt *wxWin =
++                wxWindowQt::QtRetrieveWindowPointer( w ) )
++        {
++            wxWin->Move( pos.x(), pos.y() );
++            return;
++        }
++
++        w->move( clampedWindowPos( w, pos ) );
+     }
+ 
+     // The same position clamp wxWindowQt::DoMoveWindow() applies

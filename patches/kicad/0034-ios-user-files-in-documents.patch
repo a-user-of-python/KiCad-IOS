@@ -1,0 +1,86 @@
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -734,6 +734,22 @@
+             return false;
+ 
+ #ifdef KICAD_IOS_PORT
++        // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix
++        // round 12, KiCad-Spike-v14): move the process working
++        // directory to the app's Documents folder before anything
++        // can resolve a relative path. iOS launches the app with
++        // its working directory inside the application bundle,
++        // which is read-only, so every fallback that resolves
++        // against the working directory -- an empty file-dialog
++        // default directory above all -- lands in the bundle and
++        // fails: in the v13 device session a new project tried to
++        // create itself inside KiCad.app and was refused with
++        // "Operation not permitted". The port's rule is that user
++        // files live in the shared Documents directory. Everything
++        // the port itself locates (stock data, kiface modules,
++        // Python) is addressed by absolute paths and is unaffected.
++        wxSetWorkingDirectory( KIPLATFORM::ENV::GetDocumentsPath() );
++
+         // [KiCad-IOS port] Install the floating Close/Minimize
+         // window controls (see the declaration note near the top of
+         // this file) before program initialisation creates the
+--- a/common/eda_base_frame.cpp
++++ b/common/eda_base_frame.cpp
+@@ -1033,6 +1033,22 @@
+     m_perspective = aCfg->perspective;
+     m_auiLayoutState = std::make_unique<nlohmann::json>( aCfg->aui_state );
+     m_mruPath = aCfg->mru_path;
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix round 12,
++    // KiCad-Spike-v14): the persisted mru_path defaults to "" and,
++    // until a project has been loaded once, stays "", so the plain
++    // assignment above wipes the default that commonInit() set --
++    // the user projects directory -- and leaves GetMruPath() empty.
++    // The manager's file dialogs take their default directory from
++    // GetMruPath(); with it empty they fall back to the process
++    // working directory, which on iOS is the read-only app bundle,
++    // and creating a project there fails (v13 device report; see
++    // also the working-directory fix in APP_KICAD::OnInit). An empty
++    // persisted value therefore means the default projects
++    // directory on this port.
++    if( m_mruPath.IsEmpty() )
++        m_mruPath = PATHS::GetDefaultUserProjectsPath();
++#endif
+ 
+     TOOLS_HOLDER::CommonSettingsChanged();
+ }
+--- a/kicad/tools/kicad_manager_control.cpp
++++ b/kicad/tools/kicad_manager_control.cpp
+@@ -79,6 +79,17 @@
+     wxString default_filename = aFileName ? *aFileName : wxString();
+ 
+     wxString        default_dir = m_frame->GetMruPath();
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix round 12,
++    // KiCad-Spike-v14): never hand the dialog an empty default
++    // directory -- on iOS its fallback is the read-only app bundle
++    // and the new project's folder cannot be created there (v13
++    // device report). EDA_BASE_FRAME::LoadWindowSettings() already
++    // keeps the MRU path non-empty on this port; this is the same
++    // guard at the point of use.
++    if( default_dir.IsEmpty() )
++        default_dir = PATHS::GetDefaultUserProjectsPath();
++#endif
+     wxFileDialog    dlg( m_frame, _( "Create New Project" ), default_dir, default_filename,
+                          ( isRepo ? wxString( "" ) : FILEEXT::ProjectFileWildcard() ),
+                          wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
+@@ -299,6 +310,15 @@
+     PROJECT_TEMPLATE selectedTemplate( selectedTemplatePath );
+ 
+     wxString        default_dir = wxFileName( Prj().GetProjectFullName() ).GetPathWithSep();
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix round 12,
++    // KiCad-Spike-v14): with no project open the line above yields an
++    // empty directory, and the dialog then falls back to the
++    // read-only app bundle, exactly as in newProjectDirectory().
++    // Default to the user projects directory instead.
++    if( default_dir.IsEmpty() )
++        default_dir = PATHS::GetDefaultUserProjectsPath();
++#endif
+     wxString        title = _( "New Project Folder" );
+     wxFileDialog    dlg( m_frame, title, default_dir, wxEmptyString, FILEEXT::ProjectFileWildcard(),
+                          wxFD_SAVE | wxFD_OVERWRITE_PROMPT );

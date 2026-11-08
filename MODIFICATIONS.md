@@ -1030,3 +1030,128 @@ hide and on window close, recreation after host destruction,
 drag threshold and delta, dock/strip tap/drag/restore, and the
 Close button all pass. Whether the bar is visible on the iPad
 is, as ever, the device's verdict.
+
+### KiCad patch 0034 — ios-user-files-in-documents (launch fix round 12, KiCad-Spike-v14)
+
+**`kicad/kicad.cpp`, `common/eda_base_frame.cpp`,
+`kicad/tools/kicad_manager_control.cpp`** (KiCad 10.0.1) —
+2026-11-07 — `patches/kicad/0034-ios-user-files-in-documents.patch`.
+Three additions, all inside `#ifdef KICAD_IOS_PORT`; no upstream
+logic is altered and other platforms are unaffected.
+
+*Why.* On device in v13, creating a project failed: the manager
+tried to create the project's folder inside the application
+bundle ("Operation not permitted"), which is read-only. The
+port's rule is that user files live in the app's shared
+Documents folder, and the Documents-rooted user tree
+(Documents/KiCad/10.0/projects and siblings) was already built
+correctly — the default never reached it. Traced end to end:
+`EDA_BASE_FRAME::commonInit()` sets the manager's MRU path to
+`PATHS::GetDefaultUserProjectsPath()`, but the manager frame's
+constructor then loads the window settings, and
+`EDA_BASE_FRAME::LoadWindowSettings()` assigns
+`m_mruPath = aCfg->mru_path` unconditionally. The persisted
+value defaults to "" and, until a project has been loaded once,
+stays "" (the settings are saved back unchanged), so the
+correct default is wiped on every launch. The New Project
+dialog takes its default directory from `GetMruPath()`; with it
+empty, the wxQt file dialog is constructed with an empty
+directory, Qt's file dialog falls back to the process working
+directory, and iOS launches the app with its working directory
+inside the bundle — so the folder the user names is created
+there and refused.
+
+*What.* (1) `LoadWindowSettings()`: after the assignment, an
+empty MRU path is restored to
+`PATHS::GetDefaultUserProjectsPath()` — the layer where the
+default is lost; this repairs every consumer of `GetMruPath()`
+at once (New Project, Open Project and Save Project To in the
+manager, and the legacy-project import). (2) At the point of
+use: `KICAD_MANAGER_CONTROL::newProjectDirectory()` and the
+template route of `NewProject()` substitute the same default
+when their computed default directory is empty (the template
+route derives it from the current project's path, which is
+empty when no project is open). (3) Belt and braces in
+`APP_KICAD::OnInit()`, before the first window exists:
+`wxSetWorkingDirectory( KIPLATFORM::ENV::GetDocumentsPath() )`,
+so any remaining fallback that resolves against the working
+directory lands in Documents rather than the bundle. All paths
+the port itself locates (stock data, kiface modules, Python)
+are absolute and unaffected; editor Save defaults derive from
+the open project and were not part of the defect.
+
+*Verification.* The binary gate (the round-10 kiface gate,
+extended) inspects the shipped executable: it disassembles
+`LoadWindowSettings`, `newProjectDirectory`, `NewProject` and
+`OnInit` and counts calls to
+`PATHS::GetDefaultUserProjectsPath`, `wxSetWorkingDirectory`
+and `KIPLATFORM::ENV::GetDocumentsPath`. Measured on the v13
+binary the counts are 0 / 1 / 1 / 0 / 0 (the two 1s are the
+dialogs' pre-existing sidebar shortcuts); the gate requires
+>= 1 / 2 / 2 / 1 / 1 and fails v13 on every count. Whether a
+new project now actually lands in Documents is the device's
+verdict.
+
+### wx patch 0011 — qt-ios-floating-controls-modal-host-and-wx-drag (launch fix round 12, KiCad-Spike-v14)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-07 —
+`patches/wx/0011-qt-ios-floating-controls-modal-host-and-wx-drag.patch`.
+Confined to the floating-controls block patches 0009/0010 added;
+still entirely inside `#if defined( Q_OS_IOS )`.
+
+*Why.* The v13 device screenshots show the bar DOES render — a
+dark pill at the manager's top-right — so the round-11 child
+overlay works. It never moved onto the modal folder-error
+dialog, though: it stayed on the manager behind the dialog,
+which covered the bar's left (Minimize) half, and dragging
+still did not work for the user. Root cause, reproduced on the
+host harness: the block's `windowOf()` resolved an event object
+to a window by walking the QObject parent chain to the
+OUTERMOST widget ancestor. wxQt creates every dialog's Qt
+widget parented to its owner frame's widget (and KiCad's modal
+dialogs — the first-run wizard included — are all parented), so
+the walk overshoots the dialog and lands on the owner frame:
+the controller's "current window" was pinned to the manager
+for every dialog, and the bar could never leave it. Dragging
+had its own defect: the drag path moved the raw QWidget with a
+hand-copied clamp, bypassing `wxWindowQt::DoMoveWindow()` —
+the path whose iOS clamp patch 0009 added — and desyncing wx's
+geometry bookkeeping from the widget's real position.
+
+*What.* `windowOf()` now returns `QWidget::window()`, which
+honours the window flags and yields the dialog itself.
+`pickHost()` first prefers `QApplication::activeModalWidget()`
+while a modal dialog is up, so events from the window beneath
+cannot pull the bar back mid-session. `positionBar()` anchors
+with a 12 pt margin on both axes (the bar previously sat 10 pt
+in with an 8 pt top), takes the host width from the wx-level
+size (`wxWindowQt::QtRetrieveWindowPointer` + `GetSize()`)
+when the host is a wx window, and the host's Move events now
+re-anchor alongside Resize; `refreshBar()` settles the bar's
+size with `adjustSize()` after (re)parenting and re-anchors
+once more after the current event cascade via a deferred call,
+so a host placed by Stage Manager after its Show event still
+ends with the bar fully inside its top-right corner. Drags
+route through a helper that calls `wxWindowQt::Move()` for wx
+windows — the `DoMoveWindow()` path, clamp included — and
+keeps the plain Qt move only for windows with no wx
+counterpart. The bar is now fully opaque with solid buttons
+and at least 44 pt tall, so it cannot blend into the window or
+the surround. Everything else is preserved: child-overlay
+design, the 8 pt tap-versus-drag threshold,
+minimize-to-left-dock strip and tap restore, popup-menu
+exclusion.
+
+*Verification.* The reworked block, extracted verbatim, was
+run under desktop Qt on the offscreen platform: the round-11
+27-check harness passes (its corner-anchor check now expects
+the new 12/12 margin), and a modal reproduction added this
+round — a QMessageBox parented to the manager window, exec'd
+the way wxQt shows KiCad's dialogs, and the same again after a
+file dialog teardown — failed 2 of its 3 scenarios against the
+v13 block (the bar never re-hosted) and passes all of them
+against this one. A binary guard in the extended gate asserts
+the shipped executable carries the new stylesheet literals and
+not the old translucent one. Bar visibility over dialogs, drag
+feel, and the dock/restore behaviour on the iPad remain the
+device's verdict.
