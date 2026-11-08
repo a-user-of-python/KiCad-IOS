@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KiCad‑iOS — The Actual KiCad, Running on iPad</title>
-<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v14: v13's on-device pass confirmed the manager standing with no editor-load error — the root-cause fix device-proven at startup — and the two defects that pass found are fixed: new projects land in the shared Documents folder instead of the app bundle, and the floating window control rides on the window that is actually current, dialogs included, as its drag handle. The complete stock 10.0.1 libraries ride in the bundle, on top of a launch chain proven on a real iPad.">
+<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v15: the editors no longer attempt OpenGL — the canvas choice returns the Cairo software canvas directly, proven in the shipped binary, a stored OpenGL preference is converted at startup, and Preferences stops offering OpenGL — while the 3D viewer remains OpenGL-bound and does not work on iOS. Projects create and open in the shared Documents folder, confirmed on device in v14's pass, and the floating window control rides the window that is actually current, dialogs included. The complete stock 10.0.1 libraries ride in the bundle, on top of a launch chain proven on a real iPad.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -175,19 +175,20 @@
       This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
       its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
       It installs on a real iPad, completes KiCad's first-run wizard, and opens the
-      <strong>KiCad project manager</strong>. The current release, <strong>v14</strong>,
-      stands on a launch level confirmed on a real iPad — the manager up, no editor-load
-      error — and fixes the two defects that confirmation pass found: new projects land
-      in the shared Documents folder instead of the app bundle, and the floating window
-      control rides on whichever window is actually current, dialogs included — as the
-      handle that drags it.
+      <strong>KiCad project manager</strong>. The current release, <strong>v15</strong>,
+      stands on a level confirmed on a real iPad — the manager up, no editor-load error,
+      projects creating and opening in the shared Documents folder — and removes the
+      OpenGL detour: the editors choose the Cairo software canvas directly, with no
+      failure dialog first. The floating window control rides on whichever window is
+      actually current, dialogs included — as the handle that drags it. The 3D viewer
+      remains OpenGL-bound and does not work on iOS; the 2D editors are unaffected.
     </p>
     <div class="chips">
       <span class="chip">Upstream <b>KiCad 10.0.1</b></span>
       <span class="chip">Target <b>iOS arm64</b></span>
       <span class="chip">Runs on <b>M‑series iPad</b></span>
       <span class="chip">License <b>GPLv3</b></span>
-      <span class="chip">Status <b>Current release v14</b></span>
+      <span class="chip">Status <b>Current release v15</b></span>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
@@ -247,8 +248,12 @@
         <p>Every menu opens, every item acts, every button does its real job — checked control by control. Tools that launched separate programs on the desktop — Gerber viewer, calculator, converters, page-layout editor — open inside the app, and the image converter carries its module.</p>
       </div>
       <div class="card">
+        <h3><span class="tick">✓</span>Editors open on the software canvas</h3>
+        <p>The editors never attempt OpenGL. KiCad's default canvas is OpenGL and iOS has none; v14's device pass showed the failure dialog before the Cairo canvas took over. In v15 the canvas choice returns Cairo directly on this port — proven in the shipped binary by the gate — a stored OpenGL preference is converted at startup, and Preferences no longer offers OpenGL. v15's on-device pass runs next.</p>
+      </div>
+      <div class="card">
         <h3><span class="tick">✓</span>A floating window control</h3>
-        <p>The Minimize/Close bar lives <strong>inside</strong> the current window as an overlay — never a separate window iOS layering can bury (v11's device pass never saw that design). v13 put it there; v13's device pass showed it rendered but pinned to the manager, stranded behind modal dialogs, because the host lookup climbed to the outermost window — and its drags bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code; the fixed code passes that reproduction. Drag the bar and the window moves with it; minimize still docks the window to the left edge and a tap restores it. v14's on-device pass runs next. Windows stay clamped inside the screen.</p>
+        <p>The Minimize/Close bar lives <strong>inside</strong> the current window as an overlay — never a separate window iOS layering can bury (v11's device pass never saw that design). v13 put it there; v13's device pass showed it rendered but pinned to the manager, stranded behind modal dialogs, because the host lookup climbed to the outermost window — and its drags bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code; the fixed code passes that reproduction. Drag the bar and the window moves with it; minimize still docks the window to the left edge and a tap restores it. Gate-verified with the off-device reproduction; the bar's own device itemisation is still owed. Windows stay clamped inside the screen.</p>
       </div>
     </div>
   </section>
@@ -292,7 +297,7 @@
         verification. New in v12, a binary-inspection gate reads the shipped executable itself
         and proves the port's code is actually compiled in — the check that would have caught
         v11's miss; run against v11, it fails on every count. In v13 the same gate also proves
-        the floating-controls installer call is present in the shipped executable. A build that fails a gate does not ship.
+        the floating-controls installer call is present in the shipped executable. In v15 the same gate proves the editor canvas choice returns the Cairo canvas in the shipped binary. A build that fails a gate does not ship.
       </p>
     </div>
   </section>
@@ -300,32 +305,36 @@
   <section id="status">
     <h2><span class="bar">/</span> Current status</h2>
     <p class="lead">
-      <strong>Build v14 is the current release.</strong> It stands on a launch level
-      confirmed on hardware: v13's on-device pass (2026‑11‑07) found the manager standing
-      with no editor-load error — the v12 root-cause fix (a build switch on the wrong
-      library target, so three of the port's patches never compiled into v10 or v11 at
-      all — a fact proven from the shipped v11 binary itself) is device-proven at startup.
-      That same pass found two defects, and v14 fixes both: creating a project tried to
-      write inside the app bundle, and the floating bar stayed pinned to the manager
-      behind modal dialogs. The launch chain underneath is device-proven (v10, 2026‑11‑06).
-      <strong>v14's on-device pass is the immediate next step.</strong>
+      <strong>Build v15 is the current release.</strong> v14's on-device pass
+      (2026‑11‑07) confirmed the v14 layer on hardware: projects create and open in the
+      shared Documents folder, and the editors open and work. That same pass watched an
+      editor fail on KiCad's default OpenGL canvas — failure dialog first — before the
+      Cairo software canvas took over, and reported one unidentified error dialog during
+      file creation that did not block entry. v15 removes the OpenGL attempt entirely,
+      and the create flow behind that dialog stands audited, every write in Documents.
+      The launch chain underneath is device-proven (v10, 2026‑11‑06), and startup is
+      device-proven from v13's pass.
+      <strong>v15's on-device pass is the immediate next step.</strong>
     </p>
     <ul class="status-list">
       <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware (v10).</li>
       <li><span class="tag tag-proven">Proven</span><strong>Startup, confirmed on device.</strong> v13's on-device pass (2026‑11‑07) found the manager standing with no editor-load error — the v12 root-cause fix holds on hardware at startup.</li>
+      <li><span class="tag tag-proven">Proven</span><strong>Projects create and open.</strong> v14's on-device pass (2026‑11‑07) created and opened projects under the Documents default. The same pass showed the OpenGL failure dialog before the software canvas took over, and one unidentified error dialog during creation that did not block entry.</li>
+      <li><span class="tag tag-shipped">Shipped in v15</span><strong>No OpenGL attempt in the editors.</strong> KiCad's default canvas is OpenGL; iOS has none. The function every editor frame uses to choose its canvas returns the Cairo software canvas directly on this port — proven in the shipped binary by the gate. A stored OpenGL preference from an earlier install is converted at startup, and the Preferences rendering-engine choice no longer offers OpenGL.</li>
+      <li><span class="tag tag-shipped">Shipped in v15</span><strong>File creation, audited.</strong> The whole create flow was audited for v15: every write in it lands in the app's Documents folder, and no remaining bad-path step was found — so v15 changes nothing there. If the unidentified dialog from v14's pass recurs, its exact text matches against a standing suspect list.</li>
       <li><span class="tag tag-shipped">Shipped in v14</span><strong>Projects land in Documents.</strong> v13's pass found New Project failing outright — it tried to create the project folder inside the app bundle: 'Operation not permitted'. The cause is traced: a persisted recent-projects path defaults to blank and overwrote the correct Documents default at every launch, so the dialog opened with no folder and the toolkit fell back to the app's own folder. v14 restores the Documents projects folder whenever that path is blank, guards the create flows at the point of use, and starts the app with its working directory in Documents. Projects now default to the app's shared Documents folder.</li>
       <li><span class="tag tag-shipped">Shipped in v14</span><strong>The bar follows the current window.</strong> v13's bar rendered but stayed pinned to the manager behind modal dialogs — the host-window lookup climbed to the outermost window, overshooting every dialog — and dragging bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code, and the fixed code passes that reproduction.</li>
       <li><span class="tag tag-shipped">Shipped in v13</span><strong>The window controls, rebuilt.</strong> The floating Minimize/Close bar no longer floats as a separate window: that construction could be buried by iOS window layering, and v11's on-device pass never saw the bar. In v13 the bar is a child overlay re-parented into whichever window is current — the manager, an editor frame, or the modal dialog itself — and it is the window's drag handle: drag it and the window moves with it, with a small movement threshold keeping taps and drags apart. Minimize still docks the window into a strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Shipped and gate-verified: the binary gate proves the installer call in the shipped executable. Its on-device pass ran on 2026‑11‑07: the bar rendered at the manager — and the pass exposed the host-tracking defect v14 fixes.</li>
       <li><span class="tag tag-shipped">Shipped in v12</span><strong>The root cause, fixed.</strong> With the build switch set on the correct target, the editor-module search fix and the stock-library location fix are compiled in and active for real. The editor modules also sit at the bundle root — a belt-and-braces copy in the exact location the app asks for first — and a startup repair re-points library tables inherited from the broken builds, so an upgrade lands on the bundled defaults without redoing setup. A new gate inspects the shipped binary and verifies all of it; against v11 it fails on every count.</li>
       <li><span class="tag tag-shipped">Shipped in v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's libraries ship complete — 222 symbol libraries and 155 footprint libraries — with the default library tables resolving to them, plus 19 project templates and the demo projects. The build gates prove the tables resolve; v11's setup did not find the defaults on device — the fix is compiled into the current release and its on-device pass runs next.</li>
       <li><span class="tag tag-shipped">Shipped in v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control. Tools that launched separate programs on the desktop open inside the app, and the image converter carries its module.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>The 3D viewer does not work on iOS.</strong> It remains OpenGL-bound, and this port leaves it that way. The 2D editors are unaffected.</li>
       <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. The floating bar is the handle instead — drag it and the window follows, through the window system's own move path. Windows are clamped inside the visible screen area.</li>
     </ul>
     <p class="lead" style="margin-top:22px">
-      v14's on-device pass runs next: create a project and watch it land in Documents, the
-      bar riding on modal dialogs and dragging the window, each editor open, and the library
-      choosers populated — the library verdict is still outstanding from v13's pass, where
-      the project error stopped the test first.
+      v15's on-device pass runs next: the first editor open with no OpenGL dialog,
+      project creation with zero dialogs — or the remaining error's exact text — and the
+      library choosers itemised, the library verdict still outstanding.
       The full change ledger for the port lives in the repository's
       <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
     </p>
