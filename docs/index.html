@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KiCad‑iOS — The Actual KiCad, Running on iPad</title>
-<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v13: the root cause behind the editor-load and library-location failures is found — proven from the shipped binary — and fixed, the complete stock 10.0.1 libraries ride in the bundle, and the floating window control is rebuilt inside the window as its drag handle, on top of a launch chain proven on a real iPad.">
+<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v14: v13's on-device pass confirmed the manager standing with no editor-load error — the root-cause fix device-proven at startup — and the two defects that pass found are fixed: new projects land in the shared Documents folder instead of the app bundle, and the floating window control rides on the window that is actually current, dialogs included, as its drag handle. The complete stock 10.0.1 libraries ride in the bundle, on top of a launch chain proven on a real iPad.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -175,17 +175,19 @@
       This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
       its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
       It installs on a real iPad, completes KiCad's first-run wizard, and opens the
-      <strong>KiCad project manager</strong>. The current release, <strong>v13</strong>,
-      carries KiCad's complete stock libraries inside the bundle, fixes the root cause
-      that kept the editor modules from loading in v11, and rebuilds the floating window
-      control inside the window — as the handle that drags it.
+      <strong>KiCad project manager</strong>. The current release, <strong>v14</strong>,
+      stands on a launch level confirmed on a real iPad — the manager up, no editor-load
+      error — and fixes the two defects that confirmation pass found: new projects land
+      in the shared Documents folder instead of the app bundle, and the floating window
+      control rides on whichever window is actually current, dialogs included — as the
+      handle that drags it.
     </p>
     <div class="chips">
       <span class="chip">Upstream <b>KiCad 10.0.1</b></span>
       <span class="chip">Target <b>iOS arm64</b></span>
       <span class="chip">Runs on <b>M‑series iPad</b></span>
       <span class="chip">License <b>GPLv3</b></span>
-      <span class="chip">Status <b>Current release v13</b></span>
+      <span class="chip">Status <b>Current release v14</b></span>
     </div>
     <div class="cta">
       <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
@@ -246,7 +248,7 @@
       </div>
       <div class="card">
         <h3><span class="tick">✓</span>A floating window control</h3>
-        <p>Rebuilt in v13: the Minimize/Close bar lives <strong>inside</strong> the current window as an overlay — manager, editor, or dialog — instead of floating as a separate window iOS layering could bury (v11's device pass never saw that design). Drag the bar and the window moves with it; minimize still docks the window to the left edge and a tap restores it. Shipped and gate-verified — the gate proves the installer call in the shipped binary; the on-device pass runs next. Windows stay clamped inside the screen.</p>
+        <p>The Minimize/Close bar lives <strong>inside</strong> the current window as an overlay — never a separate window iOS layering can bury (v11's device pass never saw that design). v13 put it there; v13's device pass showed it rendered but pinned to the manager, stranded behind modal dialogs, because the host lookup climbed to the outermost window — and its drags bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code; the fixed code passes that reproduction. Drag the bar and the window moves with it; minimize still docks the window to the left edge and a tap restores it. v14's on-device pass runs next. Windows stay clamped inside the screen.</p>
       </div>
     </div>
   </section>
@@ -298,27 +300,32 @@
   <section id="status">
     <h2><span class="bar">/</span> Current status</h2>
     <p class="lead">
-      <strong>Build v13 is the current release.</strong> It carries v12's fix for the root
-      cause that v11's on-device pass (2026‑11‑07) exposed: a build switch that three of the
-      port's patches depend on sat on the wrong library target, so those patches were never
-      compiled into v10 or v11 at all — a fact proven from the shipped v11 binary itself.
-      On top of that, v13 rebuilds the floating window control inside the window and makes
-      it the window's drag handle. The launch chain underneath is device-proven (v10,
-      2026‑11‑06); beyond it, nothing in v12 or v13 is device-proven yet.
-      <strong>v13's on-device pass is the immediate next step.</strong>
+      <strong>Build v14 is the current release.</strong> It stands on a launch level
+      confirmed on hardware: v13's on-device pass (2026‑11‑07) found the manager standing
+      with no editor-load error — the v12 root-cause fix (a build switch on the wrong
+      library target, so three of the port's patches never compiled into v10 or v11 at
+      all — a fact proven from the shipped v11 binary itself) is device-proven at startup.
+      That same pass found two defects, and v14 fixes both: creating a project tried to
+      write inside the app bundle, and the floating bar stayed pinned to the manager
+      behind modal dialogs. The launch chain underneath is device-proven (v10, 2026‑11‑06).
+      <strong>v14's on-device pass is the immediate next step.</strong>
     </p>
     <ul class="status-list">
       <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware (v10).</li>
-      <li><span class="tag tag-shipped">Shipped in v13</span><strong>The window controls, rebuilt.</strong> The floating Minimize/Close bar no longer floats as a separate window: that construction could be buried by iOS window layering, and v11's on-device pass never saw the bar. In v13 the bar is a child overlay re-parented into whichever window is current — the manager, an editor frame, or the modal dialog itself — and it is the window's drag handle: drag it and the window moves with it, with a small movement threshold keeping taps and drags apart. Minimize still docks the window into a strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Shipped and gate-verified: the binary gate proves the installer call in the shipped executable. The on-device pass runs next.</li>
+      <li><span class="tag tag-proven">Proven</span><strong>Startup, confirmed on device.</strong> v13's on-device pass (2026‑11‑07) found the manager standing with no editor-load error — the v12 root-cause fix holds on hardware at startup.</li>
+      <li><span class="tag tag-shipped">Shipped in v14</span><strong>Projects land in Documents.</strong> v13's pass found New Project failing outright — it tried to create the project folder inside the app bundle: 'Operation not permitted'. The cause is traced: a persisted recent-projects path defaults to blank and overwrote the correct Documents default at every launch, so the dialog opened with no folder and the toolkit fell back to the app's own folder. v14 restores the Documents projects folder whenever that path is blank, guards the create flows at the point of use, and starts the app with its working directory in Documents. Projects now default to the app's shared Documents folder.</li>
+      <li><span class="tag tag-shipped">Shipped in v14</span><strong>The bar follows the current window.</strong> v13's bar rendered but stayed pinned to the manager behind modal dialogs — the host-window lookup climbed to the outermost window, overshooting every dialog — and dragging bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code, and the fixed code passes that reproduction.</li>
+      <li><span class="tag tag-shipped">Shipped in v13</span><strong>The window controls, rebuilt.</strong> The floating Minimize/Close bar no longer floats as a separate window: that construction could be buried by iOS window layering, and v11's on-device pass never saw the bar. In v13 the bar is a child overlay re-parented into whichever window is current — the manager, an editor frame, or the modal dialog itself — and it is the window's drag handle: drag it and the window moves with it, with a small movement threshold keeping taps and drags apart. Minimize still docks the window into a strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Shipped and gate-verified: the binary gate proves the installer call in the shipped executable. Its on-device pass ran on 2026‑11‑07: the bar rendered at the manager — and the pass exposed the host-tracking defect v14 fixes.</li>
       <li><span class="tag tag-shipped">Shipped in v12</span><strong>The root cause, fixed.</strong> With the build switch set on the correct target, the editor-module search fix and the stock-library location fix are compiled in and active for real. The editor modules also sit at the bundle root — a belt-and-braces copy in the exact location the app asks for first — and a startup repair re-points library tables inherited from the broken builds, so an upgrade lands on the bundled defaults without redoing setup. A new gate inspects the shipped binary and verifies all of it; against v11 it fails on every count.</li>
       <li><span class="tag tag-shipped">Shipped in v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's libraries ship complete — 222 symbol libraries and 155 footprint libraries — with the default library tables resolving to them, plus 19 project templates and the demo projects. The build gates prove the tables resolve; v11's setup did not find the defaults on device — the fix is compiled into the current release and its on-device pass runs next.</li>
       <li><span class="tag tag-shipped">Shipped in v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control. Tools that launched separate programs on the desktop open inside the app, and the image converter carries its module.</li>
-      <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. In v13 the floating bar is the handle instead — drag it and the window follows. Windows are clamped inside the visible screen area.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. The floating bar is the handle instead — drag it and the window follows, through the window system's own move path. Windows are clamped inside the visible screen area.</li>
     </ul>
     <p class="lead" style="margin-top:22px">
-      v13's on-device pass runs next: clean startup with no load dialogs, each editor open,
-      the wizard's library step served from the bundled defaults, the bar present inside the
-      window and dragging it.
+      v14's on-device pass runs next: create a project and watch it land in Documents, the
+      bar riding on modal dialogs and dragging the window, each editor open, and the library
+      choosers populated — the library verdict is still outstanding from v13's pass, where
+      the project error stopped the test first.
       The full change ledger for the port lives in the repository's
       <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
     </p>
