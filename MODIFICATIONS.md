@@ -1155,3 +1155,63 @@ the shipped executable carries the new stylesheet literals and
 not the old translucent one. Bar visibility over dialogs, drag
 feel, and the dock/restore behaviour on the iPad remain the
 device's verdict.
+
+### KiCad patch 0035 — ios-cairo-canvas-default (launch fix round 13, KiCad-Spike-v15)
+
+**`common/eda_draw_frame.cpp`, `kicad/kicad.cpp`,
+`common/dialogs/panel_common_settings.cpp`,
+`eeschema/dialogs/dialog_import_symbol_select.cpp`,
+`eeschema/CMakeLists.txt`** (KiCad 10.0.1) —
+2026-11-07 — `patches/kicad/0035-ios-cairo-canvas-default.patch`.
+Five changes, every code change inside `#ifdef KICAD_IOS_PORT`;
+no upstream logic is altered and other platforms are unaffected.
+
+*Why.* On device in v14 the editors open and work, but the first
+editor raised "Could not use OpenGL, falling back to software
+rendering". iOS has no OpenGL; this port's canvas is the Cairo
+software canvas, settled when the port was designed. Upstream
+persists the canvas choice as `graphics.canvas_type`, whose
+compiled-in default is `GAL_TYPE_OPENGL`, and every editor frame
+resolves its canvas through
+`EDA_DRAW_FRAME::loadCanvasTypeSetting()` — so on first run and
+with any stored OpenGL value, the GAL attempted OpenGL, failed
+its feature check, showed the dialog, and only then fell back.
+A stored value from an earlier build would keep forcing the
+attempt on every launch.
+
+*What.* (1) `loadCanvasTypeSetting()` returns
+`GAL_TYPE_CAIRO` immediately under the port define, before the
+stored value is read — the single choke point every frame's
+canvas resolution flows through, covering first run and
+carried-over configurations alike. (2) `APP_KICAD::OnInit()`
+coerces the stored `m_Graphics.canvas_type` to
+`GAL_TYPE_CAIRO` before any window exists: a few previews (the
+symbol chooser's fallback branch, the schematic colour-settings
+preview, the footprint preview panel) read the stored value
+directly instead of resolving through (1); the coerced value is
+what the settings manager saves back, so a stored OpenGL value
+heals. (3) The Preferences rendering-engine choice is hidden
+(mirroring the `__WXMAC__` hide in the same constructor) and its
+data transfer writes `GAL_TYPE_CAIRO` unconditionally — the
+choice does not exist on this port and cannot write OpenGL
+back. (4) The symbol-import dialog's preview widget, the one
+place upstream passes `GAL_TYPE_OPENGL` literally, passes
+`GAL_TYPE_CAIRO`. (5) `eeschema/CMakeLists.txt` defines
+`KICAD_IOS_PORT` for the `eeschema_kiface_objects` target —
+the same per-target define patches 0023/0026/0032 place on the
+`kicad`, `common` and `kicommon` targets — so change (4)
+compiles in; no other port blocks exist in the eeschema
+sources, so the define activates nothing else. The 3D viewer
+is not touched: it is genuinely OpenGL-bound and remains a
+named limitation of the port rather than something faked.
+
+*Verification.* The patch series 0001–0035 applies cleanly to
+the pristine 10.0.1 sources. The extended binary gate asserts
+from the shipped bytes that, in every editor kiface,
+`loadCanvasTypeSetting` is the trivial constant return (the
+v14 body disassembles to 161 instructions calling `Pgm()` and
+`wxGetEnv`; the gate fails v14 on exactly this count), that the
+executable's `OnInit` calls `PGM_BASE::GetCommonSettings`
+(v14: 0 calls), and that the symbol-import dialog passes
+GAL_TYPE 2, not 1, to its preview widget. Whether the OpenGL
+dialog is truly gone on the iPad remains the device's verdict.
