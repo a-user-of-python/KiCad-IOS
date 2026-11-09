@@ -1215,3 +1215,193 @@ executable's `OnInit` calls `PGM_BASE::GetCommonSettings`
 (v14: 0 calls), and that the symbol-import dialog passes
 GAL_TYPE 2, not 1, to its preview widget. Whether the OpenGL
 dialog is truly gone on the iPad remains the device's verdict.
+
+### KiCad patch 0036 — ios-no-opengl-backend (round 16, KiCad-Spike-v16)
+
+**`common/draw_panel_gal.cpp`** (KiCad 10.0.1) —
+2026-11-09 — `patches/kicad/0036-ios-no-opengl-backend.patch`.
+Both changes inside `#ifdef KICAD_IOS_PORT` in
+`EDA_DRAW_PANEL_GAL::SwitchBackend`; no upstream logic is altered
+and other platforms are unaffected. The file is compiled by the
+`common` target, which carries the port define since patch 0026.
+
+*Why.* Patch 0035 made every editor frame resolve its canvas type
+to Cairo, and on device in v15 the Schematic Editor opens and
+draws on the software canvas — but the modal "Could not use
+OpenGL, falling back to software rendering" dialog (detail:
+"Failed to load OpenGL via loader") still appeared occasionally.
+That dialog+detail pair exists only in this function: it is the
+sole caller of `OPENGL_GAL::CheckFeatures` and the only place an
+`OPENGL_GAL` is constructed for an editor canvas, so some
+auxiliary path (a preview/chooser panel obtaining its GAL type
+from a route other than `loadCanvasTypeSetting()`) still
+requested `GAL_TYPE_OPENGL` here. *What.* (1) At function entry,
+a `GAL_TYPE_OPENGL` request is coerced to `GAL_TYPE_CAIRO` before
+the early return, so the recorded backend (`m_backend`, assigned
+only from the request at the end of this function) can never be
+OpenGL on iOS — which also keeps `DoRePaint`'s GL recovery branch
+(guarded on `GAL_FALLBACK != m_backend`) unreachable. (2) The
+`GAL_TYPE_OPENGL` switch case is compiled on iOS to construct the
+Cairo GAL directly (upstream body kept in the `#else`), so no
+OpenGL construction, feature check or dialog remains in the
+compiled function at all.
+
+*Verification.* The extended binary gate disassembles the shipped
+`SwitchBackend` in all five GAL kifaces and requires zero
+`CheckFeatures` calls and zero `OPENGL_GAL` constructions with at
+least one `CAIRO_GAL` construction; the shipped v15 binary is the
+negative control (1 / 1 / 2 in every kiface). Whether the dialog
+is gone on the iPad for good is the device's verdict.
+
+### KiCad patch 0037 — ios-frames-fill-screen (round 16, KiCad-Spike-v16)
+
+**`common/eda_base_frame.cpp`** (KiCad 10.0.1) —
+2026-11-09 — `patches/kicad/0037-ios-frames-fill-screen.patch`.
+One change inside `#ifdef KICAD_IOS_PORT`.
+
+*Why.* On device in v15 the manager window sat in a middle band
+with large black areas above and below: KiCad frames use modest
+default sizes (manager 850×540, editors 1280×720) and
+`EDA_BASE_FRAME::LoadWindowState()` restores the persisted
+geometry, maximising only if the stored state says so — so a
+carried-over or default state leaves the frame unmaximised and
+the area outside it is the platform surface's black. *What.*
+`LoadWindowState()` calls `Maximize()` unconditionally on iOS,
+regardless of the persisted state, so every frame opens filling
+the screen; the change carries the trace marker "frames always
+fill the screen".
+
+*Verification.* The binary gate requires that marker in the
+shipped manager executable and in `_eeschema.kiface` (absent from
+both in v15, while the neighbouring upstream window-state string
+is present, proving the search). The companion presentation fix
+is in the packager (see the packaging entry below). Whether the
+windows fill the screen on the iPad is the device's verdict.
+
+### wx patch 0012 — qt-ios-gesture-bridge-fixes (round 16, KiCad-Spike-v16)
+
+**`include/wx/qt/private/winevent.h`, `src/qt/window.cpp`**
+(wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0012-qt-ios-gesture-bridge-fixes.patch`.
+
+*Why.* KiCad's view controls have handled pinch zoom and pan
+gestures upstream all along (`WX_VIEW_CONTROLS::onZoomGesture` /
+`onPanGesture`, zooming at the gesture position through
+`VIEW::SetScale`), but on the wxQt port no gesture event ever
+reached them: gestures are grabbed per-QWidget while KiCad
+enables them only on the draw panel (a QScrollArea whose viewport
+and GAL child window receive the actual touches), the scroll area
+consumed QGestureEvents as scrollbar moves, the translator
+dropped the gesture-start event and centre-only updates, and the
+positions it forwarded were in the screen frame (pan even used
+the cursor position). *What.* The bridge now grabs the gestures
+also on the drawing widget/viewport, emits the start and
+centre-change events, and converts gesture positions to client
+coordinates before posting the wx gesture events. Carries the
+trace literal "wxWindowQt::EnableTouchEvents mask=%d" under the
+"kicad-ios-round16" trace mask.
+
+*Verification.* The binary gate requires the patch's trace
+literal and an `EnableTouchEvents` symbol in both
+`_eeschema.kiface` and `_pcbnew.kiface` (both absent in v15).
+Whether Qt delivers the gestures on the device is the device's
+verdict; the report carries a per-editor test script.
+
+### KiCad patch 0038 — ios-gal-canvas-touch-gestures (round 16, KiCad-Spike-v16)
+
+**`common/gal/cairo/cairo_gal.cpp`** (KiCad 10.0.1) —
+2026-11-09 — `patches/kicad/0038-ios-gal-canvas-touch-gestures.patch`.
+One addition inside `#ifdef __WXQT__` (the `gal` target does not
+receive `KICAD_IOS_PORT`; `__WXQT__` is the port condition that
+reaches it, and on this port wxQt implies iOS).
+
+*Why.* Companion to wx patch 0012: `WX_VIEW_CONTROLS` enables
+touch gestures on the draw panel, but wxQt grabs Qt gestures
+per-QWidget and the touch points land on the GAL canvas window —
+a child window filling the panel — which never grabbed any
+gesture, so the Qt recognisers never ran. *What.* The
+`CAIRO_GAL` constructor calls
+`EnableTouchEvents( wxTOUCH_ZOOM_GESTURE | wxTOUCH_PAN_GESTURES )`
+on the canvas window itself; the events it binds forward them to
+the panel, where the upstream handlers zoom at the pinch centroid
+and pan. Every GAL canvas is created through
+`EDA_DRAW_PANEL_GAL::SwitchBackend`, so the schematic and PCB
+editors (and the other GAL frames) gain the gestures from this
+one call. Carries the trace literal "CAIRO_GAL: wxQt touch
+gestures enabled on GAL canvas".
+
+*Verification.* Same gate as wx patch 0012: the literal must be
+present in both editor kifaces (absent in v15).
+
+### wx patch 0013 — qt-ios-floating-controls-coordinate-drag-and-unmaximize (round 16, KiCad-Spike-v16)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0013-qt-ios-floating-controls-coordinate-drag-and-unmaximize.patch`.
+
+*Why.* Two stacked defects defeated the round-13/14 drag
+attempts. (1) Arming: the bar's drag armed only on a widget-level
+mouse press inside the target window, but on iOS the guaranteed
+delivery is at platform level to the top-level QWindow; the
+widget-level press depends on touch-to-mouse synthesis, which is
+unreliable for finger drags on this Qt kit — and most of the bar
+is buttons anyway. (2) The move itself: KiCad's editor frames are
+maximised, and the iOS platform window's `setGeometry` only
+records a new rect as *normal* geometry for a maximised window —
+the view controller re-asserts the maximised geometry, so both
+`QWidget::move()` (patch 0010) and `wxWindowQt::Move()` (patch
+0011) were discarded; desktop Qt clears the window state on
+`move()`, which is why the host harnesses passed while the device
+did not. *What.* The floating-controls block now arms drags from
+platform-level mouse *and* touch presses by coordinates, adds a
+labelled "Move" grip (`wxQtIOSFloatingControlsGrip`) to the bar,
+resets the drag on TouchCancel, and at drag start un-maximises a
+maximised/fullscreen window via `showNormal()` — the call
+`wxTopLevelWindowQt::Restore()` makes — and places it at its
+floating size under the pointer before moving it; Minimize
+un-maximises first too.
+
+*Verification.* A host harness injecting events at platform level
+(not `sendEvent`) with two frames and a parented modal dialog
+passes all 22 checks across 5 scenarios with the patch-0013 block
+and fails the shipped v15 block on the no-synthesis, maximised
+and touch-cancel scenarios (reproducing the earlier false-pass
+mechanism); the binary gate requires the grip marker in the
+shipped executable and both editor kifaces (absent in v15).
+Whether a real finger drag moves the windows on the iPad is the
+device's verdict — no stronger claim is made.
+
+### Packaging (no upstream change) — JSON schemas bundled + launch-screen plist (round 16, KiCad-Spike-v16)
+
+2026-11-09 — `scripts/package_ios.py`. Two packaging defects
+behind two of the v15 device reports. (1) *Schemas.* KiCad loads
+its JSON validation schemas from `<stock data>/schemas/`; three
+constructors run at ordinary startup and log "schema file '%s'
+not found" when the file is absent — `API_PLUGIN_MANAGER` (built
+by `PGM_BASE` in every app, `api.v1.schema.json`) and
+`PLUGIN_CONTENT_MANAGER` (built by the manager frame at startup,
+`pcm.v1.schema.json` + `pcm.v2.schema.json`). Desktop installs
+compose that directory from three source dirs; this packager
+never ran `cmake --install` and copied none of them, so every
+bundle through v15 shipped without `share/schemas/` and the
+manager raised the modal schema-file error (the file-error seen
+since v13 whose text was never captured until the v15 device
+screenshots showed the bundle path). The packager now copies the
+full union from the three source dirs into `share/schemas/` and
+fails the build if any of the three startup schemas is missing.
+(2) *Presentation.* The packager's Info.plist declared no launch
+screen of any kind and set `UIRequiresFullScreen` to False, so
+iPadOS presented the app at a legacy screen size and magnified
+it — the whole UI (menus, text, icons) rendered oversized, since
+every layer below (the platform screen, wxQt, KiCad layout)
+passes the reported size through faithfully. The plist now
+declares an empty `UILaunchScreen` and `UIRequiresFullScreen`
+True, matching the control case of the FEBio Studio app on the
+same device and Qt kit, whose executables carry identical
+`LC_BUILD_VERSION` values — refuting an SDK-version cause.
+
+*Verification.* The binary gate checks the shipped IPA's zip
+listing for the three startup schemas (v15: zero schema files)
+and reads the shipped Info.plist with plistlib (v15: no launch
+screen key, `UIRequiresFullScreen` False). Whether the error
+dialog and the oversized rendering are gone on the iPad is the
+device's verdict.
