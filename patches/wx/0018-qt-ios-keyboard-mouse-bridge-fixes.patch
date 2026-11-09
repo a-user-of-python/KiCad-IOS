@@ -1,0 +1,206 @@
+--- a/src/qt/converter.cpp
++++ b/src/qt/converter.cpp
+@@ -18,6 +18,7 @@
+     #include <QtCore/QTime>
+ #endif // wxUSE_DATETIME
+ 
++#include "wx/log.h"
+ #include "wx/qt/private/converter.h"
+ 
+ 
+@@ -164,6 +165,24 @@
+             return WXK_BACK;
+         case Qt::Key_Tab:
+             return WXK_TAB;
++        case Qt::Key_Backtab:
++            wxLogTrace( "kicad-ios-round16-jobk",
++                        "wxQtConvertKeyCode Backtab -> WXK_TAB" );
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): Qt delivers Shift+Tab as Key_Backtab, which
++            // the old code dropped (key code 0), breaking reverse
++            // tab navigation and Shift+Tab hotkeys. wxGTK maps its
++            // equivalent (GDK_KEY_ISO_Left_Tab) to WXK_TAB too; the
++            // Shift modifier carried by the event keeps the direction.
++            return WXK_TAB;
++        case Qt::Key_Enter:
++            wxLogTrace( "kicad-ios-round16-jobk",
++                        "wxQtConvertKeyCode Enter -> WXK_NUMPAD_ENTER" );
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): the keypad Enter key, when it arrives
++            // without Qt::KeypadModifier (the modifier branch above
++            // already maps it there), was dropped as key code 0.
++            return WXK_NUMPAD_ENTER;
+         case Qt::Key_Return:
+             return WXK_RETURN;
+         case Qt::Key_Escape:
+--- a/src/qt/window.cpp
++++ b/src/qt/window.cpp
+@@ -435,6 +435,23 @@
+ 
+         m_qtContainer->setHorizontalScrollBarPolicy( horzPolicy );
+         m_qtContainer->setVerticalScrollBarPolicy( vertPolicy );
++
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++        // enable mouse tracking on the scroll container's viewport. The
++        // wxQtEventSignalHandler constructor enables tracking on the
++        // handler widget itself, but for a scrolled window the widget
++        // actually under the pointer is the container's viewport (a plain
++        // QWidget created by Qt, e.g. for KiCad's EDA_DRAW_PANEL_GAL,
++        // which is a wxScrolledCanvas and therefore a wxQtScrollArea
++        // here). Qt only generates mouse move events for the widget
++        // under the pointer when that widget has mouse tracking enabled
++        // (or a button is held), so with the viewport's default tracking
++        // off, a hardware mouse produced no wxEVT_MOTION at all while
++        // hovering the editors' canvases -- no crosshair movement, no
++        // snapping feedback, and no wxEVT_ENTER_WINDOW-driven focus
++        // stealing -- while drags (button held) appeared to work.
++        if ( QWidget* viewport = m_qtContainer->viewport() )
++            viewport->setMouseTracking( true );
+     }
+ 
+     if ( !wxWindowBase::CreateBase( parent, id, pos, size, style, wxDefaultValidator, name ))
+@@ -1609,29 +1626,89 @@
+ 
+ bool wxWindowQt::QtHandleWheelEvent ( QWidget *WXUNUSED( handler ), QWheelEvent *event )
+ {
+-    wxMouseEvent e( wxEVT_MOUSEWHEEL );
++    // [KiCad-IOS port] Rewritten 2026-11-09 for iOS (round 16,
++    // KiCad-V1). The old translation had three defects, each invisible
++    // with a coarse desktop wheel but fatal or misleading for the
++    // pointer devices used with an iPad:
++    //
++    //   (1) The axis test was "angleDelta().y() > 0": a downward
++    //       scroll (y < 0) was reported as wxMOUSE_WHEEL_HORIZONTAL,
++    //       so KiCad's WX_VIEW_CONTROLS::onWheel took its horizontal
++    //       pan branch for ordinary downward vertical scrolling and
++    //       never zoomed on scroll-down.
++    //   (2) The rotation was angleDelta()/8 (wheel DEGREES), but the
++    //       wx convention, followed by wxMSW and wxGTK, is wheel
++    //       DELTA units with m_wheelDelta == 120 per notch -- which
++    //       is exactly what angleDelta() already is (eighths of a
++    //       degree, 120 per 15-degree notch). Dividing by 8 made
++    //       every magnitude 8x too small (zoom steps and pan speed),
++    //       and the integer division truncated the small per-event
++    //       deltas of high-resolution wheels and trackpads to zero,
++    //       dropping those events entirely.
++    //   (3) The event's keyboard modifiers and mouse buttons were
++    //       never copied, so Ctrl/Shift/Alt+wheel always looked like
++    //       an unmodified wheel to consumers (KiCad selects zoom vs
++    //       horizontal/vertical pan by modifier).
++    //
++    // Continuous devices (Magic Mouse, Magic Keyboard trackpad) are
++    // the sibling FEBio Studio iOS port's documented case on this
++    // same Qt kit: they deliver pixelDelta() and no usable notch
++    // steps. When a pixel delta is present it is therefore used
++    // directly (one wx rotation unit per pixel, so a 120-pixel flick
++    // is one notch-equivalent); otherwise the angle delta is used
++    // as-is. Like wxGTK's smooth-scroll path, one wx event is sent
++    // per non-zero axis, so diagonal trackpad scrolls pan on both
++    // axes instead of being forced onto one.
+ #if (QT_VERSION >= QT_VERSION_CHECK(5, 15, 0))
+-    QPoint qPt = event->position().toPoint();
+-    wxMouseWheelAxis wheelAxis = event->angleDelta().y() > 0
+-                               ? wxMOUSE_WHEEL_VERTICAL : wxMOUSE_WHEEL_HORIZONTAL;
+-    int wheelRotation = wheelAxis == wxMOUSE_WHEEL_VERTICAL
+-                      ? (event->angleDelta().y() / 8) : (event->angleDelta().x() / 8);
++    const QPoint qPt = event->position().toPoint();
+ #else
+-    QPoint qPt = event->pos();
+-    wxMouseWheelAxis wheelAxis = event->orientation() == Qt::Vertical
+-                               ? wxMOUSE_WHEEL_VERTICAL : wxMOUSE_WHEEL_HORIZONTAL;
+-    int wheelRotation = event->delta();
++    const QPoint qPt = event->pos();
+ #endif
+-    e.m_synthesized = event->source() != Qt::MouseEventSource::MouseEventNotSynthesized;
+-    e.SetPosition( wxQtConvertPoint( qPt ) );
+-    e.SetEventObject(this);
+ 
+-    e.m_wheelAxis = wheelAxis;
+-    e.m_wheelRotation = wheelRotation;
+-    e.m_linesPerAction = 3;
+-    e.m_wheelDelta = 120;
++    const QPoint angleDelta = event->angleDelta();
++    const QPoint pixelDelta = event->pixelDelta();
+ 
+-    return ProcessWindowEvent( e );
++    const bool usePixels = !pixelDelta.isNull();
++
++    const int deltaX = usePixels ? pixelDelta.x() : angleDelta.x();
++    const int deltaY = usePixels ? pixelDelta.y() : angleDelta.y();
++
++    if ( deltaX == 0 && deltaY == 0 )
++        return false;
++
++    wxLogTrace( "kicad-ios-round16-jobk",
++                "wxWindowQt::QtHandleWheelEvent pixels=%d dx=%d dy=%d",
++                (int)usePixels, deltaX, deltaY );
++
++    const auto sendAxis = [this, event, qPt]( wxMouseWheelAxis axis, int rotation )
++    {
++        wxMouseEvent e( wxEVT_MOUSEWHEEL );
++
++        e.m_synthesized = event->source() != Qt::MouseEventSource::MouseEventNotSynthesized;
++        e.SetPosition( wxQtConvertPoint( qPt ) );
++        e.SetEventObject(this);
++
++        wxQtFillMouseButtons( event->buttons(), &e );
++        wxQtFillKeyboardModifiers( event->modifiers(), &e );
++
++        e.m_wheelAxis = axis;
++        e.m_wheelRotation = rotation;
++        e.m_linesPerAction = 3;
++        e.m_columnsPerAction = 3;
++        e.m_wheelDelta = 120;
++
++        return ProcessWindowEvent( e );
++    };
++
++    bool handled = false;
++
++    if ( deltaY != 0 )
++        handled = sendAxis( wxMOUSE_WHEEL_VERTICAL, deltaY ) || handled;
++
++    if ( deltaX != 0 )
++        handled = sendAxis( wxMOUSE_WHEEL_HORIZONTAL, deltaX ) || handled;
++
++    return handled;
+ }
+ 
+ 
+@@ -1685,6 +1762,36 @@
+     if ( event->isAutoRepeat() && event->type() == QEvent::KeyRelease )
+         return true;
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++    // generate wxEVT_CHAR_HOOK before the key-down/char pair, as
++    // wxGTK (SendCharHookEvent in src/gtk/window.cpp) and wxMSW do.
++    // wxQt never generated it at all, so every CHAR_HOOK consumer
++    // was dead in this port: KiCad's DIALOG_SHIM (dialog undo/redo,
++    // Ctrl+U units toggle, Shift/Ctrl+Return, Tab order, Escape
++    // edit-cancel), wxDialogBase's Escape handling, grid/scintilla
++    // tricks, and the GAL canvas, whose TOOL_DISPATCHER is bound to
++    // both CHAR_HOOK and CHAR and is written to consume a hotkey at
++    // CHAR_HOOK stage -- with the untranslated (uppercase) key code
++    // -- and only let CHAR follow when the hook is skipped. Without
++    // the hook, Alt-modified keys in particular reached the
++    // dispatcher only as CHAR events whose key code had already
++    // been replaced by the translated text character. If the hook
++    // is processed and not skipped, the key is consumed here and
++    // neither wxEVT_KEY_DOWN nor wxEVT_CHAR is generated for it.
++    if ( event->type() == QEvent::KeyPress )
++    {
++        wxKeyEvent eventCharHook( wxEVT_CHAR_HOOK );
++        QtFillKeyEvent( eventCharHook, event );
++
++        wxLogTrace( "kicad-ios-round16-jobk",
++                    "wxWindowQt::QtHandleKeyEvent CHAR_HOOK key=%d",
++                    (int)eventCharHook.GetKeyCode() );
++
++        if ( ProcessWindowEvent( eventCharHook )
++                && !eventCharHook.IsNextEventAllowed() )
++            return true;
++    }
++
+     bool handled = false;
+ 
+     // Build the event
