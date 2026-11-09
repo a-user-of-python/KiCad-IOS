@@ -1,0 +1,869 @@
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -14,13 +14,20 @@
+ #include <QtWidgets/QWidget>
+ #if defined( Q_OS_IOS )
+ #include <QtCore/QEasingCurve>
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++// QElapsedTimer (virtual-cursor tap timing), QSettings (cursor
++// toggle persistence), QPainter/QPolygonF (cursor arrow painting).
++#include <QtCore/QElapsedTimer>
+ #include <QtCore/QMap>
++#include <QtCore/QSettings>
+ #include <QtCore/QPointer>
+ #include <QtCore/QTimer>
+ #include <QtCore/QPropertyAnimation>
+ #include <QtCore/QVector>
+ #include <QtGui/qevent.h>
+ #include <QtGui/QGuiApplication>
++#include <QtGui/QPainter>
++#include <QtGui/QPolygonF>
+ #include <QtGui/QScreen>
+ #include <QtGui/QWindow>
+ #include <QtWidgets/QApplication>
+@@ -475,6 +482,36 @@
+ // left m_pressArmed set, so a later unrelated move event could
+ // drag a window nobody was holding.
+ //
++// Round 16, Job H -- optional virtual (on-screen) cursor. Direct
++// finger touch cannot place KiCad canvas objects with pixel
++// precision, so the controller below also implements a
++// trackpad-style relative pointer, OFF by default:
++//   * a checkable "Cursor" button on the floating bar toggles
++//     it; the choice is persisted in QSettings (see
++//     setCursorEnabled()) across launches;
++//   * while ON, an arrow widget (wxQtIOSVirtualCursorWidget,
++//     objectName "wxQtIOSVirtualCursor") rides as a child of the
++//     current host window -- the same child-overlay mechanism as
++//     the bar itself, because a separate top-level cursor window
++//     would be buried by UIWindowLevel ordering exactly as the
++//     round 9 bar was (see the round 11 note above);
++//   * a one-finger drag ANYWHERE moves the cursor RELATIVELY
++//     (finger deltas added to the cursor position; the cursor
++//     never jumps to the finger), a short low-movement tap is a
++//     left click AT THE CURSOR, and cursor motion synthesizes
++//     hover mouse-move events at the cursor position so KiCad's
++//     canvas crosshair and snapping follow it;
++//   * touches with two or more points are never consumed by the
++//     cursor path -- they pass through untouched for the canvas
++//     gesture recognizers (Job E);
++//   * real (non-synthesized) mouse input is never consumed: it
++//     passes through as before and merely syncs the cursor
++//     position, so a hardware mouse and the virtual cursor are
++//     one pointer;
++//   * while OFF the cursor path is inert: no widget, no event
++//     is intercepted, and touch/mouse behaviour is exactly the
++//     pre-Job-H behaviour.
++//
+ // The implementation compiles only for iOS (Q_OS_IOS); other wxQt
+ // builds get the empty stub at the bottom.
+ // ---------------------------------------------------------------------------
+@@ -484,6 +521,46 @@
+ namespace
+ {
+ 
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++// the virtual cursor's arrow. A plain child widget (never a
++// top-level window -- see the Job H note above), transparent to
++// mouse input so it can never be the widget a click lands on,
++// painting a high-contrast north-west arrow whose hot spot is
++// at (3, 2) inside its 26x26 rect.
++class wxQtIOSVirtualCursorWidget : public QWidget
++{
++public:
++    explicit wxQtIOSVirtualCursorWidget( QWidget *parent )
++        : QWidget( parent )
++    {
++        setObjectName( QStringLiteral( "wxQtIOSVirtualCursor" ) );
++        setFixedSize( 26, 26 );
++        setAttribute( Qt::WA_TransparentForMouseEvents, true );
++        setAttribute( Qt::WA_TranslucentBackground, true );
++        setAttribute( Qt::WA_NoSystemBackground, true );
++    }
++
++    static QPoint hotSpot() { return QPoint( 3, 2 ); }
++
++protected:
++    void paintEvent( QPaintEvent * ) override
++    {
++        QPainter painter( this );
++        painter.setRenderHint( QPainter::Antialiasing, true );
++
++        QPolygonF arrow;
++        arrow << QPointF( 3, 2 ) << QPointF( 3, 19 )
++              << QPointF( 8, 15 ) << QPointF( 11, 22.5 )
++              << QPointF( 14.5, 21 ) << QPointF( 11.5, 14 )
++              << QPointF( 18, 14 );
++
++        painter.setPen( QPen( Qt::black, 1.6, Qt::SolidLine,
++                              Qt::RoundCap, Qt::RoundJoin ) );
++        painter.setBrush( Qt::white );
++        painter.drawPolygon( arrow );
++    }
++};
++
+ class wxQtIOSFloatingControls : public QObject
+ {
+ public:
+@@ -493,9 +570,22 @@
+           m_host( nullptr ),
+           m_pressArmed( false ),
+           m_dragging( false ),
+-          m_dragIsStrip( false )
+-    {
++          m_dragIsStrip( false ),
++          m_cursorEnabled( false ),
++          m_cursorPosValid( false ),
++          m_cursorTracking( false ),
++          m_cursorTrackingIsTouch( false ),
++          m_cursorPoisoned( false ),
++          m_cursorSynthesizing( false ),
++          m_cursorMaxDisp( 0 )
++    {
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): restore the virtual-cursor toggle BEFORE
++        // createBar() so the "Cursor" button is created in its
++        // persisted (checked) state. Default is OFF.
++        m_cursorEnabled = loadCursorEnabled();
+         createBar();
++        createCursor();
+ 
+         if ( QScreen *screen = QGuiApplication::primaryScreen() )
+         {
+@@ -506,6 +596,15 @@
+ 
+     bool eventFilter( QObject *watched, QEvent *event ) override
+     {
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): events the cursor path itself synthesizes
++        // (click/hover at the cursor position) re-enter this
++        // filter via QApplication::sendEvent(); they must be
++        // delivered to their target untouched, never
++        // re-interpreted as fresh finger or hardware input.
++        if ( m_cursorSynthesizing )
++            return false;
++
+         switch ( event->type() )
+         {
+         case QEvent::Show:
+@@ -556,9 +655,23 @@
+                 m_grip.clear();
+                 m_closeBtn.clear();
+                 m_minBtn.clear();
++                // [KiCad-IOS port] Added 2026-11-09 for iOS
++                // (round 16, KiCad-V1): the Cursor toggle is a bar
++                // child too and dies with it.
++                m_cursorBtn.clear();
+                 m_host = nullptr;
+                 resetDrag();
+             }
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): the cursor overlay is a child of the host
++            // window, so a dying host takes it down as well; drop
++            // the pointer and let refreshCursor() rebuild it for
++            // the next host. Any in-flight finger tracking ends.
++            if ( watched == m_cursor.data() )
++            {
++                m_cursor.clear();
++                resetCursorTracking();
++            }
+             if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
+             {
+                 m_history.removeAll( w );
+@@ -591,7 +704,15 @@
+             // shift the host without a resize, and the anchor must
+             // follow the frame the user sees.
+             if ( watched == m_host )
++            {
+                 positionBar();
++                // [KiCad-IOS port] Added 2026-11-09 for iOS
++                // (round 16, KiCad-V1): the cursor overlay is
++                // positioned in host-local coordinates, so it
++                // must be re-anchored on host geometry changes
++                // exactly like the bar.
++                positionCursor();
++            }
+             break;
+ 
+         case QEvent::MouseButtonPress:
+@@ -620,11 +741,29 @@
+             if ( targetWin && targetWin->windowType() == Qt::Popup )
+                 break;
+ 
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): a real (non-synthesized) mouse press is
++            // hardware input (an external mouse/trackpad): the
++            // virtual cursor syncs to it. The event itself is NOT
++            // consumed -- hardware input keeps its normal path.
++            if ( event->type() == QEvent::MouseButtonPress )
++                noteHardwareMouse( static_cast<QMouseEvent *>( event ) );
++
+             // The bar's own buttons first: hit-test them here
+             // rather than relying on QPushButton::clicked, because
+             // while a modal dialog is up Qt blocks input delivery
+             // to other windows -- but application event filters
+             // still see the press.
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): the "Cursor" toggle rides the same
++            // hit-test path (it must work even while the cursor is
++            // OFF -- it is how the cursor is turned on -- and
++            // while a modal dialog is up).
++            if ( globalPosIn( m_cursorBtn.data(), globalPos ) )
++            {
++                setCursorEnabled( !m_cursorEnabled );
++                return true;
++            }
+             if ( globalPosIn( m_closeBtn.data(), globalPos ) )
+             {
+                 closeCurrent();
+@@ -669,6 +808,16 @@
+                     return true;
+                 }
+             }
++
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): anything else, with the cursor ON and no
++            // bar/strip claim on the press, starts virtual-cursor
++            // finger tracking (relative drag / tap-to-click).
++            // Bar, strip and popup claims above keep precedence,
++            // so window dragging (Job D) and the bar buttons are
++            // byte-for-byte the pre-Job-H behaviour.
++            if ( handleCursorPress( event, globalPos ) )
++                return true;
+             break;
+         }
+ 
+@@ -684,7 +833,18 @@
+                     if ( m_dragging )
+                         return true;   // the drag owns the pointer now
+                 }
++                break;
+             }
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): cursor finger tracking (TouchUpdate, or a
++            // synthesized-mouse move while a synthesized press is
++            // tracked). A window drag armed above keeps precedence.
++            if ( handleCursorMove( event ) )
++                return true;
++            // A buttonless real-mouse move is hardware hover: sync
++            // the cursor, never consume the event.
++            if ( event->type() == QEvent::MouseMove )
++                noteHardwareMouse( static_cast<QMouseEvent *>( event ) );
+             break;
+ 
+         case QEvent::MouseButtonRelease:
+@@ -707,6 +867,13 @@
+                 // is ours too.
+                 return true;
+             }
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): end of a cursor finger sequence -- a tap
++            // synthesizes its click at the cursor here.
++            if ( handleCursorRelease( event ) )
++                return true;
++            if ( event->type() == QEvent::MouseButtonRelease )
++                noteHardwareMouse( static_cast<QMouseEvent *>( event ) );
+             break;
+ 
+         // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+@@ -723,6 +890,15 @@
+                 resetDrag();
+                 return true;
+             }
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): a cancelled touch also ends cursor finger
++            // tracking where it stands -- no click is synthesized
++            // for a sequence the system took away.
++            if ( m_cursorTracking || m_cursorPoisoned )
++            {
++                resetCursorTracking();
++                return true;
++            }
+             break;
+ 
+         default:
+@@ -737,6 +913,15 @@
+     // a drag rather than a tap.
+     static const int kDragThreshold = 8;
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): virtual-cursor tap definition -- a finger
++    // sequence shorter than kCursorTapMaxMs whose finger never
++    // strays more than kCursorTapMaxMove logical pixels from its
++    // press point is a tap (click at the cursor); anything longer
++    // or further is a relative drag and clicks nothing.
++    static const int kCursorTapMaxMs = 350;
++    static const int kCursorTapMaxMove = 12;
++
+     static QPoint eventGlobalPos( QEvent *event )
+     {
+         switch ( event->type() )
+@@ -775,9 +960,15 @@
+     {
+         // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+         // KiCad-Spike-v16): the grip counts as part of the bar.
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the Cursor toggle and the cursor overlay
++        // count as bar objects too, so their Show/Hide events
++        // never re-infer the current window.
+         return obj == m_bar.data() || obj == m_grip.data()
+                 || obj == m_closeBtn.data()
+-                || obj == m_minBtn.data();
++                || obj == m_minBtn.data()
++                || obj == m_cursorBtn.data()
++                || obj == m_cursor.data();
+     }
+ 
+     // The top-level window an event object belongs to, or nullptr.
+@@ -895,6 +1086,23 @@
+         grip->setMinimumWidth( 52 );
+         grip->setMinimumHeight( 36 );
+ 
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the virtual-cursor toggle. A checkable button
++        // riding the same bar and the same filter hit-test as
++        // Minimize/Close (its objectName doubles as a
++        // shipped-binary gate marker). It is toggled ONLY from
++        // the event filter's press hit-test, which swallows the
++        // press, so the button's own clicked() never fires and
++        // the state cannot double-toggle. If Job F's titlebar
++        // restyle restructures this bar, the toggle keeps this
++        // objectName and this layout slot (after the grip).
++        QPushButton *cursorBtn = new QPushButton( QStringLiteral( "Cursor" ), bar );
++        cursorBtn->setObjectName(
++            QStringLiteral( "wxQtIOSFloatingControlsCursorToggle" ) );
++        cursorBtn->setCheckable( true );
++        cursorBtn->setChecked( m_cursorEnabled );
++        cursorBtn->setMinimumHeight( 36 );
++
+         QPushButton *closeBtn = new QPushButton( QStringLiteral( "Close" ), bar );
+         QPushButton *minBtn = new QPushButton( QStringLiteral( "Minimize" ), bar );
+ 
+@@ -902,6 +1110,7 @@
+         layout->setContentsMargins( 4, 4, 4, 4 );
+         layout->setSpacing( 4 );
+         layout->addWidget( grip );
++        layout->addWidget( cursorBtn );
+         layout->addWidget( minBtn );
+         layout->addWidget( closeBtn );
+ 
+@@ -913,6 +1122,7 @@
+         // light manager or a dark surround.
+         minBtn->setMinimumHeight( 36 );
+         closeBtn->setMinimumHeight( 36 );
++        cursorBtn->setMinimumHeight( 36 );
+         bar->setMinimumHeight( 44 );
+         bar->setStyleSheet( QStringLiteral(
+             "QWidget { background-color: rgb(24, 24, 28);"
+@@ -922,6 +1132,10 @@
+             "              border: none; border-radius: 7px;"
+             "              padding: 12px 16px; font-size: 15px; }"
+             "QPushButton:pressed { background-color: rgb(96, 96, 104); }"
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): the Cursor toggle reads ON at a glance
++            // (system blue) while checked.
++            "QPushButton:checked { background-color: rgb(10, 110, 220); }"
+             // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+             // KiCad-Spike-v16): grip styling (see createBar()).
+             "QLabel { color: rgb(190, 190, 198);"
+@@ -932,6 +1146,7 @@
+ 
+         m_bar = bar;
+         m_grip = grip;
++        m_cursorBtn = cursorBtn;
+         m_closeBtn = closeBtn;
+         m_minBtn = minBtn;
+     }
+@@ -944,6 +1159,15 @@
+             m_bar->hide();
+             m_bar->setParent( nullptr );
+         }
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the cursor overlay shares the bar's host, so
++        // it detaches with it (refreshCursor() re-hosts it on the
++        // next current window, or keeps it hidden).
++        if ( !m_cursor.isNull() && m_cursor->parentWidget() )
++        {
++            m_cursor->hide();
++            m_cursor->setParent( nullptr );
++        }
+     }
+ 
+     // Anchor the bar to its host's top-right corner, fully
+@@ -1009,11 +1233,21 @@
+             m_bar->show();
+         m_bar->raise();
+ 
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the cursor overlay follows the bar's host.
++        refreshCursor();
++
+         // Re-anchor once the current event cascade has settled: a
+         // host's geometry can still change between its Show event
+         // and its first paint (Stage Manager placement above all),
+         // after every synchronous trigger above has already run.
+-        QTimer::singleShot( 0, this, [this]() { positionBar(); } );
++        QTimer::singleShot( 0, this, [this]()
++        {
++            positionBar();
++            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++            // KiCad-V1): same deferred re-anchor for the cursor.
++            positionCursor();
++        } );
+     }
+ 
+     void closeCurrent()
+@@ -1324,12 +1558,432 @@
+         return QPoint( x, y );
+     }
+ 
++
++    // --- virtual cursor (round 16, Job H) ---------------------------
++    //
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): everything below in this section. State machine:
++    // m_cursorEnabled is the persisted user toggle. While enabled,
++    // a single-finger sequence (QTouchEvent, or a touch-synthesized
++    // QMouseEvent sequence on a delivery path that produces only
++    // those) is tracked in m_cursorTracking: updates move
++    // m_cursorGlobal by the finger's DELTAS (never to the finger),
++    // and a release that qualifies as a tap synthesizes a left
++    // click at m_cursorGlobal. Sequences with >= 2 touch points
++    // poison tracking and pass through untouched (Job E gestures).
++    // Non-synthesized (hardware) mouse events only sync
++    // m_cursorGlobal and are never consumed.
++
++    // The toggle persists in QSettings with an explicit
++    // organization/application pair (KiCad does not reliably set
++    // QCoreApplication's), which on iOS lands in the app sandbox
++    // at Library/Preferences/KiCad-IOS.KiCad-Spike.plist via
++    // CFPreferences -- inside the app container, surviving
++    // launches, never in Documents and never uploaded anywhere.
++    static bool loadCursorEnabled()
++    {
++        QSettings settings( QStringLiteral( "KiCad-IOS" ),
++                            QStringLiteral( "KiCad-Spike" ) );
++        return settings.value(
++            QStringLiteral( "wxQtIOS/virtualCursorEnabled" ),
++            false ).toBool();
++    }
++
++    void setCursorEnabled( bool enabled )
++    {
++        m_cursorEnabled = enabled;
++
++        QSettings settings( QStringLiteral( "KiCad-IOS" ),
++                            QStringLiteral( "KiCad-Spike" ) );
++        settings.setValue(
++            QStringLiteral( "wxQtIOS/virtualCursorEnabled" ), enabled );
++        settings.sync();
++
++        if ( !m_cursorBtn.isNull() )
++            m_cursorBtn->setChecked( enabled );
++
++        if ( enabled )
++        {
++            ensureCursorPos();
++            refreshCursor();
++            // Prime hover at the cursor so the canvas crosshair
++            // and snap indicator appear where the cursor already is.
++            sendHoverAtCursor();
++        }
++        else
++        {
++            resetCursorTracking();
++            if ( !m_cursor.isNull() )
++                m_cursor->hide();
++        }
++    }
++
++    void createCursor()
++    {
++        wxQtIOSVirtualCursorWidget *cursor =
++            new wxQtIOSVirtualCursorWidget( nullptr );
++        cursor->hide();
++        m_cursor = cursor;
++    }
++
++    void ensureCursorPos()
++    {
++        if ( m_cursorPosValid )
++            return;
++        if ( QScreen *screen = QGuiApplication::primaryScreen() )
++            m_cursorGlobal = screen->availableGeometry().center();
++        else
++            m_cursorGlobal = QPoint( 0, 0 );
++        m_cursorPosValid = true;
++    }
++
++    static QPoint clampedCursorPos( const QPoint &pos )
++    {
++        QScreen *screen = QGuiApplication::primaryScreen();
++        if ( !screen )
++            return pos;
++        const QRect avail = screen->availableGeometry();
++        return QPoint( qBound( avail.left(), pos.x(), avail.right() ),
++                       qBound( avail.top(), pos.y(), avail.bottom() ) );
++    }
++
++    // Re-host and place the overlay on the bar's current host
++    // (m_host, maintained by refreshBar()/pickHost(), which
++    // already prefers the active modal widget). Called at the end
++    // of refreshBar() and whenever the toggle flips.
++    void refreshCursor()
++    {
++        if ( !m_cursorEnabled )
++        {
++            if ( !m_cursor.isNull() )
++                m_cursor->hide();
++            return;
++        }
++        if ( m_cursor.isNull() )
++            createCursor();
++        ensureCursorPos();
++
++        if ( !m_host )
++        {
++            if ( m_cursor->parentWidget() )
++            {
++                m_cursor->hide();
++                m_cursor->setParent( nullptr );
++            }
++            m_cursor->hide();
++            return;
++        }
++
++        if ( m_cursor->parentWidget() != m_host )
++        {
++            m_cursor->hide();
++            m_cursor->setParent( m_host );
++        }
++        positionCursor();
++        if ( !m_cursor->isVisible() )
++            m_cursor->show();
++        m_cursor->raise();
++    }
++
++    void positionCursor()
++    {
++        if ( m_cursor.isNull() || !m_host || !m_cursorEnabled )
++            return;
++        const QPoint local = m_host->mapFromGlobal( m_cursorGlobal );
++        m_cursor->move( local
++                        - wxQtIOSVirtualCursorWidget::hotSpot() );
++    }
++
++    // The widget a click/hover at the cursor should land on: the
++    // topmost widget at the cursor's global position, with the
++    // cursor overlay itself hidden out of the hit test (it is
++    // WA_TransparentForMouseEvents, but widgetAt() is not
++    // guaranteed to honour that on every platform) and the bar
++    // excluded (a cursor over the bar addresses the host window
++    // beneath, never a bar button -- bar buttons are operated by
++    // direct finger taps through the press hit-test above).
++    QWidget *widgetUnderCursor()
++    {
++        if ( !m_cursorPosValid )
++            return nullptr;
++
++        const bool wasVisible = !m_cursor.isNull() && m_cursor->isVisible();
++        if ( wasVisible )
++            m_cursor->hide();
++
++        QWidget *w = QApplication::widgetAt( m_cursorGlobal );
++
++        if ( wasVisible && m_cursorEnabled )
++        {
++            m_cursor->show();
++            m_cursor->raise();
++        }
++
++        if ( w && !m_bar.isNull()
++                && ( w == m_bar.data() || m_bar->isAncestorOf( w ) ) )
++            w = m_host;
++        if ( w && w == m_cursor.data() )
++            w = nullptr;
++        return w;
++    }
++
++    // Deliver one synthetic mouse event at the cursor position to
++    // the widget under the cursor, through the ordinary Qt event
++    // path, so wxQt translates it into the same wx mouse event a
++    // real click/hover there would produce. m_cursorSynthesizing
++    // makes this filter pass the event straight through (see the
++    // guard at the top of eventFilter()).
++    void sendMouseAtCursor( QEvent::Type type, Qt::MouseButton button,
++                            Qt::MouseButtons buttons )
++    {
++        QWidget *target = widgetUnderCursor();
++        if ( !target )
++            return;
++
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): QApplication::notify() silently drops a
++        // buttonless QEvent::MouseMove addressed to a widget
++        // without mouse tracking (verified on the host harness) --
++        // the same suppression a real pointer is subject to in Qt,
++        // but wx's event model promises motion events to windows
++        // under the pointer, and KiCad's canvas crosshair depends
++        // on them. Enable tracking on a hover target that lacks
++        // it (a one-way, additive change: it can only add the
++        // hover events this cursor exists to produce).
++        if ( type == QEvent::MouseMove && !target->hasMouseTracking() )
++            target->setMouseTracking( true );
++
++        const QPointF globalF( m_cursorGlobal );
++        const QPointF localF( target->mapFromGlobal( m_cursorGlobal ) );
++        QMouseEvent ev( type, localF, globalF, button, buttons,
++                        QApplication::keyboardModifiers() );
++
++        m_cursorSynthesizing = true;
++        QApplication::sendEvent( target, &ev );
++        m_cursorSynthesizing = false;
++    }
++
++    void sendHoverAtCursor()
++    {
++        sendMouseAtCursor( QEvent::MouseMove, Qt::NoButton, Qt::NoButton );
++    }
++
++    void synthesizeClickAtCursor()
++    {
++        sendMouseAtCursor( QEvent::MouseButtonPress,
++                           Qt::LeftButton, Qt::LeftButton );
++        sendMouseAtCursor( QEvent::MouseButtonRelease,
++                           Qt::LeftButton, Qt::NoButton );
++    }
++
++    // Hardware (non-synthesized) mouse input: sync the cursor to
++    // the real pointer and otherwise leave the event completely
++    // alone. Synthesized events are finger input and are handled
++    // (or already swallowed) by the finger-tracking path instead.
++    void noteHardwareMouse( QMouseEvent *ev )
++    {
++        if ( !m_cursorEnabled || m_cursorSynthesizing )
++            return;
++        if ( ev->source() != Qt::MouseEventNotSynthesized )
++            return;
++        m_cursorGlobal = clampedCursorPos( ev->globalPosition().toPoint() );
++        m_cursorPosValid = true;
++        positionCursor();
++    }
++
++    void resetCursorTracking()
++    {
++        m_cursorTracking = false;
++        m_cursorTrackingIsTouch = false;
++        m_cursorPoisoned = false;
++        m_cursorMaxDisp = 0;
++    }
++
++    void beginCursorFinger( const QPoint &globalPos, bool isTouch )
++    {
++        m_cursorTracking = true;
++        m_cursorTrackingIsTouch = isTouch;
++        m_cursorPressFinger = globalPos;
++        m_cursorLastFinger = globalPos;
++        m_cursorMaxDisp = 0;
++        m_cursorPressTimer.start();
++    }
++
++    // Relative motion: the cursor advances by the finger's delta
++    // since the previous update, at 1:1 gain (predictability over
++    // speed for precision placement; acceleration curves are a
++    // deferred refinement). Every step also emits hover at the
++    // new cursor position so canvas crosshair/snapping follow.
++    void moveCursorFinger( const QPoint &globalPos )
++    {
++        const QPoint delta = globalPos - m_cursorLastFinger;
++        m_cursorLastFinger = globalPos;
++        m_cursorMaxDisp = qMax( m_cursorMaxDisp,
++            ( globalPos - m_cursorPressFinger ).manhattanLength() );
++
++        if ( delta.isNull() )
++            return;
++        m_cursorGlobal = clampedCursorPos( m_cursorGlobal + delta );
++        positionCursor();
++        sendHoverAtCursor();
++    }
++
++    void endCursorFinger()
++    {
++        const bool isTap = m_cursorPressTimer.elapsed() <= kCursorTapMaxMs
++                           && m_cursorMaxDisp <= kCursorTapMaxMove;
++        resetCursorTracking();
++        if ( isTap )
++            synthesizeClickAtCursor();
++    }
++
++    bool handleCursorPress( QEvent *event, const QPoint &globalPos )
++    {
++        if ( !m_cursorEnabled )
++            return false;
++
++        if ( event->type() == QEvent::TouchBegin )
++        {
++            QTouchEvent *touch = static_cast<QTouchEvent *>( event );
++            if ( touch->points().size() != 1 )
++            {
++                // Two or more fingers: a canvas gesture (Job E),
++                // not cursor input. Poison any tracking and let
++                // the whole sequence pass through untouched.
++                if ( touch->points().size() >= 2 )
++                {
++                    m_cursorPoisoned = true;
++                    m_cursorTracking = false;
++                }
++                return false;
++            }
++            if ( m_cursorTracking || m_cursorPoisoned )
++                return false;
++            beginCursorFinger( globalPos, true );
++            return true;   // consumed: no widget sees the finger
++        }
++
++        if ( event->type() == QEvent::MouseButtonPress )
++        {
++            QMouseEvent *mouse = static_cast<QMouseEvent *>( event );
++            if ( mouse->source() == Qt::MouseEventNotSynthesized )
++                return false;   // hardware: handled by noteHardwareMouse
++            if ( m_cursorTracking )
++                return m_cursorTrackingIsTouch;  // swallow the
++                    // synthesized duplicate of a tracked touch, but
++                    // never a second synthesized press of our own
++                    // sequence (that state cannot occur: our own
++                    // synthesized events are guarded out above)
++            if ( mouse->button() != Qt::LeftButton )
++                return false;
++            beginCursorFinger( globalPos, false );
++            return true;
++        }
++        return false;
++    }
++
++    bool handleCursorMove( QEvent *event )
++    {
++        if ( !m_cursorEnabled )
++            return false;
++
++        if ( event->type() == QEvent::TouchUpdate )
++        {
++            QTouchEvent *touch = static_cast<QTouchEvent *>( event );
++            if ( touch->points().size() >= 2 )
++            {
++                // A second finger joined mid-sequence: abort
++                // cursor tracking (no click) and pass the rest of
++                // the sequence through for the gesture
++                // recognizers. The swallowed first TouchBegin
++                // means this one pinch may need a lift-and-retry
++                // to register -- a known, documented limitation;
++                // buffering the first touch pending a possible
++                // second finger is the deferred fix.
++                m_cursorPoisoned = true;
++                m_cursorTracking = false;
++                return false;
++            }
++            if ( m_cursorPoisoned )
++                return false;
++            if ( !m_cursorTracking || !m_cursorTrackingIsTouch )
++                return false;
++            if ( touch->points().isEmpty() )
++                return true;
++            moveCursorFinger(
++                touch->points().first().globalPosition().toPoint() );
++            return true;
++        }
++
++        if ( event->type() == QEvent::MouseMove )
++        {
++            QMouseEvent *mouse = static_cast<QMouseEvent *>( event );
++            if ( m_cursorTracking && m_cursorTrackingIsTouch )
++                return mouse->source() != Qt::MouseEventNotSynthesized;
++                    // swallow synthesized duplicates of the tracked
++                    // touch; a hardware move still passes (and is
++                    // synced by the caller)
++            if ( !m_cursorTracking
++                    && mouse->source() != Qt::MouseEventNotSynthesized
++                    && ( mouse->buttons() & Qt::LeftButton ) )
++                return false;   // synthesized move with no tracked
++                                // press: not ours to consume
++            if ( m_cursorTracking && !m_cursorTrackingIsTouch
++                    && ( mouse->buttons() & Qt::LeftButton ) )
++            {
++                moveCursorFinger( mouse->globalPosition().toPoint() );
++                return true;
++            }
++        }
++        return false;
++    }
++
++    bool handleCursorRelease( QEvent *event )
++    {
++        if ( !m_cursorEnabled )
++            return false;
++
++        if ( event->type() == QEvent::TouchEnd )
++        {
++            if ( m_cursorPoisoned )
++            {
++                m_cursorPoisoned = false;
++                m_cursorTracking = false;
++                return false;   // the sequence was passed through
++            }
++            if ( m_cursorTracking && m_cursorTrackingIsTouch )
++            {
++                endCursorFinger();
++                return true;
++            }
++            return false;
++        }
++
++        if ( event->type() == QEvent::MouseButtonRelease )
++        {
++            QMouseEvent *mouse = static_cast<QMouseEvent *>( event );
++            if ( m_cursorTracking && m_cursorTrackingIsTouch )
++                return mouse->source() != Qt::MouseEventNotSynthesized;
++            if ( m_cursorTracking && !m_cursorTrackingIsTouch
++                    && mouse->button() == Qt::LeftButton )
++            {
++                endCursorFinger();
++                return true;
++            }
++        }
++        return false;
++    }
++
+     QPointer<QWidget> m_bar;
+     // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+     // KiCad-Spike-v16): the bar's "Move" grip label.
+     QPointer<QLabel> m_grip;
+     QPointer<QPushButton> m_closeBtn;
+     QPointer<QPushButton> m_minBtn;
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): virtual-cursor overlay + its bar toggle.
++    QPointer<wxQtIOSVirtualCursorWidget> m_cursor;
++    QPointer<QPushButton> m_cursorBtn;
+     QWidget *m_current;
+     QWidget *m_host;
+     QVector<QWidget *> m_history;
+@@ -1344,6 +1998,20 @@
+     bool m_pressArmed;
+     bool m_dragging;
+     bool m_dragIsStrip;
++
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): virtual-cursor state (see the section above).
++    bool m_cursorEnabled;
++    bool m_cursorPosValid;
++    QPoint m_cursorGlobal;
++    bool m_cursorTracking;
++    bool m_cursorTrackingIsTouch;
++    bool m_cursorPoisoned;
++    bool m_cursorSynthesizing;
++    QPoint m_cursorPressFinger;
++    QPoint m_cursorLastFinger;
++    int m_cursorMaxDisp;
++    QElapsedTimer m_cursorPressTimer;
+ };
+ 
+ } // anonymous namespace
