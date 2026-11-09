@@ -29,14 +29,19 @@ The user re-signs the unsigned IPA with his own tooling (Signulous), like the
 other spike apps.
 """
 
+import binascii
 import glob
+import hashlib
 import json
+import math
 import os
 import plistlib
 import shutil
+import struct
 import subprocess
 import sys
 import zipfile
+import zlib
 
 WORK = sys.argv[1]          # $WORK
 BLD = sys.argv[2]           # $WORK/build-kicad-ios
@@ -69,6 +74,211 @@ def is_macho(path):
     with open(path, "rb") as fh:
         magic = fh.read(4)
     return magic in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xfe\xed\xfa\xcf")
+
+
+# ----------------------------------------------------------------------
+# App icon (2026-11-09: "the app does not have an icon"). Every IPA
+# shipped through V1 carried no icon at all -- no icon files in the
+# .app and no CFBundleIcons / CFBundleIconFiles in the plist -- so iOS
+# showed the generic placeholder on the home screen. The icon set is
+# rendered here, at package time, from KiCad's OWN upstream program
+# icon: resources/bitmaps_png/png/icon_kicad_256.png, the largest
+# master in the tree (the same artwork as the manager's launcher
+# icon; no replacement art is designed and no third-party icon is
+# used). Stdlib-only PNG decode/encode plus bilinear resampling, so
+# the build runner needs no imaging library. iOS icons must be fully
+# opaque: the master is a rounded square on transparency, so it is
+# flattened onto the artwork's own edge blue -- sampled from the
+# master itself, never hardcoded -- before resizing, and every file
+# is written as RGB (no alpha channel). Fails closed: a missing or
+# undecodable master, or a written file that does not verify,
+# aborts packaging, the same discipline as the startup schemas.
+APP_ICON_FILES = [
+    ("AppIcon1024x1024.png", 1024),
+    ("AppIcon60x60@2x.png", 120),
+    ("AppIcon60x60@3x.png", 180),
+    ("AppIcon76x76.png", 76),
+    ("AppIcon76x76@2x.png", 152),
+    ("AppIcon83.5x83.5@2x.png", 167),
+    ("AppIcon40x40.png", 40),
+    ("AppIcon40x40@2x.png", 80),
+    ("AppIcon29x29.png", 29),
+    ("AppIcon29x29@2x.png", 58),
+]
+APP_ICON_BASES = ["AppIcon29x29", "AppIcon40x40", "AppIcon60x60",
+                  "AppIcon76x76", "AppIcon83.5x83.5", "AppIcon1024x1024"]
+
+
+def _png_ihdr(path):
+    with open(path, "rb") as fh:
+        head = fh.read(33)
+    if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        raise ValueError(f"{path}: not a PNG")
+    w, h, _depth, ctype = struct.unpack(">IIBB", head[16:26])
+    return w, h, ctype
+
+
+def _png_decode_rgba(path):
+    """Decode an 8-bit RGB/RGBA non-interlaced PNG to (w, h, rgba)."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError(f"{path}: not a PNG")
+    pos = 8
+    idat = b""
+    w = h = ctype = None
+    while pos < len(data):
+        ln = struct.unpack(">I", data[pos:pos + 4])[0]
+        typ = data[pos + 4:pos + 8]
+        chunk = data[pos + 8:pos + 8 + ln]
+        if typ == b"IHDR":
+            w, h, depth, ctype, _comp, _filt, inter = struct.unpack(
+                ">IIBBBBB", chunk)
+            if depth != 8 or ctype not in (2, 6) or inter != 0:
+                raise ValueError(f"{path}: unsupported PNG form")
+        elif typ == b"IDAT":
+            idat += chunk
+        pos += 12 + ln
+    raw = zlib.decompress(idat)
+    ch = 4 if ctype == 6 else 3
+    stride = w * ch
+    out = bytearray(h * stride)
+    prev = bytearray(stride)
+    p = 0
+    for y in range(h):
+        f = raw[p]
+        p += 1
+        line = bytearray(raw[p:p + stride])
+        p += stride
+        if f == 1:
+            for i in range(ch, stride):
+                line[i] = (line[i] + line[i - ch]) & 0xFF
+        elif f == 2:
+            for i in range(stride):
+                line[i] = (line[i] + prev[i]) & 0xFF
+        elif f == 3:
+            for i in range(stride):
+                a = line[i - ch] if i >= ch else 0
+                line[i] = (line[i] + ((a + prev[i]) >> 1)) & 0xFF
+        elif f == 4:
+            for i in range(stride):
+                a = line[i - ch] if i >= ch else 0
+                b = prev[i]
+                c = prev[i - ch] if i >= ch else 0
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                pr = a if (pa <= pb and pa <= pc) else (b if pb <= pc
+                                                      else c)
+                line[i] = (line[i] + pr) & 0xFF
+        out[y * stride:(y + 1) * stride] = line
+        prev = line
+    if ch == 4:
+        return w, h, bytes(out)
+    rgba = bytearray(w * h * 4)
+    for i in range(w * h):
+        rgba[i * 4:i * 4 + 3] = out[i * 3:i * 3 + 3]
+        rgba[i * 4 + 3] = 255
+    return w, h, bytes(rgba)
+
+
+def _png_encode_rgb(path, w, h, rgb):
+    def chunk(typ, payload):
+        return (struct.pack(">I", len(payload)) + typ + payload
+                + struct.pack(">I", binascii.crc32(typ + payload)
+                              & 0xFFFFFFFF))
+    raw = b"".join(b"\x00" + rgb[y * w * 3:(y + 1) * w * 3]
+                   for y in range(h))
+    png = (b"\x89PNG\r\n\x1a\n"
+           + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(raw, 6))
+           + chunk(b"IEND", b""))
+    with open(path, "wb") as fh:
+        fh.write(png)
+
+
+def _resize_bilinear_rgb(rgb, sw, sh, dw, dh):
+    if (sw, sh) == (dw, dh):
+        return rgb
+    out = bytearray(dw * dh * 3)
+    for dy in range(dh):
+        fy = (dy + 0.5) * sh / dh - 0.5
+        y0 = int(math.floor(fy))
+        ty = fy - y0
+        ya = min(max(y0, 0), sh - 1)
+        yb = min(max(y0 + 1, 0), sh - 1)
+        for dx in range(dw):
+            fx = (dx + 0.5) * sw / dw - 0.5
+            x0 = int(math.floor(fx))
+            tx = fx - x0
+            xa = min(max(x0, 0), sw - 1)
+            xb = min(max(x0 + 1, 0), sw - 1)
+            o = (dy * dw + dx) * 3
+            for c in range(3):
+                p00 = rgb[(ya * sw + xa) * 3 + c]
+                p01 = rgb[(ya * sw + xb) * 3 + c]
+                p10 = rgb[(yb * sw + xa) * 3 + c]
+                p11 = rgb[(yb * sw + xb) * 3 + c]
+                top = p00 + (p01 - p00) * tx
+                bot = p10 + (p11 - p10) * tx
+                out[o + c] = int(top + (bot - top) * ty + 0.5)
+    return bytes(out)
+
+
+def _install_app_icons():
+    master = None
+    for cand in (os.path.join(WORK, "src", "kicad", "resources",
+                              "bitmaps_png", "png", "icon_kicad_256.png"),
+                 os.path.join(WORK, "src", "kicad", "resources",
+                              "bitmaps_png", "icons", "icon_kicad.png")):
+        if os.path.isfile(cand):
+            master = cand
+            break
+    if master is None:
+        raise SystemExit("app icon: upstream icon_kicad master not found")
+    w, h, rgba = _png_decode_rgba(master)
+    # Background: the artwork's own edge blue, sampled just inside the
+    # top edge (opaque there), so the flattened corners read as the
+    # artwork's own field under the iOS icon mask.
+    sx, sy = w // 2, max(1, h // 32)
+    si = (sy * w + sx) * 4
+    if rgba[si + 3] != 255:
+        raise SystemExit("app icon: background sample is not opaque")
+    bg = rgba[si:si + 3]
+    rgb = bytearray(w * h * 3)
+    for px in range(w * h):
+        a = rgba[px * 4 + 3]
+        if a == 255:
+            rgb[px * 3:px * 3 + 3] = rgba[px * 4:px * 4 + 3]
+        elif a == 0:
+            rgb[px * 3:px * 3 + 3] = bg
+        else:
+            inv = 255 - a
+            for c in range(3):
+                rgb[px * 3 + c] = (rgba[px * 4 + c] * a
+                                   + bg[c] * inv + 127) // 255
+    flat = bytes(rgb)
+    for name, size in APP_ICON_FILES:
+        _png_encode_rgb(os.path.join(APP, name), size, size,
+                        _resize_bilinear_rgb(flat, w, h, size, size))
+    # Fail-closed verification of what was just written: the 1024
+    # marketing icon must read back at exactly 1024x1024 as RGB (color
+    # type 2 -- no alpha channel for iOS to reject), every other file
+    # at its declared size, and every plist base name must resolve to
+    # at least one real file in the bundle root.
+    for name, size in APP_ICON_FILES:
+        vw, vh, vct = _png_ihdr(os.path.join(APP, name))
+        if (vw, vh) != (size, size) or vct != 2:
+            raise SystemExit(
+                f"app icon: {name} verifies as {vw}x{vh} type {vct}, "
+                f"expected {size}x{size} type 2")
+    for base in APP_ICON_BASES:
+        if not any(os.path.isfile(os.path.join(APP, base + suffix))
+                   for suffix in (".png", "@2x.png", "@3x.png")):
+            raise SystemExit(f"app icon: plist base {base} has no file")
+    with open(os.path.join(APP, "AppIcon1024x1024.png"), "rb") as fh:
+        digest = hashlib.sha256(fh.read()).hexdigest()
+    print(f"app icon packaged: {len(APP_ICON_FILES)} files from "
+          f"{os.path.basename(master)} (bg #{bg[0]:02x}{bg[1]:02x}"
+          f"{bg[2]:02x}); AppIcon1024x1024.png sha256 {digest}")
 
 
 def main():
@@ -673,11 +883,27 @@ def main():
               tree_bytes(demos_dst), "bytes (trimmed:",
               ", ".join(sorted(DEMOS_EXCLUDE)) + ")")
 
+    # App icon set (see _install_app_icons): rendered from KiCad's
+    # upstream program icon into the bundle root before the plist is
+    # written, so the declarations below resolve to real files.
+    _install_app_icons()
+
     plist = {
         "CFBundleExecutable": "KiCad",
         "CFBundleIdentifier": "com.user.kicadspike",
         "CFBundleName": "KiCad",
         "CFBundleDisplayName": "KiCad (spike)",
+        # Icon declarations for a manually packaged app: the flat
+        # CFBundleIconFiles list plus the CFBundleIcons primary-icon
+        # dictionary, both naming base names whose @2x/@3x files sit
+        # in the bundle root (rendered above). The 1024 marketing
+        # icon is included in the same lists.
+        "CFBundleIconFiles": APP_ICON_BASES,
+        "CFBundleIcons": {
+            "CFBundlePrimaryIcon": {
+                "CFBundleIconFiles": list(APP_ICON_BASES),
+            },
+        },
         "CFBundlePackageType": "APPL",
         "CFBundleShortVersionString": "10.0.1",
         "CFBundleVersion": "10.0.1",
