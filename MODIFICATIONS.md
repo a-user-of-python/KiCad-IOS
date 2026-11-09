@@ -1302,18 +1302,31 @@ trace literal "wxWindowQt::EnableTouchEvents mask=%d" under the
 "kicad-ios-round16" trace mask.
 
 *Verification.* The binary gate requires the patch's trace
-literal and an `EnableTouchEvents` symbol in both
-`_eeschema.kiface` and `_pcbnew.kiface` (both absent in v15).
-Whether Qt delivers the gestures on the device is the device's
-verdict; the report carries a per-editor test script.
+literal in the manager executable — the wx code lives in the
+executable in this port, and the editor kifaces bind to its wx
+symbols at load (absent from the v15 executable). KiCad patch
+0038's literal is required in both editor kifaces by the same
+gate. Whether Qt delivers the gestures on the device is the
+device's verdict; the report carries a per-editor test script.
 
 ### KiCad patch 0038 — ios-gal-canvas-touch-gestures (round 16, KiCad-Spike-v16)
 
-**`common/gal/cairo/cairo_gal.cpp`** (KiCad 10.0.1) —
-2026-11-09 — `patches/kicad/0038-ios-gal-canvas-touch-gestures.patch`.
-One addition inside `#ifdef __WXQT__` (the `gal` target does not
-receive `KICAD_IOS_PORT`; `__WXQT__` is the port condition that
-reaches it, and on this port wxQt implies iOS).
+**`common/gal/cairo/cairo_gal.cpp`, `common/gal/CMakeLists.txt`**
+(KiCad 10.0.1) — 2026-11-09 —
+`patches/kicad/0038-ios-gal-canvas-touch-gestures.patch`.
+The code addition sits inside `#ifdef KICAD_IOS_PORT`, and the
+patch's CMake change defines `KICAD_IOS_PORT` for the `gal`
+target (the same per-target define patches 0026/0032/0035 place
+on the `common`, `kicommon` and `eeschema_kiface_objects`
+targets; no other port blocks exist in the gal sources, so the
+define activates nothing else). The patch's first revision gated
+the block on `__WXQT__` instead — and the first v16 build shipped
+with the block silently preprocessed out, proven from that
+build's shipped binaries (neither the call nor its trace literal
+is present): KiCad's targets never receive wx's `-D__WXQT__` flag,
+which only wx's own build compiles with. The gate condition was
+corrected before v16 shipped; the shipped-binary gate below is
+what caught it.
 
 *Why.* Companion to wx patch 0012: `WX_VIEW_CONTROLS` enables
 touch gestures on the draw panel, but wxQt grabs Qt gestures
@@ -1330,8 +1343,14 @@ editors (and the other GAL frames) gain the gestures from this
 one call. Carries the trace literal "CAIRO_GAL: wxQt touch
 gestures enabled on GAL canvas".
 
-*Verification.* Same gate as wx patch 0012: the literal must be
-present in both editor kifaces (absent in v15).
+*Verification.* The binary gate requires this patch's trace
+literal in both editor kifaces (the GAL objects are linked into
+each) and wx patch 0012's literal in the manager executable —
+the wx code lives in the executable in this port, and the
+kifaces bind to its wx symbols at load. Both literals are absent
+from v15. The gate run against the first v16 build failed on
+exactly this patch's literal in both kifaces, which is how the
+`__WXQT__` gating defect above was caught before delivery.
 
 ### wx patch 0013 — qt-ios-floating-controls-coordinate-drag-and-unmaximize (round 16, KiCad-Spike-v16)
 
@@ -1366,7 +1385,8 @@ passes all 22 checks across 5 scenarios with the patch-0013 block
 and fails the shipped v15 block on the no-synthesis, maximised
 and touch-cancel scenarios (reproducing the earlier false-pass
 mechanism); the binary gate requires the grip marker in the
-shipped executable and both editor kifaces (absent in v15).
+shipped manager executable (absent in v15) — the wx code lives
+in the executable in this port and the kifaces bind to it.
 Whether a real finger drag moves the windows on the iPad is the
 device's verdict — no stronger claim is made.
 
