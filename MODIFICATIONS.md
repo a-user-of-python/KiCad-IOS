@@ -1646,3 +1646,47 @@ HONEST LABEL: extended desktop at the QPA level, shipped
 without device proof — how much pointer/keyboard input
 iPadOS routes to a window on an external UIScreen is only
 settled by the round 16 device test in the report.
+
+### wx patch 0020 — qt-ios-statusbar-reentrancy (round 16, KiCad-V1)
+
+**`src/qt/statusbar.cpp`, `include/wx/qt/statusbar.h`**
+(wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0020-qt-ios-statusbar-reentrancy.patch`.
+
+*Why.* A fresh install crashed 0.44 s after first launch
+(device crash log, 2026-11-09): during first-run library
+preload, `PGM_BASE::ClearLibraryLoadMessages` →
+`KISTATUSBAR::ClearWarningMessages` → `layoutControls()` →
+`wxStatusBar::GetFieldRect()` for the bar's last fields.
+The fields did not exist yet, so `CreateFieldsIfNeeded()`
+built them — publishing each pane (`push_back`) and
+immediately `addWidget()`ing it. On the iOS QPA, adding a
+widget to the visible status bar synchronously runs a
+layout that delivers a resize event; `KISTATUSBAR` answers
+a resize with the same `GetFieldRect()` call, which read
+`m_qtPanes[i]` for a pane the half-finished creation loop
+had not published yet — out-of-bounds read, near-null
+dereference (EXC_BAD_ACCESS at 0x14). Desktop Qt delivers
+the resize asynchronously, so upstream never sees it;
+over-installs did not hit it because field creation had
+already been forced by earlier layout passes.
+
+*What.* `CreateFieldsIfNeeded()` now builds the full pane
+set into a local vector first, publishes it to `m_qtPanes`
+in one assignment, and only then hands the widgets to
+`QStatusBar`. A new `m_creatingFields` flag is set for the
+duration; `GetFieldRect()` and `DoUpdateStatusText()` (both
+reachable from the resize delivered during creation) return
+without touching the pane vector while it is set, or if the
+index is out of range — the caller re-runs its layout on
+the very resize already being delivered, with the complete
+pane set in place. Carries the trace mask
+`kicad-ios-round16-jobl`.
+
+*Verification.* The patch applies over the cumulative wx
+series and the patched files compile cleanly with the real
+wx build flags. The binary gate requires the trace mask in
+the shipped manager executable (absent from v15). The
+deciding check is a device fresh-install test — delete the
+app, reinstall, first launch must reach the manager — and
+is listed first in the V1 report's device checks.
