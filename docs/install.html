@@ -183,7 +183,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html" class="active">Install</a>
-      <a class="navcta" href="v1.html">V1 Release</a>
+      <a class="navcta" href="v1.html">Features</a>
     </div>
   </div>
 </nav>
@@ -196,7 +196,7 @@
   </div>
   <section>
     <ol class="install">
-      <li><strong>Download</strong> the <code>KiCad-V1.1.ipa</code> — the release build from the repository. (Workflow artifacts from the <strong>Spike</strong> workflow are the same unsigned package.)</li>
+      <li><strong>Download</strong> the IPA from the project's <a href="https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0" rel="noopener">Releases page</a> (the v1.0 release). The same unsigned package is attached to every green run of the <strong>Spike</strong> workflow as the <code>kicad-spike-ipa</code> artifact.</li>
       <li><strong>Sideload</strong> it with a signer such as Signulous, or your own signing setup.</li>
       <li><strong>Launch KiCad.</strong> The first-run wizard walks through setup, and the project manager opens behind it.</li>
     </ol>
@@ -206,16 +206,13 @@
   <section>
     <h2><span class="bar">/</span> Fresh install or upgrade — both are first-class</h2>
     <p class="lead">
-      Upgrading over an earlier build keeps your projects and settings; the fixes are written
-      to survive inherited state — frames maximise regardless of geometry older builds
-      persisted, and the library tables are repaired at startup if an early broken build
-      left them chained to a bogus location. A <strong>fresh install</strong> gets the same
-      attention: pre-release testing caught a crash that killed a fresh install 0.44&nbsp;s
-      into its first launch — first-run library preload re-entering the status bar while its
-      fields were half-built. V1 guarded the creation side, and its device pass showed the
-      crash surviving through the teardown side of the same code; <strong>V1.1</strong> closes
-      both windows at the toolkit layer, verified in the shipped binary. The deciding check
-      is unchanged and heads the device list: delete the app, reinstall, first launch.
+      Upgrading over an earlier build keeps your projects and settings, and inherited state
+      is handled: frames maximise regardless of geometry older builds persisted, and the
+      library tables are repaired at startup if an early broken build left them chained to
+      a bogus location. A <strong>fresh install</strong> is a supported path in its own
+      right: the manager's status bar is built to survive its own first-run library preload —
+      fields are published whole, never half-built, and no layout can re-enter while the
+      pane set changes — verified in the shipped binary by the release gates.
     </p>
   </section>
 
@@ -238,7 +235,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a href="v1.html">V1 Release</a>
+      <a href="v1.html">Features</a>
       <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
     </div>
     <p>
