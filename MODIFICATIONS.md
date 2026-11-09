@@ -1691,7 +1691,7 @@ deciding check is a device fresh-install test — delete the
 app, reinstall, first launch must reach the manager — and
 is listed first in the V1 report's device checks.
 
-### wx patch 0021 — qt-ios-statusbar-mutation-freeze (round 16, KiCad-V1.1)
+### wx patch 0021 — qt-ios-statusbar-mutation-freeze (round 16, KiCad-V1)
 
 **`src/qt/statusbar.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
 `patches/wx/0021-qt-ios-statusbar-mutation-freeze.patch`.
@@ -1750,4 +1750,4 @@ BEFORE the first `QStatusBar::addWidget` call. The shipped
 V1 binary fails every one of those checks (the negative
 control). The deciding check remains the device
 fresh-install test, listed first in the report's device
-checks: V1.1 does not claim the fix from gates alone.
+checks: V1 does not claim the fix from gates alone.
