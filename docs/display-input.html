@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Display &amp; Input — KiCad‑iOS</title>
+<meta name="description" content="V1 window chrome and input on iPad: per-window titlebar strips, drag-by-titlebar, full-screen natural scale, universal window clamping from live display geometry, pinch zoom and two-finger pan in both editors, an optional virtual cursor, hardware keyboard and mouse fixes, and an external-display Ext control.">
+<style>
+  :root{
+    --bg:#0a0d12;
+    --bg2:#0e1219;
+    --panel:#131926;
+    --panel2:#171f2e;
+    --line:#26324a;
+    --text:#f2f5f9;
+    --muted:#a9bcd4;
+    --accent:#57a8ff;
+    --accent2:#ff7a59;
+    --good:#4ade80;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;
+    font-size:18px;
+  }
+  a{color:var(--accent)}
+  a:hover{color:#8cc2ff}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+
+  /* ---------- nav ---------- */
+  .topnav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(10,13,18,.94);
+    border-bottom:1px solid var(--line);
+  }
+  .navrow{display:flex;align-items:center;justify-content:space-between;gap:14px 22px;flex-wrap:wrap;padding-top:13px;padding-bottom:13px}
+  .brand{font-weight:800;font-size:1.12rem;color:var(--text);text-decoration:none;white-space:nowrap}
+  .brand:hover{color:var(--text)}
+  .navlinks{display:flex;flex-wrap:wrap;gap:4px 20px}
+  .navlinks a{color:var(--muted);text-decoration:none;font-weight:600;font-size:1rem;padding:4px 2px}
+  .navlinks a:hover{color:var(--text)}
+  .navlinks a.active{color:var(--accent)}
+  .navlinks a.navcta{color:var(--accent2)}
+  .navlinks a.navcta:hover{color:#ffa28c}
+
+  /* ---------- hero ---------- */
+  header{
+    position:relative;
+    overflow:hidden;
+    background:
+      radial-gradient(1100px 500px at 85% -10%, rgba(87,168,255,.16), transparent 60%),
+      radial-gradient(800px 420px at 8% 110%, rgba(255,122,89,.10), transparent 60%),
+      linear-gradient(180deg,var(--bg2),var(--bg));
+    border-bottom:1px solid var(--line);
+  }
+  header .traces{position:absolute;inset:0;opacity:.35;pointer-events:none}
+  .hero{position:relative;padding:88px 0 72px;text-align:left}
+  .pagehero{position:relative;padding:64px 0 10px;text-align:left}
+  .kicker{
+    display:inline-block;
+    font-size:.85rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);
+    border:1px solid var(--line);border-radius:999px;
+    padding:6px 14px;background:rgba(87,168,255,.08);
+  }
+  h1{
+    font-size:clamp(2.6rem,6.5vw,4.4rem);
+    line-height:1.05;font-weight:800;letter-spacing:-.02em;
+    margin:26px 0 8px;
+  }
+  h1 .thin{display:block;color:var(--text)}
+  h1 .glow{
+    display:block;
+    background:linear-gradient(92deg,var(--accent),#9fd0ff 55%,var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .sub{
+    font-size:clamp(1.1rem,2.4vw,1.35rem);
+    color:var(--muted);max-width:46rem;margin-top:18px;
+  }
+  .sub strong{color:var(--text)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+  .chip{
+    font-size:.95rem;font-weight:600;color:var(--text);
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:999px;padding:8px 16px;
+  }
+  .chip b{color:var(--good);font-weight:800}
+  .cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+  .btn{
+    display:inline-block;text-decoration:none;font-weight:700;
+    padding:14px 26px;border-radius:12px;font-size:1.02rem;
+  }
+  .btn-primary{background:var(--accent);color:#06121f}
+  .btn-primary:hover{background:#7db9ff;color:#06121f}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--text)}
+
+  /* ---------- sections ---------- */
+  section{padding:72px 0 8px}
+  h2{
+    font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;letter-spacing:-.01em;
+    margin-bottom:14px;
+  }
+  h2 .bar{color:var(--accent2)}
+  .lead{color:var(--muted);max-width:52rem;font-size:1.08rem}
+  .lead strong{color:var(--text)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:30px}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px 24px 20px;
+  }
+  .card h3{font-size:1.12rem;font-weight:750;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:1rem}
+  .card .tick{color:var(--good);font-weight:800;margin-right:8px}
+  .card .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;border-radius:10px;margin-bottom:14px;
+    background:rgba(87,168,255,.12);color:var(--accent);font-weight:800;
+    border:1px solid var(--line);
+  }
+  a.card{display:block;text-decoration:none}
+  a.card:hover{border-color:var(--accent)}
+  a.card h3{color:var(--text)}
+  .card .go{color:var(--accent);font-weight:700}
+
+  .status-band{
+    margin-top:30px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:var(--radius);padding:28px;
+  }
+  .status-band h3{font-size:1.2rem;margin-bottom:6px}
+  .status-band p{color:var(--muted)}
+  .status-band p strong{color:var(--text)}
+  .status-list{list-style:none;margin-top:18px}
+  .status-list li{
+    padding:12px 0;border-top:1px solid var(--line);color:var(--muted);
+  }
+  .status-list li:first-child{border-top:none}
+  .status-list li strong{color:var(--text)}
+  .tag{
+    display:inline-block;font-size:.78rem;font-weight:800;letter-spacing:.06em;
+    text-transform:uppercase;border-radius:6px;padding:2px 9px;margin-right:10px;
+    vertical-align:1px;white-space:nowrap;
+  }
+  .tag-proven{background:rgba(74,222,128,.14);color:var(--good);border:1px solid rgba(74,222,128,.4)}
+  .tag-now{background:rgba(87,168,255,.14);color:var(--accent);border:1px solid rgba(87,168,255,.4)}
+  .tag-shipped{background:rgba(255,122,89,.14);color:var(--accent2);border:1px solid rgba(255,122,89,.45)}
+
+  ol.install, ul.plain{margin:22px 0 0 1.4rem;color:var(--muted)}
+  ol.install li, ul.plain li{padding:6px 0}
+  ol.install strong, ul.plain strong{color:var(--text)}
+  code{
+    background:#0b1220;border:1px solid var(--line);border-radius:6px;
+    padding:1px 7px;font-size:.92em;color:#cfe4ff;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+
+  footer{
+    margin-top:84px;border-top:1px solid var(--line);
+    background:var(--bg2);padding:44px 0 54px;color:var(--muted);font-size:.95rem;
+  }
+  footer strong{color:var(--text)}
+  footer .fine{margin-top:16px;font-size:.88rem;color:#8298b3}
+  footer a{color:var(--accent)}
+  footer .footnav{display:flex;flex-wrap:wrap;gap:6px 20px;margin-bottom:22px}
+  footer .footnav a{color:var(--muted);text-decoration:none;font-weight:600}
+  footer .footnav a:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap navrow">
+    <a class="brand" href="index.html">🔌 KiCad‑iOS</a>
+    <div class="navlinks">
+      <a href="how-it-works.html">How It Works</a>
+      <a href="editors.html">The Editors</a>
+      <a href="display-input.html" class="active">Display &amp; Input</a>
+      <a href="install.html">Install</a>
+      <a class="navcta" href="v1.html">V1 Release</a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="pagehero">
+    <span class="kicker">KiCad‑iOS · Display &amp; Input</span>
+    <h1 style="font-size:clamp(2.1rem,5vw,3.2rem)">Desktop windows, tablet input.</h1>
+    <p class="sub">KiCad is a desktop program: real windows, real menus, a mouse-first canvas. V1 rebuilds the window layer for the tablet and wires the tablet's input — touch, gestures, external displays, hardware keyboards — into KiCad's own machinery. Everything on this page ships in V1 and is verified in the shipped binary by the release gates; V1's on-device pass runs next and has the final word.</p>
+  </div>
+  <section>
+    <h2><span class="bar">/</span> Windows</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>A titlebar on every window</h3>
+        <p>Every window — manager, editors, dialogs — carries a titlebar strip at the top: the window's title on the left, then the Cursor toggle, Minimize and Close on the right, in Windows order. In frames the strip sits <strong>above the real menu bar</strong> in space the layout reserves; nothing is overlaid and no control is covered. The floating pill of the Spike builds is retired.</p>
+      </div>
+      <div class="card">
+        <h3>Drag by the titlebar</h3>
+        <p>The strip is the drag surface. A press that moves past a small threshold drags the window — including a maximised editor, which un-maximises and follows — and a press that doesn't is a tap on the buttons. Minimize docks the window to a strip at the left edge; a tap on the dock restores it, titlebar and all.</p>
+      </div>
+      <div class="card">
+        <h3>Full screen, natural scale</h3>
+        <p>Windows open filling the screen — no black bands, no magnification. The app declares a real launch screen and full-screen presentation, and frames maximise on open regardless of geometry persisted by older builds.</p>
+      </div>
+      <div class="card">
+        <h3>Every window fits its display</h3>
+        <p>Every top-level window and dialog is clamped to the available area of <strong>the display it is actually on</strong> — asked from the display at runtime. No resolution is hardcoded anywhere in the port, so the same clamp follows an external display. Oversized dialogs — Preferences is the worst offender — open with their OK and Close buttons on screen. Content whose own minimum is wider than the panel can still clip inside a window that fits; the window itself always fits and stays closable.</p>
+      </div>
+      <div class="card">
+        <h3>Smoother moves</h3>
+        <p>Dragging used to repaint the world per mouse sample: every size event forced a full canvas buffer realloc and redraw, and each touch sample arrived twice. V1 defers the canvas resize until the size settles — a burst becomes one redraw at the final size, at full quality — and coalesces drag moves to the latest position. Final geometry is identical; the churn in between is gone.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> Touch</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Pinch zoom, both editors</h3>
+        <p>Spread two fingers on the canvas and the view zooms in — smoothly and continuously, anchored at the pinch centre, through KiCad's own <code>SetScale</code> view machinery. Not a bitmap stretch. The Schematic Editor and the PCB Editor both gain it from the same canvas code, and the release gate proves the gesture path in the shared canvas library both editors link.</p>
+      </div>
+      <div class="card">
+        <h3>Two-finger pan</h3>
+        <p>Two fingers down together, dragged without changing their spacing, pan the sheet or the board through KiCad's own <code>SetCenter</code>. One-finger behaviour is untouched: a one-finger drag still selects and drags exactly as KiCad defines it — no accidental pans.</p>
+      </div>
+      <div class="card">
+        <h3>Optional virtual cursor</h3>
+        <p>For precise canvas work there is an on-screen cursor, and it is an <strong>option</strong>: the Cursor toggle on every titlebar turns it on, it is off by default, and the setting is remembered. One finger drags anywhere and the arrow moves relatively, trackpad-style; lift the finger and the click lands at the arrow. Two-finger gestures are never captured by the cursor — pinch keeps zooming with the cursor on.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> Keyboard &amp; mouse</h2>
+    <p class="lead">
+      KiCad is shortcut-driven, so the bridge audit for hardware keyboards and mice mattered.
+      V1 fixes four dead paths in the translation layer: the <strong>char-hook event</strong>
+      KiCad's tool dispatcher and dialogs depend on is now generated (before it, dialog
+      undo/redo, Escape handling and grid tricks never saw keys first, and Alt+letter/digit
+      hotkeys arrived with the key code replaced by the translated character — Alt+1 landed
+      as '¡'); <strong>Shift+Tab</strong> moves focus backwards; the <strong>keypad Enter</strong>
+      confirms like Enter; and the <strong>wheel handler</strong> keeps pixel deltas, so
+      scroll-wheel zoom at the pointer is smooth. Modifier mapping matches KiCad's bindings:
+      the physical ⌘ key arrives as the Control modifier KiCad's shortcuts are written against.
+      Right-click context menus and hover tracking ride the same bridge.
+    </p>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> External display</h2>
+    <div class="status-band">
+      <h3>Extended, not mirrored</h3>
+      <p>
+        Connect a USB-C/HDMI display or an AirPlay screen and an <strong>Ext</strong> button
+        appears on every titlebar. Tap it and that window moves to the external display and
+        fills it — maximised at that display's own native size, asked at runtime — while the
+        iPad keeps its own windows. That is extension, not mirroring: the window's view is
+        assigned to the external screen's own window, which is the platform's designed path.
+        Tap Ext on any iPad-side titlebar to bring the window back, or unplug — a disconnect
+        returns it on its own. Modal dialogs are never moved.
+      </p>
+      <p style="margin-top:14px">
+        Stated plainly: the Ext control ships in V1 at the platform layer and is verified in
+        the shipped binary. How much pointer and keyboard input iPadOS routes to a window
+        living on an external screen is the open item in V1's device pass — the site will
+        say what the device says.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="footnav">
+      <a href="index.html">Home</a>
+      <a href="how-it-works.html">How It Works</a>
+      <a href="editors.html">The Editors</a>
+      <a href="display-input.html">Display &amp; Input</a>
+      <a href="install.html">Install</a>
+      <a href="v1.html">V1 Release</a>
+      <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
+    </div>
+    <p>
+      <strong>KiCad‑iOS</strong> is an unofficial port of
+      <a href="https://www.kicad.org/">KiCad</a> 10.0.1
+      (upstream source: <a href="https://gitlab.com/kicad/code/kicad">gitlab.com/kicad/code/kicad</a>,
+      baseline commit <code>2db9e5a7</code>).
+    </p>
+    <p style="margin-top:12px">
+      KiCad is © its many contributors and the KiCad project. This port is licensed under the
+      <strong>GNU General Public License v3.0 or later</strong>, matching upstream — the full text
+      ships in the repository as <code>LICENSE</code>, and every change to upstream files is recorded
+      in <code>MODIFICATIONS.md</code> per GPL §5.
+    </p>
+    <p class="fine">
+      Disclaimer: this is an unofficial port and an independent experiment. It is not affiliated with,
+      sponsored by, or endorsed by the KiCad project, CERN, or any KiCad sponsor. “KiCad” is a trademark
+      of the KiCad project; it is used here descriptively, to identify the upstream software this port is
+      based on, and for no other purpose.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
