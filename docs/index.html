@@ -117,6 +117,8 @@
     padding:24px 24px 20px;
   }
   .card h3{font-size:1.12rem;font-weight:750;margin-bottom:8px}
+  .toolicon{width:56px;height:56px;display:block;margin-bottom:12px}
+  .toolcard h3{margin-bottom:2px}
   .card p{color:var(--muted);font-size:1rem}
   .card .tick{color:var(--good);font-weight:800;margin-right:8px}
   .card .num{
@@ -183,7 +185,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a class="navcta" href="v1.html">V1 Release</a>
+      <a class="navcta" href="v1.html">Features</a>
     </div>
   </div>
 </nav>
@@ -211,8 +213,8 @@
     <p class="sub">
       This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
       its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
-      <strong>V1.1 is the current release</strong> — V1, the first official release after fifteen Spike
-      builds, plus the structural fresh-install fix its device pass called for. On a real iPad it installs, completes KiCad's first-run wizard, and opens the
+      <strong>V1 (1.0) is the current release</strong> — the first official release after fifteen Spike
+      builds. On a real iPad it installs, completes KiCad's first-run wizard, and opens the
       <strong>KiCad project manager</strong>; projects create and open in the shared Documents
       folder, and the Schematic Editor draws on the software canvas — each of those confirmed
       on hardware in the Spike passes. V1 rebuilds the window chrome around a real titlebar,
@@ -228,7 +230,7 @@
       <span class="chip">Status <b>Current release V1</b></span>
     </div>
     <div class="cta">
-      <a class="btn btn-primary" href="v1.html">What's in V1</a>
+      <a class="btn btn-primary" href="v1.html">The features</a>
       <a class="btn btn-ghost" href="install.html">How to install</a>
       <a class="btn btn-ghost" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
     </div>
@@ -267,7 +269,7 @@
       </div>
       <div class="card">
         <h3><span class="tick">✓</span>Editors open and work</h3>
-        <p>v14's pass: the editors open and work. v15's pass went further — the Schematic Editor opens and <strong>draws</strong> on the Cairo software canvas, no crash. That pass is also where V1's work list came from; the <a href="v1.html">V1 page</a> answers it item by item.</p>
+        <p>The editors open and work. The Schematic Editor opens and <strong>draws</strong> on the Cairo software canvas — symbols, wires, the sheet — with no crash. The <a href="v1.html">features page</a> lists what the app does, item by item.</p>
       </div>
       <div class="card">
         <h3><span class="tick">✓</span>Stock libraries in the box</h3>
@@ -281,11 +283,11 @@
   </section>
 
   <section id="new">
-    <h2><span class="bar">/</span> New in V1</h2>
+    <h2><span class="bar">/</span> Features</h2>
     <p class="lead">
-      V1 is verified in the shipped binary by the release gates — the gates read the shipped
-      executable itself and fail on the previous release on every V1 count. V1's on-device pass
-      runs next; the <a href="v1.html">release page</a> keeps the two kinds of evidence labelled.
+      The app, feature by feature. Everything below is part of the shipped build and verified
+      in the shipped binary by the release gates — the gates read the shipped executable itself,
+      not the source tree. The <a href="v1.html">features page</a> has the complete list.
     </p>
     <div class="grid">
       <div class="card">
@@ -301,13 +303,26 @@
         <p>Windows open filling the screen at natural scale, and every dialog is clamped to the display it is actually on — its size is asked from the display at runtime, never hardcoded. Preferences and the setup dialogs keep their buttons on screen.</p>
       </div>
       <div class="card">
-        <h3>The found defects, fixed</h3>
-        <p>The occasional OpenGL failure dialog is gone at the root — the canvas factory itself returns Cairo. The manager's "schema file" error is fixed: the schemas ship. And a crash that killed fresh installs on first launch is fixed in the window toolkit.</p>
+        <h3>Solid from first launch</h3>
+        <p>No OpenGL dialog anywhere — the canvas is Cairo at the root, in every editor. The manager's content schemas ship in the bundle. A fresh install's first launch is a supported path: delete the app, reinstall, and the wizard and the manager are the first things up.</p>
       </div>
     </div>
     <div class="cta">
-      <a class="btn btn-primary" href="v1.html">The full V1 list</a>
-      <a class="btn btn-ghost" href="display-input.html">Display &amp; input in V1</a>
+      <a class="btn btn-primary" href="v1.html">All the features</a>
+      <a class="btn btn-ghost" href="display-input.html">Display &amp; input</a>
+    </div>
+  </section>
+
+  <section id="tools">
+    <h2><span class="bar">/</span> The editors</h2>
+    <p class="lead">Every tool in the manager's launcher column, in the app, in its own window — shown with KiCad's own icons, the same artwork the app itself ships.</p>
+    <div class="grid">
+      <a class="card toolcard" href="editors.html"><img class="toolicon" src="images/icon_kicad_128.png" alt="KiCad project manager icon"><h3>Project Manager</h3><p>Projects, files, and the launcher for every editor.</p></a>
+      <a class="card toolcard" href="editors.html"><img class="toolicon" src="images/icon_eeschema_128.png" alt="Schematic Editor icon"><h3>Schematic Editor</h3><p>Full schematic capture on the software canvas.</p></a>
+      <a class="card toolcard" href="editors.html"><img class="toolicon" src="images/icon_pcbnew_128.png" alt="PCB Editor icon"><h3>PCB Editor</h3><p>Board layout, routing, zones, and DRC.</p></a>
+      <a class="card toolcard" href="editors.html"><img class="toolicon" src="images/icon_libedit_128.png" alt="Symbol Editor icon"><h3>Symbol Editor</h3><p>Create and edit schematic symbols.</p></a>
+      <a class="card toolcard" href="editors.html"><img class="toolicon" src="images/icon_modedit_128.png" alt="Footprint Editor icon"><h3>Footprint Editor</h3><p>Create and edit PCB footprints.</p></a>
+      <a class="card toolcard" href="editors.html"><img class="toolicon" src="images/icon_gerbview_128.png" alt="Gerber Viewer icon"><h3>Gerber Viewer</h3><p>Inspect fabrication output before it ships.</p></a>
     </div>
   </section>
 
@@ -343,7 +358,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a href="v1.html">V1 Release</a>
+      <a href="v1.html">Features</a>
       <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
     </div>
     <p>
