@@ -1,0 +1,37 @@
+--- a/common/eda_base_frame.cpp
++++ b/common/eda_base_frame.cpp
+@@ -963,7 +963,33 @@
+     m_normalFramePos  = m_framePos;
+ 
+     // Maximize if we were maximized before
+-    if( aState.maximized || ( wasDefault && m_maximizeByDefault ) )
++    bool maximize = aState.maximized || ( wasDefault && m_maximizeByDefault );
++
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-Spike-v16):
++    // every EDA frame starts maximized on this port, whatever geometry was
++    // persisted. There is no desktop behind a KiCad frame on iOS: the Qt
++    // iOS QPA leaves the rest of the screen black, so a frame restored at
++    // its desktop size -- the manager's 850x540 default, an editor's
++    // 1280x720, or any size an earlier version saved into the settings
++    // this install inherits -- floats in a black band with large black
++    // areas around it, and this platform offers no window-manager resize
++    // affordance to fix that by hand (v15 device report, 2026-11-09:
++    // manager window in a middle band, black above and below). Maximize()
++    // here is wxTopLevelWindowQt::Maximize() -> QWidget::showMaximized(),
++    // which the iOS QPA resolves to the screen's available geometry, so
++    // the frame fills the screen. The persisted position/size are still
++    // recorded above as the frame's normal geometry (m_normalFrameSize /
++    // m_normalFramePos) and SaveWindowSettings() keeps saving those while
++    // maximized, so the restore state stays stable across runs. Dialogs
++    // are not EDA_BASE_FRAMEs and are unaffected.
++    maximize = true;
++
++    wxLogTrace( traceDisplayLocation,
++                wxS( "Maximizing window (iOS port: frames always fill the screen)" ) );
++#endif
++
++    if( maximize )
+     {
+         wxLogTrace( traceDisplayLocation, wxS( "Maximizing window" ) );
+         Maximize();
