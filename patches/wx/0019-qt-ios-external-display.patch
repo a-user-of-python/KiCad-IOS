@@ -1,0 +1,364 @@
+# KiCad-IOS port patch 0019 (wxWidgets v3.3.4, wxWindows licence)
+# Round 16, Job J (KiCad-V1): external display (extended, not
+# mirrored) -- an "Ext" toggle on every window's titlebar strip
+# moves that strip's frame to a second QScreen via
+# QWindow::setScreen() and fills it at its native size with
+# showMaximized(); toggling again (from any window's strip) or a
+# display disconnect brings it back. See
+# hidden_files/round16-jobj/findings.md. Apply with: patch -p1
+# (from the wx source root), after patches 0001-0018.
+# REBASED by the round 16 coordinator onto patch 0015's
+# per-window titlebar design (the original 0019 was written
+# against the retired single roaming bar and no longer applied):
+# the toggle keeps the objectName
+# "wxQtIOSExternalDisplayButton" and acts on the strip's own
+# window, exactly as the original patch's porting note
+# prescribed. All Job J logic (screen assignment before
+# geometry, showMaximized fill, saved iPad-side state,
+# disconnect auto-return) is unchanged.
+#
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -613,6 +613,7 @@
+         QPointer<QWidget> menuHost;
+         QPointer<QLabel> title;
+         QPointer<QPushButton> cursorBtn;
++        QPointer<QPushButton> extBtn;
+         QPointer<QPushButton> minBtn;
+         QPointer<QPushButton> closeBtn;
+         bool shifted = false;
+@@ -665,6 +666,29 @@
+                 positionCursor();
+             } );
+         }
++
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): Job J external display -- every strip's "Ext"
++        // button appears/disappears with the second screen, and a
++        // disconnect returns any external window to the iPad
++        // (deferred: the QPA's own screen-removal migration runs
++        // first, then returnWindowToPrimary() settles geometry).
++        if ( QGuiApplication *app = QGuiApplication::instance() )
++        {
++            QObject::connect( app, &QGuiApplication::screenAdded, this,
++                              [this]( QScreen * ) { updateExtButtons(); } );
++            QObject::connect( app, &QGuiApplication::screenRemoved, this,
++                              [this]( QScreen * )
++            {
++                QTimer::singleShot( 0, this, [this]()
++                {
++                    const QList<QWidget *> ext = m_extSavedRect.keys();
++                    for ( QWidget *w : ext )
++                        returnWindowToPrimary( w );
++                    updateExtButtons();
++                } );
++            } );
++        }
+     }
+ 
+     bool eventFilter( QObject *watched, QEvent *event ) override
+@@ -778,6 +802,11 @@
+                 m_dockOrder.removeAll( w );
+                 m_savedMinSize.remove( w );
+                 m_savedWindowMinSize.remove( w );
++                // [KiCad-IOS port] Added 2026-11-09 for iOS
++                // (round 16, KiCad-V1): Job J bookkeeping for a
++                // window destroyed while on an external screen.
++                m_extSavedRect.remove( w );
++                m_extSavedMaximized.remove( w );
+                 if ( w == m_current )
+                     m_current = fallbackCurrent();
+                 if ( w == m_dragWindow.data() )
+@@ -869,6 +898,17 @@
+                     setCursorEnabled( !m_cursorEnabled );
+                     return true;
+                 }
++                // [KiCad-IOS port] Added 2026-11-09 for iOS
++                // (round 16, KiCad-V1): the Job J "Ext" toggle
++                // rides the same hit-test path. globalPosIn()
++                // already rejects a hidden widget, and the button
++                // is hidden unless a second screen exists or a
++                // window is already external.
++                if ( globalPosIn( tb.extBtn.data(), globalPos ) )
++                {
++                    toggleExternalDisplay( win );
++                    return true;
++                }
+                 if ( globalPosIn( tb.closeBtn.data(), globalPos ) )
+                 {
+                     closeWindow( win );
+@@ -1105,6 +1145,7 @@
+             if ( obj == tb.strip.data() || obj == tb.menuHost.data()
+                     || obj == tb.title.data()
+                     || obj == tb.cursorBtn.data()
++                    || obj == tb.extBtn.data()
+                     || obj == tb.closeBtn.data()
+                     || obj == tb.minBtn.data() )
+                 return true;
+@@ -1236,6 +1277,21 @@
+         cursorBtn->setChecked( m_cursorEnabled );
+         cursorBtn->setMinimumHeight( 36 );
+ 
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the Job J external-display toggle. Same
++        // hit-test-only contract as the Cursor toggle (the press
++        // is swallowed by the event filter, so clicked() never
++        // fires). Hidden unless a second screen exists or a
++        // window is already external (updateExtButtons()); its
++        // objectName doubles as a shipped-binary gate marker.
++        QPushButton *extBtn = new QPushButton( QStringLiteral( "Ext" ), strip );
++        extBtn->setObjectName(
++            QStringLiteral( "wxQtIOSExternalDisplayButton" ) );
++        extBtn->setToolTip( QStringLiteral(
++            "Move window to external display / bring it back" ) );
++        extBtn->setMinimumHeight( 36 );
++        extBtn->setVisible( false );
++
+         QPushButton *minBtn = new QPushButton( QStringLiteral( "Minimize" ), strip );
+         minBtn->setObjectName( QStringLiteral( "wxQtIOSWindowTitleBarMinimize" ) );
+         QPushButton *closeBtn = new QPushButton( QStringLiteral( "Close" ), strip );
+@@ -1246,6 +1302,7 @@
+         layout->setSpacing( 4 );
+         layout->addWidget( title, 1 );
+         layout->addWidget( cursorBtn );
++        layout->addWidget( extBtn );
+         layout->addWidget( minBtn );
+         layout->addWidget( closeBtn );
+ 
+@@ -1269,6 +1326,7 @@
+         tb.strip = strip;
+         tb.title = title;
+         tb.cursorBtn = cursorBtn;
++        tb.extBtn = extBtn;
+         tb.minBtn = minBtn;
+         tb.closeBtn = closeBtn;
+         return tb;
+@@ -1413,6 +1471,12 @@
+         if ( !tb.strip->isVisible() )
+             tb.strip->show();
+         tb.strip->raise();
++
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): a strip created while a second screen is
++        // already attached starts with its "Ext" button in the
++        // correct state (updateExtButtons() settles all strips).
++        updateExtButtons();
+     }
+ 
+     // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+@@ -1522,6 +1586,203 @@
+     // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+     // KiCad-V1): Close acts on the strip's own window (the old
+     // closeCurrent() acted on the inferred current window).
++    // --- external display (round 16, KiCad-V1, Job J) -----------
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++    // external display (extended, not mirrored).
++    //
++    // The Qt 6.9 iOS QPA enumerates every UIScreen in
++    // QGuiApplication::screens(): QIOSScreen::initializeScreens() adds
++    // one QIOSScreen per entry of [UIScreen screens], and
++    // QIOSScreenTracker adds/removes one on UIScreenDidConnect /
++    // UIScreenDidDisconnect notifications (qtbase
++    // src/plugins/platforms/ios/qiosscreen.mm). An external screen is
++    // named "External display" by QIOSScreen::name(). Assigning a
++    // QWindow to it is a designed QPA path, not a hack:
++    // QIOSWindow::setParent() parents a top-level view into
++    // rootViewForScreen(window()->screen()), i.e. into the target
++    // screen's own UIWindow/desktop-manager view, and
++    // QIOSDesktopManagerView's didAddSubview explicitly un-hides that
++    // screen's UIWindow the first time a QWindow maps to it -- "for
++    // external screens this disables mirroring of the main screen, so
++    // the external screen can be used for alternate content"
++    // (qiosviewcontroller.mm). wxQt already passes the enumeration
++    // through: wxDisplayFactoryQt::GetCount() returns
++    // QApplication::screens().size() (src/qt/display.cpp).
++    //
++    // Two QPA facts shape the implementation:
++    //   * Every QIOSScreen's geometry has origin (0,0) -- it is
++    //     UIScreen.bounds verbatim -- so the screens' coordinate
++    //     spaces OVERLAP. Placement by global coordinates alone can
++    //     never move a window between displays; the move must assign
++    //     the screen first (QWindow::setScreen) and only then set
++    //     geometry, in the target screen's local coordinates.
++    //   * Filling a screen is done with the state primitive
++    //     (showMaximized), the same one Job D proved is the only
++    //     geometry operation the QPA always honours: setGeometry() on
++    //     a maximized/full-screen window is bookkeeping only.
++    //
++    // Each titlebar strip therefore carries an "Ext" button
++    // (objectName "wxQtIOSExternalDisplayButton", shown only while a
++    // second screen exists or a window is already external). It
++    // toggles: if a window is on an external screen, bring THAT
++    // window back (so a return control always exists on the iPad
++    // side, on whichever window's strip is used); otherwise move
++    // THIS strip's window to the external screen, maximized at that
++    // screen's native size. The iPad-side geometry/state are saved
++    // for the return trip, and a screen disconnect returns any
++    // external window automatically. HONEST LABEL: this is extended
++    // desktop at the QPA level, shipped without device proof; how
++    // much pointer/keyboard input iPadOS routes to a window on an
++    // external UIScreen is only settled by the round 16 device
++    // test. (Merged into the per-window titlebar design by the
++    // round 16 coordinator: patch 0019 was written against the
++    // retired single roaming bar; the toggle now lives on every
++    // strip with the same objectName and acts on the strip's own
++    // window, exactly as patch 0019's own porting note prescribed.)
++
++    // The first non-primary screen, or nullptr.
++    static QScreen *externalScreen()
++    {
++        QScreen *primary = QGuiApplication::primaryScreen();
++
++        for ( QScreen *s : QGuiApplication::screens() )
++        {
++            if ( s != primary )
++                return s;
++        }
++        return nullptr;
++    }
++
++    // A tracked, visible window currently living on a non-primary
++    // screen, or nullptr.
++    QWidget *windowOnExternalScreen() const
++    {
++        QScreen *primary = QGuiApplication::primaryScreen();
++
++        for ( QWidget *w : m_history )
++        {
++            if ( !w || !w->isVisible() )
++                continue;
++            if ( QWindow *qw = w->windowHandle() )
++            {
++                if ( qw->screen() && qw->screen() != primary )
++                    return w;
++            }
++        }
++        return nullptr;
++    }
++
++    void updateExtButtons()
++    {
++        const bool show = externalScreen() != nullptr
++                || windowOnExternalScreen() != nullptr;
++
++        for ( StripWidgets &tb : m_titleBars )
++        {
++            if ( !tb.extBtn.isNull() )
++                tb.extBtn->setVisible( show );
++        }
++    }
++
++    void toggleExternalDisplay( QWidget *stripWindow )
++    {
++        // Return wins: while any window is external, the button
++        // brings THAT window back, so a return control always
++        // exists on the iPad side (on whichever window's strip is
++        // used) even though the moved window took its own strip
++        // with it.
++        if ( QWidget *ext = windowOnExternalScreen() )
++        {
++            returnWindowToPrimary( ext );
++            return;
++        }
++
++        if ( stripWindow )
++            moveWindowToExternal( stripWindow );
++    }
++
++    void moveWindowToExternal( QWidget *w )
++    {
++        if ( !w || m_docked.contains( w ) )
++            return;
++
++        // Frames only: a modal dialog belongs to its owner's
++        // screen and session.
++        if ( w->isModal() )
++            return;
++
++        QWindow *qw = w->windowHandle();
++        QScreen *primary = QGuiApplication::primaryScreen();
++        QScreen *target = externalScreen();
++
++        if ( !qw || !primary || !target || qw->screen() != primary )
++            return;
++
++        // Save the iPad-side state for the return trip: the
++        // floating geometry (normalGeometry() while maximized)
++        // and whether the window filled the screen.
++        m_extSavedRect[w] = ( w->isMaximized() || w->isFullScreen() )
++                ? w->normalGeometry() : w->geometry();
++        m_extSavedMaximized[w] = w->isMaximized() || w->isFullScreen();
++
++        // Out of maximized/full-screen first: in those states
++        // QIOSWindow::setGeometry() is bookkeeping only (Job D),
++        // and the screen assignment must reparent a floating
++        // window's view into the target screen's UIWindow.
++        if ( w->isMaximized() || w->isFullScreen() )
++            w->showNormal();
++
++        qw->setScreen( target );
++
++        // Fill the external screen at ITS native size: geometry
++        // is screen-local on this QPA, and showMaximized() is
++        // the state primitive the QPA always honours -- it sizes
++        // the window to screen()->availableGeometry() of the
++        // screen the window is now on.
++        w->setGeometry( target->availableGeometry() );
++        w->showMaximized();
++        qw->requestActivate();
++
++        noteWindow( w );
++        updateExtButtons();
++    }
++
++    void returnWindowToPrimary( QWidget *w )
++    {
++        if ( !w )
++            return;
++
++        QWindow *qw = w->windowHandle();
++        QScreen *primary = QGuiApplication::primaryScreen();
++
++        if ( !qw || !primary )
++            return;
++
++        const bool haveSaved = m_extSavedRect.contains( w );
++        const QRect saved = m_extSavedRect.take( w );
++        const bool wasMaximized = m_extSavedMaximized.take( w );
++
++        if ( w->isMaximized() || w->isFullScreen() )
++            w->showNormal();
++
++        if ( qw->screen() != primary )
++            qw->setScreen( primary );
++
++        // The saved rect was taken on this same primary screen;
++        // the (now screen-aware) Show()/DoMoveWindow clamps
++        // guard the pathological cases.
++        if ( haveSaved && saved.isValid() && !saved.isEmpty() )
++            w->setGeometry( saved );
++
++        if ( wasMaximized )
++            w->showMaximized();
++
++        qw->requestActivate();
++
++        noteWindow( w );
++        updateExtButtons();
++    }
++
+     void closeWindow( QWidget *w )
+     {
+         if ( w )
+@@ -2397,6 +2658,11 @@
+     QMap<QWidget *, QRect> m_docked;
+     QMap<QWidget *, QSize> m_savedMinSize;
+     QMap<QWidget *, QSize> m_savedWindowMinSize;
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): Job J external-display bookkeeping -- the
++    // iPad-side geometry/state saved while a window is external.
++    QMap<QWidget *, QRect> m_extSavedRect;
++    QMap<QWidget *, bool> m_extSavedMaximized;
+     QVector<QWidget *> m_dockOrder;
+ 
+     QPointer<QWidget> m_dragWindow;
