@@ -490,18 +490,12 @@ def main():
         if binary == dst_exe:
             run(["install_name_tool", "-add_rpath", "@executable_path/Frameworks", binary])
 
-    # No Contents/ mirror and no bundle-root kiface copies: the v1
-    # package mirrored every Frameworks file into
-    # Contents/Frameworks (+ Contents/PlugIns) as a hedge for
-    # KiCad's macOS-shaped kiface search, doubling the bundle to
-    # 491 MB; the signing service refused it. v10's device run then
-    # proved KiCad 10.0.1's generic kiface search (KIWAY::
-    # dso_search_path) resolves <exe dir>/_<tool>.kiface -- the
-    # bundle root -- so the editors failed to load at all. Since
-    # launch fix round 9 (KiCad-Spike-v11), KiCad patch 0027
-    # redirects that search to <exe dir>/Frameworks under
-    # KICAD_IOS_PORT: the Frameworks/ copies packaged here ARE the
-    # dlopen targets, and no duplicates are shipped.
+    # No Contents/ mirror: the v1 package mirrored every Frameworks
+    # file into Contents/Frameworks (+ Contents/PlugIns) as a hedge
+    # for KiCad's macOS-shaped kiface search, doubling the bundle to
+    # 491 MB; the signing service refused it. The editors are dlopen'd
+    # from Frameworks/ like every other binary here. Restore a mirror
+    # only if a device run proves an editor actually searches there.
 
     # KiCad stock data (launch fix round 5, KiCad-Spike-v7): KiCad
     # 10's BITMAP_STORE is file-based -- it opens an asset archive at
@@ -525,110 +519,48 @@ def main():
     print("stock data packaged: share/resources/images.tar.gz",
           os.path.getsize(stock_src), "bytes")
 
-    # KiCad stock libraries (launch fix round 9, KiCad-Spike-v11):
-    # the first-run setup could not reach the default libraries in
-    # v10 because the bundle shipped no stock content at all (and,
-    # pre-patch-0028, the generic stock EDA path root was empty on
-    # Apple builds). The stage fetched the pinned official library
-    # repos (10.0.1) into $WORK/kicad-libs; package the installed
-    # layout KiCad's own CMake installs use:
-    #   share/symbols/    *.kicad_symdir trees + *.sp
-    #   share/footprints/ *.pretty trees
-    #   share/template/   sym-lib-table + fp-lib-table, the template
-    #                     repo's Projects/* dirs and Worksheets/*.kicad_wks
-    # Patch 0028 roots PATHS::GetStockEDALibraryPath() at the stock
-    # data home (<app>/share, patch 0024), so the default global
-    # tables -- copied into the user settings by the setup wizard,
-    # chaining to share/template/{sym,fp}-lib-table whose rows expand
-    # ${KICAD10_SYMBOL_DIR}/${KICAD10_FOOTPRINT_DIR} to these trees --
-    # resolve inside the bundle. Fail hard on missing trees: a bundle
-    # whose setup cannot reach the default libraries must not ship.
-    libs_root = os.path.join(WORK, "kicad-libs")
-    sym_src = os.path.join(libs_root, "symbols")
-    fp_src = os.path.join(libs_root, "footprints")
-    tpl_src = os.path.join(libs_root, "templates")
-    for d in (sym_src, fp_src, tpl_src):
-        if not os.path.isdir(d):
-            print("FATAL: stock library tree missing:", d)
+    # KiCad JSON schemas (round 16, KiCad-Spike-v16): KiCad locates its
+    # JSON validation schemas at <stock data>/schemas/*.json (the
+    # JSON_SCHEMA_VALIDATOR paths are built as
+    # PATHS::GetStockDataPath() + "schemas"). Three constructors run at
+    # ordinary startup and wxLogError "schema file '%s' not found" when
+    # the file is absent: API_PLUGIN_MANAGER (built by PGM_BASE in
+    # every app, api.v1.schema.json) and PLUGIN_CONTENT_MANAGER (built
+    # by the manager frame at startup, pcm.v1.schema.json +
+    # pcm.v2.schema.json). Desktop installs compose that one directory
+    # from three source dirs (api/CMakeLists.txt, kicad/pcm/
+    # CMakeLists.txt, common/CMakeLists.txt for resources/schemas);
+    # this packager never ran cmake --install and never copied any of
+    # them, so every v7-v15 bundle shipped without share/schemas/ and
+    # the manager raised the modal "schema file
+    # '/private/var/containers/Bundle/Application/.../share/schemas/
+    # ...' not found" error (the v13-v15 "file creation" error whose
+    # text was never captured until the v15 device screenshots).
+    # Package the full union or fail: a bundle without these files is
+    # a known-broken deliverable.
+    schemas_dst_dir = os.path.join(APP, "share", "schemas")
+    os.makedirs(schemas_dst_dir, exist_ok=True)
+    schema_src_dirs = [
+        os.path.join(WORK, "src", "kicad", "resources", "schemas"),
+        os.path.join(WORK, "src", "kicad", "kicad", "pcm", "schemas"),
+        os.path.join(WORK, "src", "kicad", "api", "schemas"),
+    ]
+    n_schemas = 0
+    for src_dir in schema_src_dirs:
+        if not os.path.isdir(src_dir):
+            print("FATAL: schema source dir missing:", src_dir)
             sys.exit(1)
-    share_dir = os.path.join(APP, "share")
-
-    def tree_bytes(root):
-        total = 0
-        for dp, _dn, fn in os.walk(root):
-            for f in fn:
-                total += os.path.getsize(os.path.join(dp, f))
-        return total
-
-    sym_dst = os.path.join(share_dir, "symbols")
-    os.makedirs(sym_dst, exist_ok=True)
-    n_symdir = 0
-    for name in sorted(os.listdir(sym_src)):
-        src = os.path.join(sym_src, name)
-        if name.endswith(".kicad_symdir") and os.path.isdir(src):
-            shutil.copytree(src, os.path.join(sym_dst, name))
-            n_symdir += 1
-        elif name.endswith(".sp") and os.path.isfile(src):
-            shutil.copy2(src, os.path.join(sym_dst, name))
-    fp_dst = os.path.join(share_dir, "footprints")
-    os.makedirs(fp_dst, exist_ok=True)
-    n_pretty = 0
-    for name in sorted(os.listdir(fp_src)):
-        src = os.path.join(fp_src, name)
-        if name.endswith(".pretty") and os.path.isdir(src):
-            shutil.copytree(src, os.path.join(fp_dst, name))
-            n_pretty += 1
-    tpl_dst = os.path.join(share_dir, "template")
-    os.makedirs(tpl_dst, exist_ok=True)
-    shutil.copy2(os.path.join(sym_src, "sym-lib-table"),
-                 os.path.join(tpl_dst, "sym-lib-table"))
-    shutil.copy2(os.path.join(fp_src, "fp-lib-table"),
-                 os.path.join(tpl_dst, "fp-lib-table"))
-    n_tpl = 0
-    projects_src = os.path.join(tpl_src, "Projects")
-    for name in sorted(os.listdir(projects_src)):
-        src = os.path.join(projects_src, name)
-        if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(tpl_dst, name))
-            n_tpl += 1
-    n_wks = 0
-    for dp, _dn, fn in os.walk(os.path.join(tpl_src, "Worksheets")):
-        for f in fn:
-            if f.endswith(".kicad_wks"):
-                shutil.copy2(os.path.join(dp, f), os.path.join(tpl_dst, f))
-                n_wks += 1
-    if n_symdir < 200 or n_pretty < 100 or n_tpl == 0 or n_wks == 0:
-        print("FATAL: stock library packaging incomplete:",
-              n_symdir, "symdirs,", n_pretty, "pretty,",
-              n_tpl, "templates,", n_wks, "worksheets")
-        sys.exit(1)
-    print("stock libraries packaged:", n_symdir, "symbol libraries",
-          tree_bytes(sym_dst), "bytes;", n_pretty, "footprint libraries",
-          tree_bytes(fp_dst), "bytes; template:", n_tpl, "projects,",
-          n_wks, "worksheets,", tree_bytes(tpl_dst), "bytes")
-
-    # Stock demo projects (launch fix round 9): the manager's File
-    # menu only offers "Open Demo Project" when PATHS::
-    # GetStockDemosPath() (<app>/share/demos) exists, so bundle the
-    # 10.0.1 demos -- minus the four projects that are mostly a
-    # single huge board/model file (126 MB, 97 MB, 50 MB, 31 MB of
-    # the 355 MB total); the other 32 projects (50 MB) are complete.
-    # The trim is disclosed in MODIFICATIONS.md and the spike report.
-    demos_src = os.path.join(WORK, "src", "kicad", "demos")
-    DEMOS_EXCLUDE = {"vme-wren", "jetson-agx-thor-baseboard",
-                     "cm5_minima", "tiny_tapeout"}
-    if os.path.isdir(demos_src):
-        demos_dst = os.path.join(share_dir, "demos")
-        os.makedirs(demos_dst, exist_ok=True)
-        n_demo = 0
-        for name in sorted(os.listdir(demos_src)):
-            src = os.path.join(demos_src, name)
-            if os.path.isdir(src) and name not in DEMOS_EXCLUDE:
-                shutil.copytree(src, os.path.join(demos_dst, name))
-                n_demo += 1
-        print("stock demos packaged:", n_demo, "projects",
-              tree_bytes(demos_dst), "bytes (trimmed:",
-              ", ".join(sorted(DEMOS_EXCLUDE)) + ")")
+        for name in sorted(os.listdir(src_dir)):
+            if name.endswith(".json"):
+                shutil.copy2(os.path.join(src_dir, name),
+                             os.path.join(schemas_dst_dir, name))
+                n_schemas += 1
+    for required in ("pcm.v1.schema.json", "pcm.v2.schema.json",
+                     "api.v1.schema.json"):
+        if not os.path.isfile(os.path.join(schemas_dst_dir, required)):
+            print("FATAL: required schema not packaged:", required)
+            sys.exit(1)
+    print(f"stock data packaged: share/schemas/ ({n_schemas} files)")
 
     plist = {
         "CFBundleExecutable": "KiCad",
@@ -646,7 +578,45 @@ def main():
             "UIInterfaceOrientationLandscapeLeft",
             "UIInterfaceOrientationLandscapeRight",
         ],
-        "UIRequiresFullScreen": False,
+        # Presentation (round 16, KiCad-Spike-v16): declare a launch
+        # screen and require full screen. Up to v15 this plist carried
+        # NO launch-screen declaration of any kind (no
+        # UILaunchStoryboardName, no UILaunchScreen, no launch images)
+        # and UIRequiresFullScreen was False. An app that declares no
+        # launch screen is not treated as native-resolution by iPadOS:
+        # it is presented at a legacy screen size and the system scales
+        # and letterboxes that surface onto the real panel -- the v15
+        # device evidence (2026-11-09) exactly: the manager window in a
+        # middle band with large black areas above/below, and the whole
+        # UI (menus, text, icons) rendered uniformly ~2x too big,
+        # because every point of the legacy surface is magnified.
+        # UIScreen is the single value the whole stack reads --
+        # QIOSScreen takes its geometry from UIScreen.bounds and its
+        # devicePixelRatio from UIScreen.scale, wxQt's display/window
+        # code passes QScreen geometry through unchanged, and KiCad
+        # lays out in those same units -- so a wrong UIScreen size
+        # distorts everything downstream at once, and no downstream
+        # layer can correct it. The control case is the FEBio Studio
+        # app on the same iPad with the same Qt 6.9.3 kit, which
+        # renders full-screen at natural scale: its Info.plist declares
+        # UILaunchStoryboardName=LaunchScreen (with a compiled
+        # LaunchScreen.storyboardc in the bundle) and
+        # UIRequiresFullScreen=True, and both executables carry the
+        # same LC_BUILD_VERSION (platform ios, sdk 26.5, minos 17.0),
+        # which rules out an old-SDK letterbox as the difference.
+        # UILaunchScreen as an empty dict is the file-free form of the
+        # same declaration (it is one of the launch-screen keys
+        # iPadOS accepts, needs no compiled storyboard in the bundle,
+        # and the FEBio Spike IPA ships exactly this key); the launch
+        # image it produces is blank, matching the black launch this
+        # app already shows. UIRequiresFullScreen=True additionally
+        # opts out of Split View / Stage Manager resizing, which the
+        # Qt iOS QPA + wxQt window model cannot honour anyway: KiCad's
+        # frames are desktop windows inside one app surface (patch
+        # 0037 maximizes them to fill it), not independently resizable
+        # scenes.
+        "UILaunchScreen": {},
+        "UIRequiresFullScreen": True,
         "NSPrincipalClass": "UIApplication",
         # File access (launch fix round 6, KiCad-Spike-v8): expose the
         # app's sandbox Documents folder in the Files app / Finder and
@@ -685,32 +655,6 @@ def main():
     }
     with open(os.path.join(APP, "Info.plist"), "wb") as fh:
         plistlib.dump(plist, fh)
-
-    # Belt-and-braces: duplicate every kiface module at the bundle
-    # root (launch fix round 10, KiCad-Spike-v12). Device evidence
-    # across v10 and v11: the manager's startup library preload
-    # dlopens "<exe dir>/_<tool>.kiface" -- the bundle root -- and
-    # raised "Failed to load shared library" for it on both builds,
-    # because patch 0027's Frameworks redirect never reached the
-    # shipped libkicommon (its KICAD_IOS_PORT define sat on the
-    # `common` CMake target, which compiles none of the patched
-    # sources; patch 0032 puts the define on the `kicommon` target,
-    # so the Frameworks search is live in v12 as well). Shipping the
-    # modules in BOTH places means every kiface path the loader has
-    # ever constructed on device names a file that exists. The
-    # copies are taken from the final Frameworks bytes (after all
-    # install-name rewriting above), so the two populations are
-    # byte-identical; a kiface's dependencies are @rpath names
-    # resolved through @executable_path-based rpaths, which do not
-    # depend on the kiface's own location. Cost: the eight modules
-    # total 160,119,512 bytes uncompressed.
-    root_kifaces = []
-    for name in sorted(os.listdir(FW)):
-        src = os.path.join(FW, name)
-        if name.endswith(".kiface") and os.path.isfile(src):
-            shutil.copy2(src, os.path.join(APP, name))
-            root_kifaces.append(name)
-    print("kiface bundle-root copies:", ", ".join(root_kifaces) or "(none)")
 
     ipa = os.path.join(WORK, "KiCad-Spike-unsigned.ipa")
     if os.path.exists(ipa):
