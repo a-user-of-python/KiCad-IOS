@@ -1,0 +1,78 @@
+# KiCad-IOS port patch 0022 (wxWidgets v3.3.4, wxWindows licence)
+# Round 16, Job C REOPENED (0.5 line): desktop-density scaling on
+# iPad. Device verdict on the shipped 0.5 build: the UI still
+# renders ~2x too big and dense dialogs (the parts choosers)
+# overflow the screen with OK unreachable, despite the plist /
+# maximise fix removing the letterbox. Root cause, three layers:
+# the iOS QPA reports the panel in points (1180x820, DPR 2);
+# wxWindowQt::GetContentScaleFactor() returns that DPR (2.0); and
+# KiCad sizes dialogs in DIPs via wxWindow::FromDIP(), doubling
+# every DIP dimension inside the already-halved workspace. This
+# patch sets QT_SCALE_FACTOR=0.5 -- the reciprocal of the iPad
+# family's fixed UIScreen scale -- immediately before wxQt
+# constructs the QApplication, so Qt's high-DPI layer reports an
+# effective devicePixelRatio of 1.0: the logical workspace becomes
+# the panel's pixel size (queried live from the display; no
+# resolution is hardcoded), wx reads content scale 1.0, FromDIP
+# stops doubling, and the stack lays out as on a desktop monitor
+# of the same pixel size. iOS only; every other wxQt platform is
+# untouched. Apply with: patch -p1 (from the wx source root),
+# after patches 0001-0021.
+#
+--- a/src/qt/app.cpp
++++ b/src/qt/app.cpp
+@@ -16,9 +16,38 @@
+ #include <QtWidgets/QApplication>
+ #include <QSurfaceFormat>
+ 
+ #include <algorithm>
+ #include <vector>
++
++#ifdef Q_OS_IOS
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, Job C
++// reopened): desktop-density scaling for iPad. wxQt reports the
++// QPA's devicePixelRatio (2.0 on every iPad) as the wx content
++// scale factor (wxWindowQt::GetContentScaleFactor), and KiCad
++// sizes its dialogs in device-independent pixels through
++// wxWindow::FromDIP -- so on iPad every DIP-sized dialog and
++// control was doubled, on top of a logical workspace (1180x820 pt)
++// that is already half the panel's pixel size per axis. The
++// device verdict on the 0.5 build: the UI renders ~2x too big and
++// dense desktop dialogs (the symbol/footprint choosers) overflow
++// the screen with their OK buttons unreachable. Setting
++// QT_SCALE_FACTOR=1/2 before the QApplication exists makes Qt's
++// high-DPI layer report an effective devicePixelRatio of 1.0:
++// the screen's logical geometry becomes the panel's pixel size
++// (queried from the live display by the QPA -- nothing about the
++// resolution is hardcoded), wx reads a content scale factor of
++// 1.0, FromDIP stops doubling, and the whole stack lays out the
++// way it does on a desktop monitor of the same pixel size. The
++// factor is the reciprocal of the iPad family's fixed UIScreen
++// scale (2); this app ships for iPad only (UIDeviceFamily 2).
++// Trace token for the shipped-binary gate: kicad-ios-scale-desktop.
++bool wxQtIosDesktopScaleFactor()
++{
++    qputenv("QT_SCALE_FACTOR", "0.5");
++    return true;
++}
++#endif // Q_OS_IOS
+ 
+ wxIMPLEMENT_DYNAMIC_CLASS(wxApp, wxEvtHandler);
+ 
+ wxApp::wxApp()
+@@ -60,7 +89,15 @@
+     // Warning: The data referred to by argc and argv must stay valid for the entire lifetime
+     // of the QApplication object. In addition, argc must be greater than zero and argv must
+     // contain at least one valid character string.
++
++#ifdef Q_OS_IOS
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, Job C
++    // reopened): apply the desktop-density scale factor BEFORE
++    // the QApplication (and with it the QPA's screens) exists --
++    // Qt reads QT_SCALE_FACTOR during QGuiApplication init only.
++    wxQtIosDesktopScaleFactor();
++#endif
+ 
+     m_qtApplication.reset(new QApplication(argc_, argvA));
+ 
+     if ( m_qtApplication->platformName() == "xcb" )
