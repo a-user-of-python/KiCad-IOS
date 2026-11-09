@@ -1,0 +1,164 @@
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -577,7 +577,8 @@
+           m_cursorTrackingIsTouch( false ),
+           m_cursorPoisoned( false ),
+           m_cursorSynthesizing( false ),
+-          m_cursorMaxDisp( 0 )
++          m_cursorMaxDisp( 0 ),
++          m_havePendingDragMove( false )
+     {
+         // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+         // KiCad-V1): restore the virtual-cursor toggle BEFORE
+@@ -587,6 +588,16 @@
+         createBar();
+         createCursor();
+ 
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++        // drag moves are coalesced through this timer (see queueDragMove()
++        // below); its object name doubles as the shipped-binary gate marker
++        // for the coalescing fix.
++        m_dragMoveTimer.setObjectName(
++                QStringLiteral( "wxQtIOSDragMoveCoalesceTimer" ) );
++        m_dragMoveTimer.setSingleShot( true );
++        QObject::connect( &m_dragMoveTimer, &QTimer::timeout, this,
++                          [this]() { onDragMoveTimer(); } );
++
+         if ( QScreen *screen = QGuiApplication::primaryScreen() )
+         {
+             QObject::connect( screen, &QScreen::availableGeometryChanged, this,
+@@ -855,6 +866,11 @@
+                 const bool wasStrip = m_dragIsStrip;
+                 QWidget *win = m_dragWindow.data();
+ 
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++                // KiCad-V1): land the window exactly under the pointer --
++                // apply any coalesced move still pending (see
++                // queueDragMove()) before the drag state is torn down.
++                flushDragMove();
+                 resetDrag();
+ 
+                 // A strip tap (press + release, never dragged)
+@@ -887,6 +903,10 @@
+         case QEvent::TouchCancel:
+             if ( m_pressArmed )
+             {
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++                // KiCad-V1): a cancelled drag also lands at its latest
++                // coalesced position before teardown (see flushDragMove()).
++                flushDragMove();
+                 resetDrag();
+                 return true;
+             }
+@@ -913,6 +933,12 @@
+     // a drag rather than a tap.
+     static const int kDragThreshold = 8;
+ 
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // minimum interval between drag moves applied to the window; pointer
++    // samples arriving inside the interval are coalesced to the latest
++    // position only (see queueDragMove()).
++    static const int kDragMoveIntervalMs = 16;
++
+     // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+     // KiCad-V1): virtual-cursor tap definition -- a finger
+     // sequence shorter than kCursorTapMaxMs whose finger never
+@@ -1387,6 +1413,10 @@
+         m_dragIsStrip = false;
+         m_pressArmed = false;
+         m_dragging = false;
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++        // no coalesced move may outlive its drag (see queueDragMove()).
++        m_dragMoveTimer.stop();
++        m_havePendingDragMove = false;
+     }
+ 
+     void updateDrag( const QPoint &globalPos )
+@@ -1422,7 +1452,72 @@
+             }
+         }
+ 
+-        moveWindowTo( m_dragWindow, m_dragStartPos + delta );
++        queueDragMove( m_dragStartPos + delta );
++    }
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // apply a drag move, coalescing bursts of pointer samples. Before
++    // this change every TouchUpdate -- and every synthesized MouseMove
++    // for the same physical sample, which the event filter also feeds
++    // to updateDrag() -- synchronously drove a full wx Move() into the
++    // iOS QPA, whose applyGeometry() forces a synchronous layout pass
++    // and window-system event flush per call (QIOSWindow::applyGeometry:
++    // "[m_view layoutIfNeeded]" for QWidgetWindow), at up to the touch
++    // sample rate. The device result was a window that trailed the
++    // finger badly ("quite laggy when moving around"): each sample's
++    // geometry work ran inline before the next sample could be
++    // delivered, and any paint queued behind it ran inline too. Now
++    // the first move of a burst applies immediately, moves inside one
++    // kDragMoveIntervalMs window only record the LATEST target, and
++    // the timer applies that one -- the window still follows live at
++    // display rate, intermediate positions nobody could see are never
++    // paid for, and flushDragMove() on release/cancel lands the window
++    // exactly under the pointer, so the final geometry is identical
++    // to the uncoalesced drag.
++    void queueDragMove( const QPoint &pos )
++    {
++        if ( m_dragMoveTimer.isActive() )
++        {
++            m_pendingDragPos = pos;
++            m_havePendingDragMove = true;
++            return;
++        }
++
++        moveWindowTo( m_dragWindow, pos );
++        m_dragMoveTimer.start( kDragMoveIntervalMs );
++    }
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // timer step for queueDragMove(): apply the latest coalesced move,
++    // if any, and re-arm so a continuing drag keeps a steady cadence.
++    void onDragMoveTimer()
++    {
++        if ( !m_havePendingDragMove )
++            return;
++
++        m_havePendingDragMove = false;
++
++        if ( m_dragWindow.isNull() || !m_dragging )
++            return;
++
++        moveWindowTo( m_dragWindow, m_pendingDragPos );
++        m_dragMoveTimer.start( kDragMoveIntervalMs );
++    }
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // apply any coalesced move still pending; called on release and on
++    // TouchCancel so a drag always ends at the pointer's last position.
++    void flushDragMove()
++    {
++        m_dragMoveTimer.stop();
++
++        if ( !m_havePendingDragMove )
++            return;
++
++        m_havePendingDragMove = false;
++
++        if ( !m_dragWindow.isNull() )
++            moveWindowTo( m_dragWindow, m_pendingDragPos );
+     }
+ 
+     // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+@@ -2012,6 +2107,13 @@
+     QPoint m_cursorLastFinger;
+     int m_cursorMaxDisp;
+     QElapsedTimer m_cursorPressTimer;
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // drag-move coalescing state (see queueDragMove()). Declared last so
++    // the member initialisation order matches the constructor's list.
++    QTimer m_dragMoveTimer;
++    QPoint m_pendingDragPos;
++    bool m_havePendingDragMove;
+ };
+ 
+ } // anonymous namespace
