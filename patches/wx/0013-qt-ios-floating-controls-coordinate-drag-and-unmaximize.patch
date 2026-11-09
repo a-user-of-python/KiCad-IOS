@@ -1,0 +1,395 @@
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -25,6 +25,9 @@
+ #include <QtGui/QWindow>
+ #include <QtWidgets/QApplication>
+ #include <QtWidgets/QHBoxLayout>
++// [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++// KiCad-Spike-v16): QLabel for the floating bar's "Move" grip.
++#include <QtWidgets/QLabel>
+ #include <QtWidgets/QPushButton>
+ #endif // Q_OS_IOS
+ 
+@@ -415,6 +418,63 @@
+ // a hand-copied clamp, desyncing wx's geometry bookkeeping from
+ // the widget's real position.
+ //
++// Round 13 rework -- why dragging STILL did not move any window
++// on device in v14, and what changed. Two independent defects,
++// each sufficient on its own, both invisible to the desktop host
++// harness the earlier rounds relied on:
++//
++//   (1) The drag could only ARM on an event delivery the iOS
++//       path never guarantees. The press branch required
++//       windowOf(watched) == m_host, but the first -- and only
++//       guaranteed -- delivery of a touch on this platform is
++//       the QTouchEvent addressed to the top-level QWindow
++//       (a QWidgetWindow), for which windowOf() returns nullptr
++//       (it is a QWindow, not a QWidget). Arming therefore
++//       depended on a later widget-level re-delivery of a
++//       touch-synthesized QMouseEvent, and on this Qt iOS kit
++//       synthesized mouse events for a finger drag are not
++//       reliably produced at all (the FEBio Studio iOS port on
++//       the same Qt 6.9.3 kit hit the identical failure class
++//       and had to handle QTouchEvent directly). The press
++//       branch now arms purely by COORDINATES: the bar exists
++//       only as a child of m_host, so a press inside the bar's
++//       global rectangle is a press on the host's drag handle
++//       no matter which object Qt addressed the event to, and
++//       the QTouchEvent itself (TouchBegin/TouchUpdate, both
++//       delivered to the application filter at window level)
++//       drives the whole drag with no synthesis anywhere in
++//       the chain. A dedicated "Move" grip at the bar's left
++//       end gives the handle a finger-sized target: the old
++//       bar was ~94% button by area, so a real finger aiming
++//       for its "background" landed on Minimize or Close.
++//   (2) A maximized or full-screen window silently discards
++//       every geometry change on the iOS QPA. QIOSWindow::
++//       setGeometry() stores the rect as the window's normal
++//       geometry but, while windowState() != Qt::WindowNoState,
++//       does NOT apply it to the view; it re-issues the current
++//       state and forces a layout that reports the ACTUAL
++//       (maximized) geometry back. KiCad's editor frames are
++//       maximized by default (EDA_BASE_FRAME::LoadWindowState
++//       calls Maximize() when the stored state is default and
++//       m_maximizeByDefault is set, as the schematic, PCB,
++//       gerber and page-layout editors all set it), so every
++//       drag Move() -- and every minimize-animation step --
++//       was thrown away by the platform layer. Desktop Qt does
++//       the opposite (a setGeometry there CLEARS the maximized
++//       state), which is exactly why the host harness passed
++//       both failed rounds. The drag now leaves the
++//       maximized/full-screen state at the moment it is
++//       recognised (and minimizeCurrent() does the same before
++//       docking): showNormal() first, an explicit floating
++//       geometry second, and only then delta moves, all while
++//       the window is in Qt::WindowNoState, the one state in
++//       which QIOSWindow::applyGeometry() sets the view frame.
++//
++// TouchCancel is handled too: the QPA sends it when a system
++// gesture or interruption steals the touch, and the old code
++// left m_pressArmed set, so a later unrelated move event could
++// drag a window nobody was holding.
++//
+ // The implementation compiles only for iOS (Q_OS_IOS); other wxQt
+ // builds get the empty stub at the bottom.
+ // ---------------------------------------------------------------------------
+@@ -490,6 +550,10 @@
+                 // to this event -- and let refreshBar() below build
+                 // a fresh bar for the next host.
+                 m_bar.clear();
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS
++                // (round 16, KiCad-Spike-v16): the grip is a bar
++                // child too and dies with it.
++                m_grip.clear();
+                 m_closeBtn.clear();
+                 m_minBtn.clear();
+                 m_host = nullptr;
+@@ -543,6 +607,16 @@
+             // While a popup (menu) is up it owns the screen: a tap
+             // that happens to land on the bar's rectangle belongs
+             // to the menu, not to the bar.
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++            // KiCad-Spike-v16): the popup test no longer relies on
++            // windowOf(watched) alone -- for a window-level
++            // QTouchEvent watched is the QWidgetWindow (a QWindow),
++            // windowOf() returns nullptr, and the old test silently
++            // never fired on the touch path. QApplication's active
++            // popup widget is the same fact, available for every
++            // delivery.
++            if ( QApplication::activePopupWidget() )
++                break;
+             if ( targetWin && targetWin->windowType() == Qt::Popup )
+                 break;
+ 
+@@ -562,21 +636,38 @@
+                 return true;
+             }
+ 
+-            // A press on the bar's non-button area arms a drag of
+-            // the window the bar rides on.
+-            if ( m_host && targetWin == m_host
+-                    && globalPosIn( m_bar.data(), globalPos ) )
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++            // KiCad-Spike-v16): a press on the bar's non-button area
++            // (the "Move" grip included) arms a drag of the window
++            // the bar rides on, by COORDINATES ONLY. The round
++            // 11/12 code additionally required windowOf(watched) ==
++            // m_host, but the delivery the iOS QPA guarantees -- the
++            // QTouchEvent addressed to the top-level QWindow -- has
++            // a QWidgetWindow as watched, for which windowOf()
++            // returns nullptr, so the drag never armed on that
++            // delivery; it could only arm if a synthesized-mouse
++            // re-delivery to a widget happened afterwards, which
++            // this kit does not reliably produce for finger drags.
++            // The bar is a child of m_host and of nothing else, so
++            // a coordinate hit on it already identifies the host.
++            if ( m_host && globalPosIn( m_bar.data(), globalPos ) )
+             {
+                 armDrag( m_host, globalPos, false );
+                 return true;
+             }
+ 
+-            // A press on a docked strip arms its tap/drag tracking
+-            // (tap restores, drag repositions the strip).
+-            if ( targetWin && m_docked.contains( targetWin ) )
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++            // KiCad-Spike-v16): a press on a docked strip arms its
++            // tap/drag tracking, again by coordinates (the old
++            // windowOf(watched) test missed the window-level touch
++            // delivery the same way).
++            for ( QWidget *win : m_docked.keys() )
+             {
+-                armDrag( targetWin, globalPos, true );
+-                return true;
++                if ( globalPosIn( win, globalPos ) )
++                {
++                    armDrag( win, globalPos, true );
++                    return true;
++                }
+             }
+             break;
+         }
+@@ -618,6 +709,22 @@
+             }
+             break;
+ 
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-Spike-v16): a cancelled touch (system gesture or
++        // interruption stealing the sequence, which the iOS QPA
++        // reports as TouchCancel) ends any armed drag where it
++        // stands. The old code ignored TouchCancel entirely, so
++        // m_pressArmed stayed set and the next unrelated move
++        // event -- a later tap's synthesized move, for instance --
++        // could move a window nobody was holding.
++        case QEvent::TouchCancel:
++            if ( m_pressArmed )
++            {
++                resetDrag();
++                return true;
++            }
++            break;
++
+         default:
+             break;
+         }
+@@ -666,7 +773,10 @@
+ 
+     bool isBarObject( QObject *obj ) const
+     {
+-        return obj == m_bar.data() || obj == m_closeBtn.data()
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-Spike-v16): the grip counts as part of the bar.
++        return obj == m_bar.data() || obj == m_grip.data()
++                || obj == m_closeBtn.data()
+                 || obj == m_minBtn.data();
+     }
+ 
+@@ -769,12 +879,29 @@
+         QWidget *bar = new QWidget( nullptr );
+         bar->setObjectName( QStringLiteral( "wxQtIOSFloatingControls" ) );
+ 
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-Spike-v16): a dedicated "Move" grip at the bar's
++        // left end. Until now the only drag surface was the
++        // layout's margins and the 4 pt gap between the buttons --
++        // about 12 pt of a ~210 pt bar -- so a finger aiming to
++        // drag landed on Minimize or Close instead. The grip is a
++        // plain label, not a button: presses on it fall through
++        // the button hit-tests above into the bar-background arm
++        // path, and its object name doubles as the shipped-binary
++        // marker the round 16 gate checks for.
++        QLabel *grip = new QLabel( QStringLiteral( "Move" ), bar );
++        grip->setObjectName( QStringLiteral( "wxQtIOSFloatingControlsGrip" ) );
++        grip->setAlignment( Qt::AlignCenter );
++        grip->setMinimumWidth( 52 );
++        grip->setMinimumHeight( 36 );
++
+         QPushButton *closeBtn = new QPushButton( QStringLiteral( "Close" ), bar );
+         QPushButton *minBtn = new QPushButton( QStringLiteral( "Minimize" ), bar );
+ 
+         QHBoxLayout *layout = new QHBoxLayout( bar );
+         layout->setContentsMargins( 4, 4, 4, 4 );
+         layout->setSpacing( 4 );
++        layout->addWidget( grip );
+         layout->addWidget( minBtn );
+         layout->addWidget( closeBtn );
+ 
+@@ -794,11 +921,17 @@
+             "              background-color: rgb(62, 62, 68);"
+             "              border: none; border-radius: 7px;"
+             "              padding: 12px 16px; font-size: 15px; }"
+-            "QPushButton:pressed { background-color: rgb(96, 96, 104); }" ) );
++            "QPushButton:pressed { background-color: rgb(96, 96, 104); }"
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++            // KiCad-Spike-v16): grip styling (see createBar()).
++            "QLabel { color: rgb(190, 190, 198);"
++            "         background-color: transparent;"
++            "         font-size: 13px; }" ) );
+         bar->resize( bar->sizeHint() );
+         bar->hide();
+ 
+         m_bar = bar;
++        m_grip = grip;
+         m_closeBtn = closeBtn;
+         m_minBtn = minBtn;
+     }
+@@ -901,7 +1034,30 @@
+             return;
+ 
+         const QRect avail = screen->availableGeometry();
+-        const QRect cur = w->geometry();
++        QRect cur = w->geometry();
++
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-Spike-v16): leave the maximized/full-screen state
++        // BEFORE docking. The dock below is a QPropertyAnimation
++        // on "geometry", and on the iOS QPA every setGeometry()
++        // issued while the window is maximized or full-screen is
++        // silently discarded (QIOSWindow::setGeometry() only
++        // bookkeeps it as the normal geometry), so minimizing an
++        // editor frame -- maximized by default in KiCad -- never
++        // docked. showNormal() is exactly what
++        // wxTopLevelWindowQt::Restore() calls; the saved restore
++        // geometry becomes the window's normal geometry, and the
++        // animation then runs from that floating rect.
++        if ( w->windowState() & ( Qt::WindowMaximized | Qt::WindowFullScreen ) )
++        {
++            const QRect normal = w->normalGeometry();
++
++            if ( normal.isValid() && !normal.isEmpty() )
++                cur = normal;
++
++            w->showNormal();
++            w->setGeometry( cur );
++        }
+ 
+         // QWidget::setGeometry() clamps to the widget minimum size
+         // and the QWindow clamps likewise; a KiCad frame's minimum
+@@ -1007,15 +1163,114 @@
+             return;
+         }
+ 
+-        const QPoint delta = globalPos - m_pressGlobal;
++        QPoint delta = globalPos - m_pressGlobal;
+ 
+         if ( !m_dragging && delta.manhattanLength() <= kDragThreshold )
+             return;
+ 
+-        m_dragging = true;
++        if ( !m_dragging )
++        {
++            m_dragging = true;
++
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round
++            // 16, KiCad-Spike-v16): the moment a press becomes a
++            // drag, take the window out of any maximized /
++            // full-screen state (see ensureFloatingForDrag). From
++            // here on the window is in Qt::WindowNoState and every
++            // moveWindowTo() below is one the iOS QPA applies.
++            // ensureFloatingForDrag() re-baselines the drag onto
++            // the floating rect, so the delta is recomputed after
++            // it.
++            if ( !m_dragIsStrip )
++            {
++                ensureFloatingForDrag( m_dragWindow, globalPos );
++                delta = globalPos - m_pressGlobal;
++            }
++        }
++
+         moveWindowTo( m_dragWindow, m_dragStartPos + delta );
+     }
+ 
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-Spike-v16): set a top-level window's full geometry,
++    // through wx when the window has a wx counterpart so wx's
++    // bookkeeping (and patch 0009's clamp, inside
++    // wxWindowQt::DoMoveWindow()) stays authoritative.
++    void setWindowRect( QWidget *w, const QRect &rect )
++    {
++        if ( wxWindowQt *wxWin =
++                wxWindowQt::QtRetrieveWindowPointer( w ) )
++        {
++            wxWin->SetSize( rect.x(), rect.y(),
++                            rect.width(), rect.height() );
++            return;
++        }
++
++        w->setGeometry( rect );
++    }
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-Spike-v16): if the dragged window is maximized or
++    // full-screen, return it to a floating window BEFORE the
++    // first drag move. On the iOS QPA, QIOSWindow::setGeometry()
++    // does not apply the rect while windowState() !=
++    // Qt::WindowNoState -- it bookkeeps it as the normal geometry
++    // and the following layout reports the actual (maximized)
++    // geometry back -- so a maximized window (KiCad's editor
++    // frames are maximized by default) cannot be dragged at all,
++    // however correct the move calls are. Desktop Qt clears the
++    // state on setGeometry instead, which is why this defect was
++    // invisible to every host harness before this round.
++    // QWidget::showNormal() is the same call
++    // wxTopLevelWindowQt::Restore() makes; it is followed by an
++    // explicit floating geometry (the window's normal geometry
++    // when sane, else three quarters of the available screen,
++    // positioned so the window follows the pointer's travel so
++    // far), and the drag is re-baselined onto that rect so the
++    // motion stays continuous.
++    void ensureFloatingForDrag( QWidget *w, const QPoint &globalPos )
++    {
++        if ( !( w->windowState()
++                & ( Qt::WindowMaximized | Qt::WindowFullScreen ) ) )
++            return;
++
++        QScreen *screen = QGuiApplication::primaryScreen();
++        if ( !screen )
++            return;
++
++        const QRect avail = screen->availableGeometry();
++        QRect rect = w->normalGeometry();
++
++        if ( !rect.isValid() || rect.isEmpty()
++                || rect.width() > avail.width()
++                || rect.height() > avail.height() )
++        {
++            rect = QRect( avail.left() + avail.width() / 8,
++                          avail.top() + avail.height() / 8,
++                          avail.width() * 3 / 4,
++                          avail.height() * 3 / 4 );
++        }
++
++        // The floating window starts where the maximized one sat
++        // (the available geometry's origin), shifted by the
++        // pointer's travel so far, bounded so the whole floating
++        // rect stays on screen.
++        QPoint pos = avail.topLeft() + ( globalPos - m_pressGlobal );
++        pos.setX( qBound( avail.left(), pos.x(),
++                          qMax( avail.left(),
++                                avail.right() - rect.width() + 1 ) ) );
++        pos.setY( qBound( avail.top(), pos.y(),
++                          qMax( avail.top(),
++                                avail.bottom() - rect.height() + 1 ) ) );
++        rect.moveTopLeft( pos );
++
++        w->showNormal();
++        setWindowRect( w, rect );
++
++        m_dragStartPos = rect.topLeft();
++        m_pressGlobal = globalPos;
++    }
++
+     // Move a top-level window to the given global top-left. wx
+     // windows move through wxWindowQt::Move() (round 12): that is
+     // the wxWindowQt::DoMoveWindow() path whose iOS clamp (patch
+@@ -1070,6 +1325,9 @@
+     }
+ 
+     QPointer<QWidget> m_bar;
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-Spike-v16): the bar's "Move" grip label.
++    QPointer<QLabel> m_grip;
+     QPointer<QPushButton> m_closeBtn;
+     QPointer<QPushButton> m_minBtn;
+     QWidget *m_current;
