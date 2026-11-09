@@ -1,0 +1,98 @@
+--- a/common/draw_panel_gal.cpp
++++ b/common/draw_panel_gal.cpp
+@@ -165,6 +165,14 @@
+     Connect( m_refreshTimer.GetId(), wxEVT_TIMER,
+              wxTimerEventHandler( EDA_DRAW_PANEL_GAL::onRefreshTimer ), nullptr, this );
+ 
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // timer that applies a deferred GAL resize once the size settles
++    // (see onSize() below); wired exactly like m_refreshTimer above.
++    // The timer is only ever started under KICAD_IOS_PORT.
++    m_sizeTimer.SetOwner( this );
++    Connect( m_sizeTimer.GetId(), wxEVT_TIMER,
++             wxTimerEventHandler( EDA_DRAW_PANEL_GAL::onSizeTimer ), nullptr, this );
++
+     Connect( wxEVT_SHOW, wxShowEventHandler( EDA_DRAW_PANEL_GAL::onShowEvent ), nullptr, this );
+ }
+ 
+@@ -175,6 +183,10 @@
+     Disconnect( wxEVT_SHOW, wxShowEventHandler( EDA_DRAW_PANEL_GAL::onShowEvent ) );
+     StopDrawing();
+ 
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // a deferred resize must not fire into a half-destroyed panel.
++    m_sizeTimer.Stop();
++
+     wxASSERT( !m_drawing );
+ 
+     delete m_viewControls;
+@@ -411,6 +423,43 @@
+ 
+ void EDA_DRAW_PANEL_GAL::onSize( wxSizeEvent& aEvent )
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // defer the GAL resize until the size settles. A window resize on
++    // this port arrives as a burst of size events -- the floating
++    // bar's un-maximise at drag start, every step of the
++    // minimize/restore geometry animation, Stage Manager and
++    // rotation changes -- and the resize body below
++    // (performSizeUpdate()) is the most expensive handler in the
++    // canvas: for the Cairo GAL it frees and reallocates both
++    // full-screen buffers, resizes and invalidates the compositor,
++    // and marks both view targets dirty, so the next paint is a full
++    // scene redraw plus a full-screen pixel swizzle and blit. Paying
++    // that per event, synchronously, at event rate is what made
++    // window movement feel "quite laggy": each step cost more than a
++    // frame, so the motion fell further behind with every event. On
++    // iOS the event therefore only (re)arms a 50 ms one-shot timer;
++    // the resize runs once, at the settled size, with the full
++    // redraw -- the final image is identical, only the intermediate
++    // sizes nobody could see are skipped. performSizeUpdate() reads
++    // the CURRENT client size when it runs, so no event payload has
++    // to be carried across the deferral.
++    wxLogTrace( traceDrawPanel, wxS( "deferred GAL resize" ) );
++    m_sizeTimer.StartOnce( 50 );
++#else
++    performSizeUpdate();
++#endif
++}
++
++
++void EDA_DRAW_PANEL_GAL::onSizeTimer( wxTimerEvent& aEvent )
++{
++    performSizeUpdate();
++}
++
++
++void EDA_DRAW_PANEL_GAL::performSizeUpdate()
++{
+     // If we get a second wx update call before the first finishes, don't crash
+     if( m_gal->IsContextLocked() )
+         return;
+--- a/include/class_draw_panel_gal.h
++++ b/include/class_draw_panel_gal.h
+@@ -268,6 +268,15 @@
+     void onLostFocus( wxFocusEvent& aEvent );
+     void onIdle( wxIdleEvent& aEvent );
+     void onRefreshTimer( wxTimerEvent& aEvent );
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++    // on iOS, onSize() defers the GAL resize to onSizeTimer() so a burst
++    // of size events pays the resize cost only once, at the settled
++    // size (see draw_panel_gal.cpp); performSizeUpdate() is the
++    // original onSize() body. Both are declared on every platform so
++    // the class layout is identical in all translation units that
++    // include this header.
++    void onSizeTimer( wxTimerEvent& aEvent );
++    void performSizeUpdate();
+     void onShowEvent( wxShowEvent& aEvent );
+ 
+     wxWindow*                m_parent;           ///< Pointer to the parent window
+@@ -276,6 +285,7 @@
+     wxLongLong               m_lastRepaintStart; ///< Timestamp of the last repaint start
+     wxLongLong               m_lastRepaintEnd;   ///< Timestamp of the last repaint end
+     wxTimer                  m_refreshTimer;     ///< Timer to prevent too-frequent refreshing
++    wxTimer                  m_sizeTimer;        ///< Timer to coalesce GAL resizes (round 16, KiCad-V1)
+ 
+     std::mutex               m_refreshMutex;     ///< Blocks multiple calls to the draw
+ 
