@@ -1,0 +1,15 @@
+--- a/common/gal/cairo/cairo_gal.cpp
++++ b/common/gal/cairo/cairo_gal.cpp
+@@ -1413,6 +1413,12 @@
+     Bind( wxEVT_GESTURE_ZOOM, &CAIRO_GAL::skipGestureEvent, this );
+     Bind( wxEVT_GESTURE_PAN, &CAIRO_GAL::skipGestureEvent, this );
+ 
++#ifdef __WXQT__
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-Spike-v16): enable touch gestures on the canvas window itself. WX_VIEW_CONTROLS already calls EnableTouchEvents() on EDA_DRAW_PANEL_GAL (common/view/wx_view_controls.cpp), and on wxMSW/wxGTK that panel-level registration covers the canvas. On the wxQt port, wxWindowQt::EnableTouchEvents() grabs Qt gestures per-QWidget (QWidget::grabGesture on that window's own widget only), and the touch points land on this GAL window -- a child wxWindow filling the panel -- which never grabbed any gesture, so the Qt recognizers never ran and no wxEVT_GESTURE_* event was ever produced on iOS. Grabbing the same zoom/pan gestures here makes the events bound above fire; skipGestureEvent forwards them to the panel, where WX_VIEW_CONTROLS::onZoomGesture / onPanGesture zoom at the pinch centroid through VIEW::SetScale and pan through VIEW::SetCenter. This constructor is shared by every GAL canvas (schematic, PCB, footprint, drawing-sheet and Gerber panels all create their GAL through EDA_DRAW_PANEL_GAL::SwitchBackend), so both editors gain the gestures from this one call.
++    EnableTouchEvents( wxTOUCH_ZOOM_GESTURE | wxTOUCH_PAN_GESTURES );
++    wxLogTrace( "kicad-ios-round16", "CAIRO_GAL: wxQt touch gestures enabled on GAL canvas" );
++#endif
++
+     SetSize( aParent->GetClientSize() );
+     m_screenSize = ToVECTOR2I( aParent->GetClientSize() );
+ 
