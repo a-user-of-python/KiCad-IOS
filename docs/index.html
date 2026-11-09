@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KiCad‑iOS — The Actual KiCad, Running on iPad</title>
-<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release v15: the editors no longer attempt OpenGL — the canvas choice returns the Cairo software canvas directly, proven in the shipped binary, a stored OpenGL preference is converted at startup, and Preferences stops offering OpenGL — while the 3D viewer remains OpenGL-bound and does not work on iOS. Projects create and open in the shared Documents folder, confirmed on device in v14's pass, and the floating window control rides the window that is actually current, dialogs included. The complete stock 10.0.1 libraries ride in the bundle, on top of a launch chain proven on a real iPad.">
+<meta name="description" content="KiCad‑iOS is a port of the real, upstream KiCad 10.0.1 to iPadOS. Current release V1: the real project manager and editors on iPad, titlebar window controls, pinch zoom in both editors, the complete stock libraries in the bundle, projects in the shared Documents folder — on a launch chain proven on a real iPad. The 3D viewer remains OpenGL-bound and does not work on iOS.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -32,6 +32,22 @@
   a:hover{color:#8cc2ff}
   .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
 
+  /* ---------- nav ---------- */
+  .topnav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(10,13,18,.94);
+    border-bottom:1px solid var(--line);
+  }
+  .navrow{display:flex;align-items:center;justify-content:space-between;gap:14px 22px;flex-wrap:wrap;padding-top:13px;padding-bottom:13px}
+  .brand{font-weight:800;font-size:1.12rem;color:var(--text);text-decoration:none;white-space:nowrap}
+  .brand:hover{color:var(--text)}
+  .navlinks{display:flex;flex-wrap:wrap;gap:4px 20px}
+  .navlinks a{color:var(--muted);text-decoration:none;font-weight:600;font-size:1rem;padding:4px 2px}
+  .navlinks a:hover{color:var(--text)}
+  .navlinks a.active{color:var(--accent)}
+  .navlinks a.navcta{color:var(--accent2)}
+  .navlinks a.navcta:hover{color:#ffa28c}
+
   /* ---------- hero ---------- */
   header{
     position:relative;
@@ -44,6 +60,7 @@
   }
   header .traces{position:absolute;inset:0;opacity:.35;pointer-events:none}
   .hero{position:relative;padding:88px 0 72px;text-align:left}
+  .pagehero{position:relative;padding:64px 0 10px;text-align:left}
   .kicker{
     display:inline-block;
     font-size:.85rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
@@ -108,6 +125,10 @@
     background:rgba(87,168,255,.12);color:var(--accent);font-weight:800;
     border:1px solid var(--line);
   }
+  a.card{display:block;text-decoration:none}
+  a.card:hover{border-color:var(--accent)}
+  a.card h3{color:var(--text)}
+  .card .go{color:var(--accent);font-weight:700}
 
   .status-band{
     margin-top:30px;background:var(--panel2);border:1px solid var(--line);
@@ -125,15 +146,15 @@
   .tag{
     display:inline-block;font-size:.78rem;font-weight:800;letter-spacing:.06em;
     text-transform:uppercase;border-radius:6px;padding:2px 9px;margin-right:10px;
-    vertical-align:1px;
+    vertical-align:1px;white-space:nowrap;
   }
   .tag-proven{background:rgba(74,222,128,.14);color:var(--good);border:1px solid rgba(74,222,128,.4)}
   .tag-now{background:rgba(87,168,255,.14);color:var(--accent);border:1px solid rgba(87,168,255,.4)}
   .tag-shipped{background:rgba(255,122,89,.14);color:var(--accent2);border:1px solid rgba(255,122,89,.45)}
 
-  ol.install{margin:22px 0 0 1.4rem;color:var(--muted)}
-  ol.install li{padding:6px 0}
-  ol.install strong{color:var(--text)}
+  ol.install, ul.plain{margin:22px 0 0 1.4rem;color:var(--muted)}
+  ol.install li, ul.plain li{padding:6px 0}
+  ol.install strong, ul.plain strong{color:var(--text)}
   code{
     background:#0b1220;border:1px solid var(--line);border-radius:6px;
     padding:1px 7px;font-size:.92em;color:#cfe4ff;
@@ -147,9 +168,25 @@
   footer strong{color:var(--text)}
   footer .fine{margin-top:16px;font-size:.88rem;color:#8298b3}
   footer a{color:var(--accent)}
+  footer .footnav{display:flex;flex-wrap:wrap;gap:6px 20px;margin-bottom:22px}
+  footer .footnav a{color:var(--muted);text-decoration:none;font-weight:600}
+  footer .footnav a:hover{color:var(--text)}
 </style>
 </head>
 <body>
+
+<nav class="topnav">
+  <div class="wrap navrow">
+    <a class="brand" href="index.html">🔌 KiCad‑iOS</a>
+    <div class="navlinks">
+      <a href="how-it-works.html">How It Works</a>
+      <a href="editors.html">The Editors</a>
+      <a href="display-input.html">Display &amp; Input</a>
+      <a href="install.html">Install</a>
+      <a class="navcta" href="v1.html">V1 Release</a>
+    </div>
+  </div>
+</nav>
 
 <header>
   <svg class="traces" width="100%" height="100%" preserveAspectRatio="none" aria-hidden="true">
@@ -166,7 +203,7 @@
     </g>
   </svg>
   <div class="wrap hero">
-    <span class="kicker">KiCad‑iOS &middot; Unofficial Port</span>
+    <span class="kicker">KiCad‑iOS &middot; Unofficial Port &middot; V1</span>
     <h1>
       <span class="thin">KiCad runs on iPad.</span>
       <span class="glow">The real KiCad.</span>
@@ -174,25 +211,26 @@
     <p class="sub">
       This is a port of the <strong>actual upstream KiCad 10.0.1</strong> — its own source code,
       its own windows, its own buttons — compiled for iPadOS. Not a recreation. Not a lookalike.
-      It installs on a real iPad, completes KiCad's first-run wizard, and opens the
-      <strong>KiCad project manager</strong>. The current release, <strong>v15</strong>,
-      stands on a level confirmed on a real iPad — the manager up, no editor-load error,
-      projects creating and opening in the shared Documents folder — and removes the
-      OpenGL detour: the editors choose the Cairo software canvas directly, with no
-      failure dialog first. The floating window control rides on whichever window is
-      actually current, dialogs included — as the handle that drags it. The 3D viewer
-      remains OpenGL-bound and does not work on iOS; the 2D editors are unaffected.
+      <strong>V1 is the current release</strong>, the first official release after fifteen Spike
+      builds. On a real iPad it installs, completes KiCad's first-run wizard, and opens the
+      <strong>KiCad project manager</strong>; projects create and open in the shared Documents
+      folder, and the Schematic Editor draws on the software canvas — each of those confirmed
+      on hardware in the Spike passes. V1 rebuilds the window chrome around a real titlebar,
+      brings pinch zoom to both editors, fits every window to the display, and fixes the
+      defects those passes found. The 3D viewer remains OpenGL-bound and does not work on
+      iOS; the 2D editors are unaffected.
     </p>
     <div class="chips">
       <span class="chip">Upstream <b>KiCad 10.0.1</b></span>
       <span class="chip">Target <b>iOS arm64</b></span>
       <span class="chip">Runs on <b>M‑series iPad</b></span>
       <span class="chip">License <b>GPLv3</b></span>
-      <span class="chip">Status <b>Current release v15</b></span>
+      <span class="chip">Status <b>Current release V1</b></span>
     </div>
     <div class="cta">
-      <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
-      <a class="btn btn-ghost" href="#install">How to install</a>
+      <a class="btn btn-primary" href="v1.html">What's in V1</a>
+      <a class="btn btn-ghost" href="install.html">How to install</a>
+      <a class="btn btn-ghost" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
     </div>
   </div>
 </header>
@@ -211,153 +249,103 @@
     </p>
   </section>
 
-  <section id="works">
-    <h2><span class="bar">/</span> What works today</h2>
-    <p class="lead">Every item here is verified — the launch chain on a real iPad, the rest by the automated gates every build passes before it ships. Where a card rests on the gates, it says so.</p>
+  <section id="proven">
+    <h2><span class="bar">/</span> Proven on a real iPad</h2>
+    <p class="lead">These are not gate results — each one is an on-device pass on real hardware during the Spike rounds.</p>
     <div class="grid">
       <div class="card">
-        <h3><span class="tick">✓</span>Builds end to end</h3>
-        <p>The whole of KiCad 10.0.1 compiles and links for iOS arm64 — 1,591 of 1,591 build steps: the manager, every editor module, and the supporting libraries.</p>
+        <h3><span class="tick">✓</span>The launch chain</h3>
+        <p>Install → sign → launch → Python initialises → the first-run wizard completes → the project manager stands. Every link demonstrated on hardware (v10).</p>
       </div>
       <div class="card">
-        <h3><span class="tick">✓</span>Installs and launches</h3>
-        <p>The unsigned IPA sideloads onto an M‑series iPad and opens. Signing, the iOS entry point, and the first paint all check out on hardware.</p>
+        <h3><span class="tick">✓</span>Startup, clean</h3>
+        <p>v13's on-device pass found the manager standing with no editor-load error — the root-cause fix for the broken early builds holds on hardware at startup.</p>
       </div>
       <div class="card">
-        <h3><span class="tick">✓</span>First-run wizard completes</h3>
-        <p>KiCad's genuine setup wizard is walkable from the first page to the last — its navigation renders, its pages advance, setup finishes.</p>
+        <h3><span class="tick">✓</span>Projects create and open</h3>
+        <p>v14's pass created and opened projects under the Documents default — files live in the app's shared Documents folder and move on and off the iPad the normal way.</p>
       </div>
       <div class="card">
-        <h3><span class="tick">✓</span>The manager stands up</h3>
-        <p>Real menus, real icons, the project tree and the description pane — the same manager window KiCad opens on the desktop.</p>
+        <h3><span class="tick">✓</span>Editors open and work</h3>
+        <p>v14's pass: the editors open and work. v15's pass went further — the Schematic Editor opens and <strong>draws</strong> on the Cairo software canvas, no crash. That pass is also where V1's work list came from; the <a href="v1.html">V1 page</a> answers it item by item.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Stock libraries in the box</h3>
+        <p>KiCad 10.0.1's libraries ship complete inside the bundle — <strong>222 symbol libraries</strong> and <strong>155 footprint libraries</strong>, plus 19 project templates and the demo projects — with the default library tables resolving straight to them, proven by the build gates.</p>
       </div>
       <div class="card">
         <h3><span class="tick">✓</span>Python is in</h3>
         <p>KiCad's embedded Python ships whole: the CPython standard library, the compiled <code>pcbnew</code> module, stock scripting plugins and footprint wizards, plus the PCBWay and JLCPCB addons from the official PCM index.</p>
       </div>
-      <div class="card">
-        <h3><span class="tick">✓</span>Files are reachable</h3>
-        <p>File sharing is on. Projects live in the app's Documents folder and move on and off the iPad the normal way.</p>
-      </div>
-      <div class="card">
-        <h3><span class="tick">✓</span>Stock libraries ship in the box</h3>
-        <p>KiCad 10.0.1's libraries, complete: <strong>222 symbol libraries</strong> and <strong>155 footprint libraries</strong>, the default library tables resolving straight to them, plus 19 project templates and the demo projects. The build gates prove the tables resolve; on device, v11's setup did not find the defaults — the fix is compiled into the current release and its on-device pass runs next.</p>
-      </div>
-      <div class="card">
-        <h3><span class="tick">✓</span>The manager, audited</h3>
-        <p>Every menu opens, every item acts, every button does its real job — checked control by control. Tools that launched separate programs on the desktop — Gerber viewer, calculator, converters, page-layout editor — open inside the app, and the image converter carries its module.</p>
-      </div>
-      <div class="card">
-        <h3><span class="tick">✓</span>Editors open on the software canvas</h3>
-        <p>The editors never attempt OpenGL. KiCad's default canvas is OpenGL and iOS has none; v14's device pass showed the failure dialog before the Cairo canvas took over. In v15 the canvas choice returns Cairo directly on this port — proven in the shipped binary by the gate — a stored OpenGL preference is converted at startup, and Preferences no longer offers OpenGL. v15's on-device pass runs next.</p>
-      </div>
-      <div class="card">
-        <h3><span class="tick">✓</span>A floating window control</h3>
-        <p>The Minimize/Close bar lives <strong>inside</strong> the current window as an overlay — never a separate window iOS layering can bury (v11's device pass never saw that design). v13 put it there; v13's device pass showed it rendered but pinned to the manager, stranded behind modal dialogs, because the host lookup climbed to the outermost window — and its drags bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code; the fixed code passes that reproduction. Drag the bar and the window moves with it; minimize still docks the window to the left edge and a tap restores it. Gate-verified with the off-device reproduction; the bar's own device itemisation is still owed. Windows stay clamped inside the screen.</p>
-      </div>
     </div>
   </section>
 
-  <section id="built">
-    <h2><span class="bar">/</span> How it's built</h2>
+  <section id="new">
+    <h2><span class="bar">/</span> New in V1</h2>
     <p class="lead">
-      KiCad was never written for iOS. Four walls stand between its source and a tablet,
-      and the port answers each one with working machinery:
+      V1 is verified in the shipped binary by the release gates — the gates read the shipped
+      executable itself and fail on the previous release on every V1 count. V1's on-device pass
+      runs next; the <a href="v1.html">release page</a> keeps the two kinds of evidence labelled.
     </p>
     <div class="grid">
       <div class="card">
-        <span class="num">1</span>
-        <h3>The wxQt bridge</h3>
-        <p>KiCad's interface is written in wxWidgets, which has no iOS port. Here it runs on wxWidgets' Qt backend — wx 3.3 over Qt 6.9.3 — and Qt runs natively on iOS. KiCad's own build system already recognises the Qt port of wx.</p>
+        <h3>Titlebar window controls</h3>
+        <p>Every window carries a real titlebar strip — title on the left, Minimize and Close on the right, the menu bar directly below it in the editors. Drag the strip and the window follows. No more floating pill.</p>
       </div>
       <div class="card">
-        <span class="num">2</span>
-        <h3>Single-process Kiway</h3>
-        <p>On the desktop, KiCad's editors run as separate processes. iOS apps are single-process, so each editor ships as a <em>kiface</em> module loaded inside the one app process, opening as its own window.</p>
+        <h3>Pinch zoom, both editors</h3>
+        <p>Two-finger pinch zooms at the pinch centre through KiCad's own view machinery, and a two-finger drag pans — in the Schematic Editor <em>and</em> the PCB Editor. <a href="display-input.html">Display &amp; input</a> has the details.</p>
       </div>
       <div class="card">
-        <span class="num">3</span>
-        <h3>Embedded Python</h3>
-        <p>KiCad's build requires Python, and its scripting is part of the program. A full CPython 3.13 sysroot is cross-compiled for iOS and embedded in the app, so Python initialises at startup and <code>import pcbnew</code> resolves to the real compiled module.</p>
+        <h3>Every window fits</h3>
+        <p>Windows open filling the screen at natural scale, and every dialog is clamped to the display it is actually on — its size is asked from the display at runtime, never hardcoded. Preferences and the setup dialogs keep their buttons on screen.</p>
       </div>
       <div class="card">
-        <span class="num">4</span>
-        <h3>A canvas that fits the platform</h3>
-        <p>The desktop canvas is OpenGL; iOS offers no OpenGL. KiCad's built-in Cairo software canvas carries the editors on iPad — correct rendering on the platform's own terms.</p>
+        <h3>The found defects, fixed</h3>
+        <p>The occasional OpenGL failure dialog is gone at the root — the canvas factory itself returns Cairo. The manager's "schema file" error is fixed: the schemas ship. And a crash that killed fresh installs on first launch is fixed in the window toolkit.</p>
       </div>
     </div>
-    <div class="status-band">
-      <h3>One of everything, verified before it ships</h3>
-      <p>
-        The bundle carries exactly one libpng, one zlib and one expat, shared by every component —
-        and the build <strong>fails closed</strong> if a bundled duplicate tries to sneak back in.
-        Every package passes automated gates before release: full symbol-closure audit across all
-        images, Qt resource checks, the libpng unity gate, a content gate proving the bundled
-        libraries and editor modules ship complete in the bundle, and deep signing
-        verification. New in v12, a binary-inspection gate reads the shipped executable itself
-        and proves the port's code is actually compiled in — the check that would have caught
-        v11's miss; run against v11, it fails on every count. In v13 the same gate also proves
-        the floating-controls installer call is present in the shipped executable. In v15 the same gate proves the editor canvas choice returns the Cairo canvas in the shipped binary. A build that fails a gate does not ship.
-      </p>
+    <div class="cta">
+      <a class="btn btn-primary" href="v1.html">The full V1 list</a>
+      <a class="btn btn-ghost" href="display-input.html">Display &amp; input in V1</a>
     </div>
   </section>
 
-  <section id="status">
-    <h2><span class="bar">/</span> Current status</h2>
-    <p class="lead">
-      <strong>Build v15 is the current release.</strong> v14's on-device pass
-      (2026‑11‑07) confirmed the v14 layer on hardware: projects create and open in the
-      shared Documents folder, and the editors open and work. That same pass watched an
-      editor fail on KiCad's default OpenGL canvas — failure dialog first — before the
-      Cairo software canvas took over, and reported one unidentified error dialog during
-      file creation that did not block entry. v15 removes the OpenGL attempt entirely,
-      and the create flow behind that dialog stands audited, every write in Documents.
-      The launch chain underneath is device-proven (v10, 2026‑11‑06), and startup is
-      device-proven from v13's pass.
-      <strong>v15's on-device pass is the immediate next step.</strong>
-    </p>
-    <ul class="status-list">
-      <li><span class="tag tag-proven">Proven</span><strong>The launch chain.</strong> Install → sign → launch → Python initialises → wizard completes → the manager window stands. Every link in that chain is demonstrated on hardware (v10).</li>
-      <li><span class="tag tag-proven">Proven</span><strong>Startup, confirmed on device.</strong> v13's on-device pass (2026‑11‑07) found the manager standing with no editor-load error — the v12 root-cause fix holds on hardware at startup.</li>
-      <li><span class="tag tag-proven">Proven</span><strong>Projects create and open.</strong> v14's on-device pass (2026‑11‑07) created and opened projects under the Documents default. The same pass showed the OpenGL failure dialog before the software canvas took over, and one unidentified error dialog during creation that did not block entry.</li>
-      <li><span class="tag tag-shipped">Shipped in v15</span><strong>No OpenGL attempt in the editors.</strong> KiCad's default canvas is OpenGL; iOS has none. The function every editor frame uses to choose its canvas returns the Cairo software canvas directly on this port — proven in the shipped binary by the gate. A stored OpenGL preference from an earlier install is converted at startup, and the Preferences rendering-engine choice no longer offers OpenGL.</li>
-      <li><span class="tag tag-shipped">Shipped in v15</span><strong>File creation, audited.</strong> The whole create flow was audited for v15: every write in it lands in the app's Documents folder, and no remaining bad-path step was found — so v15 changes nothing there. If the unidentified dialog from v14's pass recurs, its exact text matches against a standing suspect list.</li>
-      <li><span class="tag tag-shipped">Shipped in v14</span><strong>Projects land in Documents.</strong> v13's pass found New Project failing outright — it tried to create the project folder inside the app bundle: 'Operation not permitted'. The cause is traced: a persisted recent-projects path defaults to blank and overwrote the correct Documents default at every launch, so the dialog opened with no folder and the toolkit fell back to the app's own folder. v14 restores the Documents projects folder whenever that path is blank, guards the create flows at the point of use, and starts the app with its working directory in Documents. Projects now default to the app's shared Documents folder.</li>
-      <li><span class="tag tag-shipped">Shipped in v14</span><strong>The bar follows the current window.</strong> v13's bar rendered but stayed pinned to the manager behind modal dialogs — the host-window lookup climbed to the outermost window, overshooting every dialog — and dragging bypassed the window system's own move path. v14 hosts the bar on the window that is actually current, dialogs included, anchors it fully inside the frame, and routes drags through the proper move path. The v13 failure is reproduced off-device with v13's own code, and the fixed code passes that reproduction.</li>
-      <li><span class="tag tag-shipped">Shipped in v13</span><strong>The window controls, rebuilt.</strong> The floating Minimize/Close bar no longer floats as a separate window: that construction could be buried by iOS window layering, and v11's on-device pass never saw the bar. In v13 the bar is a child overlay re-parented into whichever window is current — the manager, an editor frame, or the modal dialog itself — and it is the window's drag handle: drag it and the window moves with it, with a small movement threshold keeping taps and drags apart. Minimize still docks the window into a strip at the left edge — 84 pt wide, stacking, Stage Manager style — and a tap restores it. Shipped and gate-verified: the binary gate proves the installer call in the shipped executable. Its on-device pass ran on 2026‑11‑07: the bar rendered at the manager — and the pass exposed the host-tracking defect v14 fixes.</li>
-      <li><span class="tag tag-shipped">Shipped in v12</span><strong>The root cause, fixed.</strong> With the build switch set on the correct target, the editor-module search fix and the stock-library location fix are compiled in and active for real. The editor modules also sit at the bundle root — a belt-and-braces copy in the exact location the app asks for first — and a startup repair re-points library tables inherited from the broken builds, so an upgrade lands on the bundled defaults without redoing setup. A new gate inspects the shipped binary and verifies all of it; against v11 it fails on every count.</li>
-      <li><span class="tag tag-shipped">Shipped in v11</span><strong>Stock libraries in the bundle.</strong> KiCad 10.0.1's libraries ship complete — 222 symbol libraries and 155 footprint libraries — with the default library tables resolving to them, plus 19 project templates and the demo projects. The build gates prove the tables resolve; v11's setup did not find the defaults on device — the fix is compiled into the current release and its on-device pass runs next.</li>
-      <li><span class="tag tag-shipped">Shipped in v11</span><strong>A fully working manager screen.</strong> Every menu opens, every item acts, every button does its real job — audited control by control. Tools that launched separate programs on the desktop open inside the app, and the image converter carries its module.</li>
-      <li><span class="tag tag-now">Stated plainly</span><strong>The 3D viewer does not work on iOS.</strong> It remains OpenGL-bound, and this port leaves it that way. The 2D editors are unaffected.</li>
-      <li><span class="tag tag-now">Stated plainly</span><strong>No titlebar dragging.</strong> Windows do not drag by their titlebars: Qt's iOS layer draws no titlebar and provides no system window move. The floating bar is the handle instead — drag it and the window follows, through the window system's own move path. Windows are clamped inside the visible screen area.</li>
-    </ul>
-    <p class="lead" style="margin-top:22px">
-      v15's on-device pass runs next: the first editor open with no OpenGL dialog,
-      project creation with zero dialogs — or the remaining error's exact text — and the
-      library choosers itemised, the library verdict still outstanding.
-      The full change ledger for the port lives in the repository's
-      <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
-    </p>
-  </section>
-
-  <section id="install">
-    <h2><span class="bar">/</span> Install</h2>
-    <p class="lead">
-      Builds are produced by the repository's <strong>Spike</strong> workflow as unsigned
-      <code>.ipa</code> files (≈263&nbsp;MB — the stock libraries ride along). The install is a standard sideload:
-    </p>
-    <ol class="install">
-      <li><strong>Download</strong> the <code>.ipa</code> artifact from a workflow run in the repository.</li>
-      <li><strong>Sideload</strong> it with a signer such as Signulous, or your own signing setup.</li>
-      <li><strong>Launch KiCad (spike).</strong> The first-run wizard walks through setup, and the project manager opens behind it.</li>
-    </ol>
-    <p class="lead" style="margin-top:18px"><strong>Requirements:</strong> an M‑series iPad running iPadOS 17 or later.</p>
+  <section id="explore">
+    <h2><span class="bar">/</span> Explore</h2>
+    <div class="grid">
+      <a class="card" href="how-it-works.html">
+        <h3>How It Works</h3>
+        <p>Four walls stand between KiCad's source and a tablet. The port answers each one with working machinery — the wxQt bridge, single-process Kiway, embedded Python, and a canvas that fits the platform. <span class="go">Read →</span></p>
+      </a>
+      <a class="card" href="editors.html">
+        <h3>The Editors</h3>
+        <p>The project manager, the Schematic and PCB editors, the symbol and footprint editors, and the companion tools — every one the real KiCad module, opening as its own window. <span class="go">Read →</span></p>
+      </a>
+      <a class="card" href="display-input.html">
+        <h3>Display &amp; Input</h3>
+        <p>Titlebar chrome, window dragging, pinch zoom, an optional virtual cursor, hardware keyboard and mouse, and an external-display control that extends instead of mirroring. <span class="go">Read →</span></p>
+      </a>
+      <a class="card" href="install.html">
+        <h3>Install</h3>
+        <p>An unsigned IPA, a standard sideload, and KiCad on the iPad a few minutes later. Requirements and the fresh-install path included. <span class="go">Read →</span></p>
+      </a>
+    </div>
   </section>
 
 </main>
 
 <footer>
   <div class="wrap">
+    <div class="footnav">
+      <a href="index.html">Home</a>
+      <a href="how-it-works.html">How It Works</a>
+      <a href="editors.html">The Editors</a>
+      <a href="display-input.html">Display &amp; Input</a>
+      <a href="install.html">Install</a>
+      <a href="v1.html">V1 Release</a>
+      <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
+    </div>
     <p>
       <strong>KiCad‑iOS</strong> is an unofficial port of
       <a href="https://www.kicad.org/">KiCad</a> 10.0.1
