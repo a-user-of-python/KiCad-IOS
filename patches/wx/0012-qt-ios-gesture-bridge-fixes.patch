@@ -1,0 +1,111 @@
+--- a/include/wx/qt/private/winevent.h
++++ b/include/wx/qt/private/winevent.h
+@@ -518,8 +518,8 @@
+         if (win)
+         {
+             wxPanGestureEvent evp(win->GetId());
+-            QPoint pos = QCursor::pos();
+-            evp.SetPosition( wxQtConvertPoint( pos ) );
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-Spike-v16): the old code used QCursor::pos() as the gesture position, which is a global screen position and, on a touch-only device, is not the pan position at all (there is no cursor; it returns a stale or default point). Use the gesture's hot spot instead and convert it to the receiving window's client coordinates, the convention wxMSW (src/msw/window.cpp, HandlePanGesture) and wxGTK (src/gtk/window.cpp, pan gestures) use and the one gesture consumers such as KiCad's WX_VIEW_CONTROLS::onPanGesture assume for consistency with the zoom handler.
++            evp.SetPosition( win->ScreenToClient( wxQtConvertPoint( gesture->hotSpot().toPoint() ) ) );
+             evp.SetDelta( wxQtConvertPoint( gesture->delta().toPoint() ) );
+ 
+             switch(gesture->state())
+@@ -546,10 +546,13 @@
+         wxWindow *win = wxWindow::QtRetrieveWindowPointer( this );
+         if (win)
+         {
+-            if (gesture->changeFlags() & QPinchGesture::ScaleFactorChanged)
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-Spike-v16): also emit the zoom event when the gesture starts and when only the centre point moves. The old condition (ScaleFactorChanged only) dropped the GestureStarted event whenever the first recognizer update carried no scale change, so consumers never saw IsGestureStart() and never reset their cumulative-factor state -- KiCad's WX_VIEW_CONTROLS::onZoomGesture divides by the previous gesture's final factor on the first update of the next pinch, causing a zoom jump on every pinch after the first. A centre-only update is a two-finger pan: onZoomGesture already pans by the centre movement and re-applies the (unchanged) factor at the new centre, which VIEW::SetScale leaves centre-neutral, so forwarding it gives two-finger drag panning through the same code path. The centre point is also converted to client coordinates (as touchEvent() in this file already does for touch points): wxMSW/wxGTK deliver gesture positions in the receiving window's client coordinates, and KiCad feeds GetPosition() straight into VIEW::ToWorld().
++            if ( gesture->state() == Qt::GestureStarted
++                 || (gesture->changeFlags() & QPinchGesture::ScaleFactorChanged)
++                 || (gesture->changeFlags() & QPinchGesture::CenterPointChanged) )
+             {
+                 wxZoomGestureEvent evp(win->GetId());
+-                evp.SetPosition(wxQtConvertPoint(gesture->centerPoint().toPoint()));
++                evp.SetPosition(win->ScreenToClient(wxQtConvertPoint(gesture->centerPoint().toPoint())));
+                 evp.SetZoomFactor(gesture->totalScaleFactor());
+ 
+                 switch (gesture->state())
+@@ -571,7 +574,8 @@
+             if (gesture->changeFlags() & QPinchGesture::RotationAngleChanged)
+             {
+                 wxRotateGestureEvent evp(win->GetId());
+-                evp.SetPosition(wxQtConvertPoint(gesture->centerPoint().toPoint()));
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-Spike-v16): same client-coordinate conversion as the zoom event above.
++                evp.SetPosition(win->ScreenToClient(wxQtConvertPoint(gesture->centerPoint().toPoint())));
+                 evp.SetRotationAngle(wxDegToRad(gesture->totalRotationAngle()));
+ 
+                 switch (gesture->state())
+--- a/src/qt/window.cpp
++++ b/src/qt/window.cpp
+@@ -2065,32 +2065,52 @@
+ {
+     wxCHECK_MSG( GetHandle(), false, "can't be called before creating the window" );
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-Spike-v16): trace marker so the shipped-binary gate can prove this gesture bridge is compiled and linked into the shipped binaries (the literal is unique to this round's patches).
++    wxLogTrace( "kicad-ios-round16", "wxWindowQt::EnableTouchEvents mask=%d", eventsMask );
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-Spike-v16): apply the touch attribute and the gesture grabs not only to m_qtWindow but also to the drawing widget (wxQtGetDrawingWidget: the scroll container's viewport when there is one). For a window created with wxHSCROLL|wxVSCROLL -- e.g. the wxScrolledCanvas behind KiCad's EDA_DRAW_PANEL_GAL -- m_qtWindow IS the wxQtScrollArea (see Create() above), while touch points are delivered to its viewport and the child widgets inside it. Qt gesture recognizers only watch widgets that grabbed the gesture, so grabbing on the container alone could leave the recognizers blind to touches that land on the viewport. Non-scrolled windows are unaffected: their drawing widget is m_qtWindow itself.
++    QWidget* const drawingWidget = wxQtGetDrawingWidget( m_qtContainer, m_qtWindow );
++
+     if ( eventsMask == wxTOUCH_NONE )
+     {
+         m_qtWindow->setAttribute(Qt::WA_AcceptTouchEvents, false);
++
++        if ( drawingWidget != m_qtWindow )
++            drawingWidget->setAttribute(Qt::WA_AcceptTouchEvents, false);
++
+         return true;
+     }
+ 
+-    if ( eventsMask & wxTOUCH_RAW_EVENTS )
++    const auto enableOn = [eventsMask]( QWidget* widget )
+     {
+-        m_qtWindow->setAttribute(Qt::WA_AcceptTouchEvents, true);
+-    }
++        if ( eventsMask & wxTOUCH_RAW_EVENTS )
++        {
++            widget->setAttribute(Qt::WA_AcceptTouchEvents, true);
++        }
++        if ( eventsMask & wxTOUCH_PRESS_GESTURES )
++        {
++            widget->setAttribute(Qt::WA_AcceptTouchEvents, true);
++            widget->grabGesture(Qt::TapAndHoldGesture);
++        }
++        if ( eventsMask & wxTOUCH_PAN_GESTURES )
++        {
++            widget->setAttribute(Qt::WA_AcceptTouchEvents, true);
++            widget->grabGesture(Qt::PanGesture);
++        }
++        if ( eventsMask & wxTOUCH_ZOOM_GESTURE )
++        {
++            widget->setAttribute(Qt::WA_AcceptTouchEvents, true);
++            widget->grabGesture(Qt::PinchGesture);
++        }
++    };
++
++    enableOn( m_qtWindow );
++
++    if ( drawingWidget != m_qtWindow )
++        enableOn( drawingWidget );
++
+     if ( eventsMask & wxTOUCH_PRESS_GESTURES )
+-    {
+-        m_qtWindow->setAttribute(Qt::WA_AcceptTouchEvents, true);
+-        m_qtWindow->grabGesture(Qt::TapAndHoldGesture);
+         QTapAndHoldGesture::setTimeout ( 1000 );
+-    }
+-    if ( eventsMask & wxTOUCH_PAN_GESTURES )
+-    {
+-        m_qtWindow->setAttribute(Qt::WA_AcceptTouchEvents, true);
+-        m_qtWindow->grabGesture(Qt::PanGesture);
+-    }
+-    if ( eventsMask & wxTOUCH_ZOOM_GESTURE )
+-    {
+-        m_qtWindow->setAttribute(Qt::WA_AcceptTouchEvents, true);
+-        m_qtWindow->grabGesture(Qt::PinchGesture);
+-    }
+ 
+     return true;
+ }
