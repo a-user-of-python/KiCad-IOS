@@ -95,10 +95,6 @@ Two more pieces of the foundation: a real **iODBC** is cross-compiled into the s
 - **ngspice codemodels are not bundled**, so some simulation device models are unavailable.
 - **Oversized dialog content can clip.** A window always fits its display and stays closable, but content whose own minimum size exceeds the panel can clip inside a window that fits.
 
-## 🛠️ Building
-
-Builds run on free, standard GitHub Actions macOS runners (public repo) — nothing paid, ever.
-
 ```text
 Actions → "Spike" workflow → Run workflow
 ```
