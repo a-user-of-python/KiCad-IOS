@@ -1,0 +1,92 @@
+From: user <user@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 18:40:00 -0500
+Subject: [PATCH] wxQt iOS: dialog titlebar strip is click-through except its buttons (round 17, Job O sweep)
+
+Sean widened round 17's Job O from dialogs to the whole app.
+The sweep cleared panes, toolbars, status bars, splitters,
+menus-by-construction and every editor frame at the 0.6
+workspace, but convicted the round-17 overlay itself (wx
+0025): the strip is opaque, full-width and raised across the
+top 44 px of every dialog, and wx 0024's topmost arbitration
+leaves two regimes -- strip topmost: content beneath is
+invisible and untappable; strip covered: content works but
+the strip's Minimize/Close are dead. Interactive content
+provably lives in that band: the LIB_TREE Filter row's cancel
+X and sort gear (the symbol chooser), embedded WX_INFOBARs
+built as a dialog's first sizer row (~15 dialog bases, ERC
+and DRC included), and PCM's notebook tab row.
+
+F1a from the sweep, implemented here: when the strip is
+installed on a non-QMainWindow host, the strip widget and
+its title label get Qt::WA_TransparentForMouseEvents and a
+transparent repaint (title on a translucent scrim, buttons
+unchanged and opaque). QApplication::widgetAt() tests each
+widget's own attribute, so the buttons -- which do not carry
+it -- stay claimable through patch 0024's hit-test exactly
+as before, while any other press in the band resolves to
+the dialog content beneath and is delivered there: content
+is visible and tappable, the strip's chrome still works,
+and neither regime can recur. The strip's title-area drag
+claim on dialogs dies with the band (frames keep their
+layout-space strip and full drag; dialogs are clamped modal
+sheets). A wxLogTrace literal (jobo2-strip-clickthrough)
+marks the path in the shipped binary.
+
+Signed-off-by: user <user@users.noreply.github.com>
+---
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -1510,7 +1510,53 @@
+             // overlay trade is the one round 16 already accepted
+             // in practice: any wx relayout undid the shift anyway.
+             if ( tb.strip->parentWidget() != host )
++            {
+                 tb.strip->setParent( host );
++
++                // [KiCad-IOS port] Added 2026-11-09 for iOS (round
++                // 17, Job O sweep, wx patch 0026): as an overlay
++                // the strip must not eat the dialog's top band.
++                // The whole-app sweep proved interactive content
++                // lives in that band -- the LIB_TREE Filter row's
++                // cancel X and sort gear, embedded info bars
++                // posted as a dialog's first sizer row, notebook
++                // tab rows -- and an opaque, press-claiming strip
++                // leaves it invisible and untappable whenever the
++                // strip is topmost. So on dialogs the strip and
++                // its title become transparent to mouse events:
++                // QApplication::widgetAt() (the 0024 hit-test)
++                // tests each widget's own attribute, so the
++                // strip's buttons, which do not carry it, stay
++                // claimable exactly as before, while a press
++                // anywhere else in the band resolves to the
++                // dialog content beneath and is delivered there.
++                // (The strip's title-area drag claim dies with
++                // the band -- widgetAt() no longer resolves a
++                // band press to the strip. Dialogs are clamped
++                // modal sheets; frames keep their layout-space
++                // strip and full drag.) Visually the full-width
++                // opaque band goes too: the strip paints nothing,
++                // the title sits on a translucent scrim, and only
++                // the buttons stay opaque.
++                tb.strip->setAttribute( Qt::WA_TransparentForMouseEvents,
++                                        true );
++                tb.title->setAttribute( Qt::WA_TransparentForMouseEvents,
++                                        true );
++                tb.strip->setStyleSheet( QStringLiteral(
++                    "QWidget { background-color: transparent; }"
++                    "QLabel { color: white;"
++                    "         background-color: rgba(24, 24, 28, 150);"
++                    "         font-size: 15px; }"
++                    "QPushButton { color: white;"
++                    "              background-color: rgb(62, 62, 68);"
++                    "              border: none; border-radius: 7px;"
++                    "              padding: 12px 16px; font-size: 15px; }"
++                    "QPushButton:pressed { background-color: rgb(96, 96, 104); }"
++                    "QPushButton:checked { background-color: rgb(10, 110, 220); }" ) );
++                wxLogTrace( "kicad-ios-round17",
++                            "jobo2-strip-clickthrough: dialog strip "
++                            "installed click-transparent except buttons" );
++            }
+             wxLogTrace( "kicad-ios-round17",
+                         "jobo-titlebar-overlay-only: dialog strip "
+                         "installed without resize" );

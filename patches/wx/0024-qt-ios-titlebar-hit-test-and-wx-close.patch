@@ -1,0 +1,145 @@
+# KiCad-IOS port patch 0024 (wxWidgets v3.3.4, wxWindows licence)
+# Round 17, Job P: crash when the user taps near the symbol
+# chooser's Filter-row right end (the wxSearchCtrl cancel "X" /
+# the sort gear). The chooser's own close was never involved: the
+# titlebar event filter (patch 0015) hit-tests strip buttons by
+# global geometry + visibility flag only, with no occlusion test.
+# On dialogs the strip's one-shot child shift is undone by
+# DIALOG_SHIM::Show()'s post-Show SetSize relayout, leaving the
+# strip covered by the dialog's own content but still
+# "visible"-flagged -- so a press aimed at content under the
+# strip's Close rect (the Filter row's right end sits under it)
+# is swallowed by the filter and executed as a window close.
+# Worse, that close was a raw QWidget::close(): its QCloseEvent
+# ran the wx close chain (wxEVT_CLOSE_WINDOW -> EndModal ->
+# Hide, inside which wxQt's modal Hide() calls
+# QDialog::done()) and then fell through to
+# QDialog::closeEvent on the already-finished dialog -- two
+# owners for finishing the QDialog, with exec() unwinding
+# re-entrantly from inside the close dispatch.
+# This patch, both changes in src/qt/toplevel.cpp's iOS filter:
+# (1) strip claims (Cursor/Ext/Close/Minimize buttons and the
+# strip drag surface) now go through globalPosInTopmost(),
+# which additionally requires QApplication::widgetAt() to
+# resolve the press to the strip widget itself or one of its
+# children -- a covered strip never claims a press; (2)
+# closeWindow() routes through wxWindow::Close() (via
+# wxWindowQt::QtRetrieveWindowPointer) so the wx close handling
+# runs exactly once with no Qt close event involved; widgets
+# without a wx counterpart keep the raw close. iOS only (the
+# whole filter exists only under the port's iOS code). Apply
+# with: patch -p1 (from the wx source root), after patches
+# 0001-0023.
+#
+# The rejection path carries a wxLogTrace literal
+# (jobp-strip-topmost-hit-test) so the shipped binary proves
+# the fix is in; wxLogTrace is declared via the wx/log.h
+# include added by patch 0025 (both land before any build).
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -893,7 +893,7 @@
+             {
+                 const StripWidgets &tb = m_titleBars[win];
+ 
+-                if ( globalPosIn( tb.cursorBtn.data(), globalPos ) )
++                if ( globalPosInTopmost( tb.cursorBtn.data(), globalPos ) )
+                 {
+                     setCursorEnabled( !m_cursorEnabled );
+                     return true;
+@@ -904,17 +904,17 @@
+                 // already rejects a hidden widget, and the button
+                 // is hidden unless a second screen exists or a
+                 // window is already external.
+-                if ( globalPosIn( tb.extBtn.data(), globalPos ) )
++                if ( globalPosInTopmost( tb.extBtn.data(), globalPos ) )
+                 {
+                     toggleExternalDisplay( win );
+                     return true;
+                 }
+-                if ( globalPosIn( tb.closeBtn.data(), globalPos ) )
++                if ( globalPosInTopmost( tb.closeBtn.data(), globalPos ) )
+                 {
+                     closeWindow( win );
+                     return true;
+                 }
+-                if ( globalPosIn( tb.minBtn.data(), globalPos ) )
++                if ( globalPosInTopmost( tb.minBtn.data(), globalPos ) )
+                 {
+                     minimizeWindow( win );
+                     return true;
+@@ -945,7 +945,7 @@
+             {
+                 const StripWidgets &tb = m_titleBars[win];
+ 
+-                if ( globalPosIn( tb.strip.data(), globalPos ) )
++                if ( globalPosInTopmost( tb.strip.data(), globalPos ) )
+                 {
+                     armDrag( win, globalPos, false );
+                     return true;
+@@ -1128,6 +1128,38 @@
+         return globalRect.contains( globalPos );
+     }
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 17, Job P,
++    // wx patch 0024): globalPosIn() tests geometry and the
++    // visibility FLAG only -- a titlebar strip whose host window's
++    // content has been laid out OVER it (a dialog whose post-Show
++    // relayout undid the strip's child shift, so the strip is
++    // covered by the dialog's own panels) still passes it, and the
++    // filter below then steals a press the user aimed at the
++    // content underneath (on the symbol chooser: the Filter row's
++    // right end, under the strip's Close rect) and executes it as
++    // a window action. A strip claim is only honoured when the
++    // strip widget is also the TOPMOST widget at the press point:
++    // QApplication::widgetAt() resolves the press through the
++    // real stacking order, so a covered strip never claims, and a
++    // press on a visible strip button (widgetAt returns the button
++    // itself, or a child of the strip for its non-button area)
++    // still claims exactly as before.
++    static bool globalPosInTopmost( QWidget *widget, const QPoint &globalPos )
++    {
++        if ( !globalPosIn( widget, globalPos ) )
++            return false;
++
++        QWidget *top = QApplication::widgetAt( globalPos );
++
++        if ( top == widget || ( top && widget->isAncestorOf( top ) ) )
++            return true;
++
++        wxLogTrace( "kicad-ios-round17",
++                    "jobp-strip-topmost-hit-test: press on a covered "
++                    "titlebar strip control ignored" );
++        return false;
++    }
++
+     // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+     // KiCad-V1): true for any window's titlebar strip, its menu
+     // host container, any widget inside them (title, Cursor
+@@ -1785,7 +1817,26 @@
+ 
+     void closeWindow( QWidget *w )
+     {
+-        if ( w )
++        if ( !w )
++            return;
++
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 17,
++        // Job P, wx patch 0024): close through the wx route, not a
++        // raw QWidget::close(). The raw close delivered a
++        // QCloseEvent whose wx handler ran the dialog's whole
++        // wxEVT_CLOSE_WINDOW -> EndModal -> Hide chain -- inside
++        // which wxQt's modal Hide() calls QDialog::done() -- and
++        // then fell through to QDialog::closeEvent on the already
++        // finished dialog: two owners for finishing the QDialog,
++        // and the re-entrant done() unwound QDialog::exec() from
++        // inside the close dispatch. wxWindow::Close() runs the
++        // same wx close handling (DIALOG_SHIM::OnCloseWindow,
++        // wxDialogBase's modal EndModal) exactly once, with no Qt
++        // close event involved at all. Windows with no wx
++        // counterpart keep the raw close.
++        if ( wxWindow *wxWin = wxWindowQt::QtRetrieveWindowPointer( w ) )
++            wxWin->Close();
++        else
+             w->close();
+     }
+ 

@@ -1,0 +1,51 @@
+# KiCad-IOS port patch 0042 (KiCad 10.0.1, GPLv3)
+# Round 17, Job O sweep (F2): DIALOG_SHIM::Show()'s saved-
+# geometry branch re-asserts SetMinSize(GetBestSize()) AFTER
+# the port's universal clamp has had its last look (the clamp
+# hooks wx geometry requests and wxTopLevelWindowQt::Show(),
+# not this). A dialog whose best height exceeded the display
+# would re-arm Qt's minimum-size refusal for every later
+# resize -- the latent hole round 17's dialog forensics named
+# and the whole-app sweep re-examined at the 0.6 scale: no
+# stock dialog binds today (largest static minimum 940x550,
+# big grid dialogs self-defend), but the re-assertion is
+# uncapped. This caps the re-asserted minimum at the window's
+# live display client area -- the same failsafe shape
+# PAGED_DIALOG applies to itself (paged_dialog.cpp), against
+# the live display instead of fixed numbers, per the port's
+# no-hardcoded-geometry rule. Behaviour changes only when a
+# best size exceeds the display, which is precisely the
+# broken case; the clamp already imposes exactly that limit
+# on the dialog's size. Apply with: patch -p1 (from the
+# KiCad source root), after patches 0001-0041.
+#
+--- a/common/dialog_shim.cpp
++++ b/common/dialog_shim.cpp
+@@ -407,7 +407,26 @@
+                 // minimum rather than being constrained by the restored size.
+                 SetMinSize( wxDefaultSize );
+                 InvalidateBestSize();
+-                SetMinSize( GetBestSize() );
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS
++                // (round 17, Job O sweep, KiCad patch 0042): cap
++                // the re-asserted minimum at the live display
++                // client area. Upstream re-asserts the raw best
++                // size AFTER every other size defence has run
++                // (the port's universal clamp hooks geometry
++                // requests and Show, not this), so a dialog whose
++                // best height exceeded the display would re-arm
++                // Qt's minimum-size refusal for every later
++                // resize. No stock dialog binds at the current
++                // desktop-density scale (sweep census), but the
++                // cap -- the same failsafe shape PAGED_DIALOG
++                // applies to itself, against the live display
++                // rather than fixed numbers -- makes it
++                // unbindable by construction at any scale.
++                wxSize minSize = GetBestSize();
++                int displayIdx = wxDisplay::GetFromWindow( this );
++                wxDisplay display( displayIdx != wxNOT_FOUND ? displayIdx : 0 );
++                minSize.DecTo( display.GetClientArea().GetSize() );
++                SetMinSize( minSize );
+             }
+ 
+ #ifdef __WXMAC__

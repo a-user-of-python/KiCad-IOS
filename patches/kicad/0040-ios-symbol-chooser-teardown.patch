@@ -1,0 +1,51 @@
+# KiCad-IOS port patch 0040 (KiCad 10.0.1, GPLv3)
+# Round 17, Job P: the modal symbol chooser's teardown hazards.
+# DIALOG_SYMBOL_CHOOSER registers its own onLazyLoadUpdate() --
+# bound to the dialog -- as the panel adapter's lazy-load
+# handler, and upstream provides no unregister; the trigger is a
+# repeating 1 s timer owned by the long-lived editor frame
+# (SYMBOL_TREE_MODEL_ADAPTER::AddLibraries), which keeps firing
+# while libraries are pending -- exactly during first-open
+# closes of the chooser. If a batch lands while the modal
+# session is being torn down, the handler calls into a dying
+# dialog/panel. The destructor now first registers an empty
+# handler (the adapter's supported off switch; AddLibraries
+# null-checks it) and calls the panel's ShutdownCanvases() --
+# which the modeless SYMBOL_CHOOSER_FRAME already calls on
+# close but the modal dialog route never did -- before the
+# existing char-hook unbind. Destructor-body order guarantees
+# both run while the panel child is still alive. Apply with:
+# patch -p1 (from the KiCad source root), after patches
+# 0001-0039.
+#
+--- a/eeschema/dialogs/dialog_symbol_chooser.cpp
++++ b/eeschema/dialogs/dialog_symbol_chooser.cpp
+@@ -111,6 +111,28 @@
+ 
+ DIALOG_SYMBOL_CHOOSER::~DIALOG_SYMBOL_CHOOSER()
+ {
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 17, Job P):
++    // disarm the two callbacks that can still reach this dialog
++    // while it is being torn down. The constructor registered
++    // onLazyLoadUpdate() -- bound to this dialog -- as the panel
++    // adapter's lazy-load handler, and upstream has no unregister
++    // for it: the handler lives on the adapter while its trigger
++    // (a repeating 1 s timer owned by the long-lived editor frame,
++    // in SYMBOL_TREE_MODEL_ADAPTER::AddLibraries) keeps firing as
++    // long as libraries are pending, i.e. exactly during the
++    // first-open closes. Registering an empty handler is the
++    // adapter's supported off switch (AddLibraries null-checks
++    // it), and doing it here -- in the destructor body, before
++    // the panel child is destroyed -- closes the window in which
++    // a lazy-load batch could call GetItemCount()/Regenerate()
++    // on a dying panel or SetTitle() on a dying dialog.
++    m_chooserPanel->Adapter()->RegisterLazyLoadHandler( std::function<void()>() );
++
++    // The modeless SYMBOL_CHOOSER_FRAME calls ShutdownCanvases()
++    // on close; the modal dialog route never did, leaving its two
++    // GAL preview canvases to child-destruction order alone.
++    m_chooserPanel->ShutdownCanvases();
++
+     Unbind( wxEVT_CHAR_HOOK, &PANEL_SYMBOL_CHOOSER::OnChar, m_chooserPanel );
+ }
+ 

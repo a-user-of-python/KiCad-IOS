@@ -1,0 +1,148 @@
+# KiCad-IOS port patch 0041 (KiCad 10.0.1, GPLv3)
+# Round 17, Job Q: footprints "don't show up" in the symbol
+# chooser. Forensics (hidden_files/round17-jobq/findings.md)
+# convicted per-symbol data for the reported exhibit: AD558JP's
+# Footprint property is genuinely empty in the shipped stock
+# data ((property "Footprint" "")), and 4,745 of 22,750 shipped
+# symbols are like it -- upstream state, NOT edited here.
+# But the same forensics convicted a diagnostic black hole at
+# this exact layer: FOOTPRINT_PREVIEW_PANEL_BASE::Create()
+# swallows every failure (KiFACE load throw, null kiface,
+# CreateKiWindow failure, wrong type) into a silent nullptr,
+# and FOOTPRINT_PREVIEW_WIDGET then shows an empty status
+# forever -- a broken preview is indistinguishable from a
+# symbol with no footprint, on device, forever. This patch
+# records WHY Create() failed (per-stage) and has the widget
+# name it in its status label when the panel is missing.
+# Success-path behaviour is byte-for-byte the upstream flow;
+# every stage stays fully guarded. This converts the device
+# check into a decisive one: a symbol WITH a default footprint
+# (e.g. Timer:NE555D) either previews (path healthy; the
+# report was one symbol's empty default) or the pane names
+# the failing stage. Apply with: patch -p1 (from the KiCad
+# source root), after patches 0001-0040.
+#
+--- a/include/widgets/footprint_preview_widget.h
++++ b/include/widgets/footprint_preview_widget.h
+@@ -161,6 +161,15 @@
+      * available or there is any error on load.
+      */
+     static FOOTPRINT_PREVIEW_PANEL_BASE* Create( wxWindow* aParent, KIWAY& aKiway );
++
++    /**
++     * [KiCad-IOS port] Added 2026-11-09 for iOS (round 17, Job Q,
++     * KiCad patch 0041): why the most recent Create() call failed,
++     * or an empty string if it succeeded. Upstream Create()
++     * swallows every failure mode, which makes a broken preview
++     * indistinguishable from a symbol that has no footprint.
++     */
++    static const wxString& LastCreateError();
+ };
+ 
+ 
+--- a/common/widgets/footprint_preview_widget.cpp
++++ b/common/widgets/footprint_preview_widget.cpp
+@@ -64,7 +64,18 @@
+     SetSizer( m_outerSizer );
+     Layout();
+ 
+-    SetStatusText( wxEmptyString );
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 17,
++    // Job Q, KiCad patch 0041): when the preview panel could not
++    // be created, name the failure in the status label instead of
++    // showing the empty status forever (a permanently blank
++    // pane). Call sites gate on IsInitialized(), so nothing
++    // overwrites this text while the panel is missing. The
++    // success path is unchanged.
++    if( m_prev_panel )
++        SetStatusText( wxEmptyString );
++    else
++        SetStatusText( _( "Footprint preview unavailable: " )
++                       + FOOTPRINT_PREVIEW_PANEL_BASE::LastCreateError() );
+ }
+ 
+ 
+@@ -143,19 +154,80 @@
+ }
+ 
+ 
++namespace
++{
++wxString& createErrorSlot()
++{
++    static wxString s_createError;
++    return s_createError;
++}
++} // namespace
++
++
++const wxString& FOOTPRINT_PREVIEW_PANEL_BASE::LastCreateError()
++{
++    return createErrorSlot();
++}
++
++
+ FOOTPRINT_PREVIEW_PANEL_BASE* FOOTPRINT_PREVIEW_PANEL_BASE::Create( wxWindow* aParent,
+                                                                     KIWAY& aKiway )
+ {
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 17,
++    // Job Q, KiCad patch 0041): upstream swallows every failure
++    // here -- KiFACE() throwing, a null kiface, CreateKiWindow()
++    // failing or returning the wrong type all end as a silent
++    // nullptr, and the widget then shows a blank pane forever:
++    // on this port a broken footprint preview is
++    // indistinguishable from a symbol that simply has no
++    // footprint (the AD558JP report -- that symbol's Footprint
++    // property is genuinely empty in the stock data). Record
++    // WHY creation failed so the widget can name it; success
++    // clears the record. Success-path behaviour is unchanged,
++    // and each stage stays fully guarded exactly as upstream.
++    createErrorSlot().clear();
++
++    KIFACE* kiface = nullptr;
++
++    try
++    {
++        kiface = aKiway.KiFACE( KIWAY::FACE_PCB );
++    }
++    catch( ... )
++    {
++        createErrorSlot() =
++                wxS( "loading the PCB editor module threw an exception" );
++        return nullptr;
++    }
++
++    if( !kiface )
++    {
++        createErrorSlot() =
++                wxS( "the PCB editor module (pcbnew kiface) could not be loaded" );
++        return nullptr;
++    }
++
+     wxWindow* panel = nullptr;
+ 
+     try
+     {
+-        if( KIFACE* kiface = aKiway.KiFACE( KIWAY::FACE_PCB ) )
+-            panel = kiface->CreateKiWindow( aParent, FRAME_FOOTPRINT_PREVIEW, &aKiway );
++        panel = kiface->CreateKiWindow( aParent, FRAME_FOOTPRINT_PREVIEW, &aKiway );
+     }
+     catch( ... )
+     {
++        createErrorSlot() =
++                wxS( "creating the footprint preview window threw an exception" );
++        return nullptr;
++    }
++
++    FOOTPRINT_PREVIEW_PANEL_BASE* preview =
++            dynamic_cast<FOOTPRINT_PREVIEW_PANEL_BASE*>( panel );
++
++    if( !preview )
++    {
++        createErrorSlot() =
++                wxS( "the PCB editor module returned no footprint preview window" );
+     }
+ 
+-    return dynamic_cast<FOOTPRINT_PREVIEW_PANEL_BASE*>( panel );
++    return preview;
+ }

@@ -1,0 +1,116 @@
+From: user <user@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 18:30:00 -0500
+Subject: [PATCH] wxQt iOS: dialog titlebar strip is a pure overlay (round 17, Job O)
+
+Dialogs were missing their button rows (the symbol chooser showed
+no OK/Cancel). Root cause, source-proven (round 17 Job O
+forensics): this file's ensureTitleBar() dialog branch grew every
+dialog by the 44 px strip height through a direct
+QWidget::resize() and shifted its children down once. The resize
+bypassed the universal clamp (wx 0017 hooks wx geometry requests
+and wxTopLevelWindowQt::Show() only), and KiCad's grow-only size
+persistence (DIALOG_SHIM::Show()'s max() restore; the chooser
+panels' raw size saves) banked the +44 into settings on every
+open -- dialogs are recreated per open, so the once-guard reset
+each time. Height ratcheted +44 per open until the dialog pinned
+at screen height through wx and screen height + 44 after the
+grow, its bottom-anchored button row permanently off-screen.
+
+Remove the grow-and-shift: the strip is installed as a pure
+overlay, the state every dialog already reached in practice
+because any wx relayout undid the shift (round 16's own comment
+conceded this). With nothing grown, saved sizes stop ratcheting
+and already-banked sizes self-heal through the clamp on the next
+open -- no settings wipe, no KiCad-side change. The fix sits in
+the app-wide event filter path, below every dialog class:
+~170 DIALOG_SHIM dialogs, both choosers, PAGED_DIALOG, non-shim
+wxDialogs and the wizard are all covered by construction; frames
+(QMainWindow menu-host path) never had the grow and are
+untouched. A wxLogTrace literal (jobo-titlebar-overlay-only)
+marks the fixed path in the shipped binary; the grow expression
+"host->height() + kTitleBarHeight" no longer exists anywhere in
+the file.
+
+Signed-off-by: user <user@users.noreply.github.com>
+---
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -13,6 +13,10 @@
+ // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
+ // wxQtIOSClampTopLevelRect() declaration for the Show() clamp below.
+ #include "wx/qt/private/utils.h"
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 17, Jobs O
++// and P, wx patches 0024/0025): wxLogTrace for the round-17
++// traces in this file.
++#include "wx/log.h"
+ #include <QtGui/QIcon>
+ #include <QtWidgets/QWidget>
+ #if defined( Q_OS_IOS )
+@@ -550,7 +554,16 @@
+ // amount, so the strip occupies newly created space rather
+ // than covering content (a later wx relayout can only undo the
+ // shift, returning that dialog to a plain top overlay).
+-//
++// [KiCad-IOS port] Modified 2026-11-09 for iOS (round 17, Job O,
++// wx patch 0025): the grow-and-shift is GONE. The direct
++// QWidget::resize() bypassed the universal clamp (wx 0017 hooks
++// wx geometry requests and Show() only), and KiCad's grow-only
++// size persistence banked the +44 into settings on every open
++// -- a +44-per-open ratchet that ended with dialogs at screen
++// height + 44 and their button rows off-screen. Dialog strips
++// are now pure overlays from the start: the state every dialog
++// already reached after its first wx relayout undid the shift.
++
+ // The implementation compiles only for iOS (Q_OS_IOS); other wxQt
+ // builds get the empty stub at the bottom.
+ // ---------------------------------------------------------------------------
+@@ -1476,26 +1489,31 @@
+         }
+         else
+         {
+-            // Dialogs and plain top-levels: no menu bar, no layout
+-            // slot. Grow the window by the strip height and shift
+-            // its existing children down by the same amount ONCE,
+-            // so the overlay strip at the top occupies new space
+-            // instead of covering the top row of content.
+-            if ( !tb.shifted )
+-            {
+-                host->resize( host->width(),
+-                              host->height() + kTitleBarHeight );
+-                const QList<QObject *> children = host->children();
+-                for ( QObject *obj : children )
+-                {
+-                    if ( QWidget *child = qobject_cast<QWidget *>( obj ) )
+-                        child->move( child->x(),
+-                                     child->y() + kTitleBarHeight );
+-                }
+-                tb.shifted = true;
+-            }
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round
++            // 17, Job O, wx patch 0025): dialogs and plain
++            // top-levels get the strip as a PURE OVERLAY. The
++            // round-16 grow-and-shift (resize the host by the
++            // strip height, shift children down once) is removed:
++            // the direct QWidget::resize() bypassed the universal
++            // clamp (wx 0017 hooks wx geometry requests and
++            // wxTopLevelWindowQt::Show() only, never this call),
++            // and KiCad's grow-only size persistence --
++            // DIALOG_SHIM::Show()'s max() restore and the chooser
++            // panels' raw saves -- banked the +44 into settings on
++            // every open, a +44-per-open ratchet ending with the
++            // dialog at screen height + 44 and its
++            // bottom-anchored button row off-screen (the symbol
++            // chooser's missing OK/Cancel). No top-level resize
++            // happens here any more; with nothing grown, saved
++            // sizes stop ratcheting and already-banked sizes
++            // self-heal through the clamp on the next open. The
++            // overlay trade is the one round 16 already accepted
++            // in practice: any wx relayout undid the shift anyway.
+             if ( tb.strip->parentWidget() != host )
+                 tb.strip->setParent( host );
++            wxLogTrace( "kicad-ios-round17",
++                        "jobo-titlebar-overlay-only: dialog strip "
++                        "installed without resize" );
+             positionTitleBar( host );
+         }
+ 

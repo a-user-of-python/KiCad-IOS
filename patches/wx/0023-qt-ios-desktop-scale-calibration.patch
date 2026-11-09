@@ -1,0 +1,55 @@
+# KiCad-IOS port patch 0023 (wxWidgets v3.3.4, wxWindows licence)
+# Round 17, Job N: desktop-density scale calibration, one step up.
+# Patch 0022 set QT_SCALE_FACTOR=0.5 (effective devicePixelRatio
+# exactly 1.0, the desktop-monitor model). The device verdict on
+# that build: "Looks good but increase the size just a bit." This
+# patch changes only the calibration constant to 0.6: the
+# effective devicePixelRatio becomes 2 x 0.6 = 1.2, so every UI
+# element renders 20% larger than at exact desktop density, while
+# the logical workspace is still derived live from the display by
+# the QPA (display pixels / effective ratio) -- no resolution is
+# hardcoded anywhere, and the desktop-monitor model is unchanged.
+# iOS only; the helper it edits exists only under Q_OS_IOS.
+# Apply with: patch -p1 (from the wx source root), after patches
+# 0001-0022.
+#
+--- a/src/qt/app.cpp
++++ b/src/qt/app.cpp
+@@ -32,19 +32,27 @@
+ // device verdict on the 0.5 build: the UI renders ~2x too big and
+ // dense desktop dialogs (the symbol/footprint choosers) overflow
+ // the screen with their OK buttons unreachable. Setting
+-// QT_SCALE_FACTOR=1/2 before the QApplication exists makes Qt's
+-// high-DPI layer report an effective devicePixelRatio of 1.0:
+-// the screen's logical geometry becomes the panel's pixel size
+-// (queried from the live display by the QPA -- nothing about the
+-// resolution is hardcoded), wx reads a content scale factor of
+-// 1.0, FromDIP stops doubling, and the whole stack lays out the
+-// way it does on a desktop monitor of the same pixel size. The
+-// factor is the reciprocal of the iPad family's fixed UIScreen
+-// scale (2); this app ships for iPad only (UIDeviceFamily 2).
++// QT_SCALE_FACTOR before the QApplication exists makes Qt's
++// high-DPI layer scale the reported devicePixelRatio by that
++// factor: at 1/2 (wx patch 0022) the effective ratio was exactly
++// 1.0 -- the screen's logical geometry became the panel's pixel
++// size (queried from the live display by the QPA -- nothing about
++// the resolution is hardcoded), wx read a content scale factor
++// of 1.0, FromDIP stopped doubling, and the whole stack laid out
++// the way it does on a desktop monitor of the same pixel size.
++// [KiCad-IOS port] Modified 2026-11-09 for iOS (round 17, Job N,
++// wx patch 0023): the device verdict on that build was "looks
++// good but increase the size just a bit", so the factor is now
++// 0.6: the effective devicePixelRatio is 2 x 0.6 = 1.2, every UI
++// element renders 20% larger than at exact desktop density, and
++// the logical workspace is still the live display size divided
++// by that ratio -- the desktop-monitor model, calibrated up one
++// step. The 2 is the iPad family's fixed UIScreen scale; this
++// app ships for iPad only (UIDeviceFamily 2).
+ // Trace token for the shipped-binary gate: kicad-ios-scale-desktop.
+ bool wxQtIosDesktopScaleFactor()
+ {
+-    qputenv("QT_SCALE_FACTOR", "0.5");
++    qputenv("QT_SCALE_FACTOR", "0.6");
+     return true;
+ }
+ #endif // Q_OS_IOS

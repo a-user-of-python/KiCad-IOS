@@ -1777,3 +1777,183 @@ FromDIP stops doubling — the desktop-monitor model. Gate:
 the `QT_SCALE_FACTOR` literal in the shipped manager
 executable; the previous build fails both. Whether the on-device
 look is right is device-judged, not gate-claimed.
+
+### wx patch 0023 — qt-ios-desktop-scale-calibration (round 17, Job N)
+
+`src/qt/app.cpp`, iOS only (`Q_OS_IOS`). One-constant change to
+patch 0022's helper: `wxQtIosDesktopScaleFactor()` now sets
+`QT_SCALE_FACTOR=0.6` instead of `0.5`. Device verdict on the
+0022 build (effective devicePixelRatio exactly 1.0, desktop
+density): "Looks good but increase the size just a bit." At 0.6
+the effective ratio is 2 x 0.6 = 1.2 — every UI element renders
+20% larger than at exact desktop density — and the logical
+workspace remains the live display size divided by that ratio
+(queried by the QPA; no resolution is hardcoded), so the
+desktop-monitor model is unchanged, calibrated up one step.
+Gate: `hidden_files/scale_gate.py` now requires the `0.6`
+literal in the shipped manager executable (same helper /
+qputenv / Initialize-execution checks as for 0022); the
+0.5-factor build fails the value check. Whether the size is
+now right is device-judged, not gate-claimed.
+
+### wx patch 0024 — qt-ios-titlebar-hit-test-and-wx-close (round 17, Job P)
+
+`src/qt/toplevel.cpp`, iOS only (the application event filter
+exists only in the port's iOS code). Device report: the app
+crashes when the user taps the "x on the symbol picker". The X
+is the generic `wxSearchCtrl`'s cancel button in the chooser's
+Filter field (`common/widgets/lib_tree.cpp`; wxQt has no native
+search control, so the generic composite control — an iOS-only
+path for KiCad — draws it), and its upstream handler chain
+never touches the dialog. Two port defects combine at that
+spot. (1) The titlebar filter from patch 0015 hit-tests strip
+buttons by global geometry and the visibility flag only, with
+no occlusion test; on dialogs the strip's one-shot child shift
+is undone by `DIALOG_SHIM::Show()`'s post-Show `SetSize`
+relayout, leaving the strip covered by the dialog's own content
+but still visibility-flagged, its Close rect over the Filter
+row's right end — a press aimed at the content there is
+swallowed and executed as a window close. Strip claims
+(Cursor/Ext/Close/Minimize and the strip drag surface) now go
+through `globalPosInTopmost()`, which additionally requires
+`QApplication::widgetAt()` to resolve the press to the strip
+widget itself or one of its children: a covered strip never
+claims a press. (2) That close was a raw `QWidget::close()`:
+its QCloseEvent ran the wx close chain (`wxEVT_CLOSE_WINDOW`
+→ `EndModal` → `Hide`, inside which wxQt's modal `Hide()`
+calls `QDialog::done()`) and then fell through to
+`QDialog::closeEvent` on the already-finished dialog — two
+owners for finishing the QDialog, with `exec()` unwinding
+re-entrantly inside the close dispatch. `closeWindow()` now
+routes through `wxWindow::Close()` (via
+`wxWindowQt::QtRetrieveWindowPointer`), so the wx close
+handling runs exactly once with no Qt close event involved;
+widgets without a wx counterpart keep the raw close. Gate: a
+round-17 gate checks the shipped binary for the `widgetAt`
+topmost test in the filter and the wx-routed close (see the
+round-17 report section); the deciding check is on-device
+(chooser X / Cancel / strip-Close closes).
+
+### KiCad patch 0040 — ios-symbol-chooser-teardown (round 17, Job P)
+
+`eeschema/dialogs/dialog_symbol_chooser.cpp`.
+`DIALOG_SYMBOL_CHOOSER` registers its own `onLazyLoadUpdate()`
+— bound to the dialog — as the panel adapter's lazy-load
+handler, and upstream provides no unregister; the trigger is a
+repeating 1 s timer owned by the long-lived editor frame
+(`SYMBOL_TREE_MODEL_ADAPTER::AddLibraries`), which keeps
+firing while libraries are pending — exactly during first-open
+closes. A batch landing during modal teardown would call into
+a dying dialog/panel. The destructor now first registers an
+empty handler (the adapter's supported off switch;
+`AddLibraries` null-checks it) and calls the panel's
+`ShutdownCanvases()` — which the modeless
+`SYMBOL_CHOOSER_FRAME` already calls on close but the modal
+dialog route never did — before the existing char-hook
+unbind. Destructor-body order guarantees both run while the
+panel child is still alive.
+
+### wx patch 0025 — qt-ios-dialog-titlebar-overlay (round 17, Job O)
+
+`src/qt/toplevel.cpp`, iOS only. Device report: dialogs open
+with their button rows missing — the symbol chooser showed no
+OK/Cancel anywhere. Forensic root cause (round 17 Job O,
+source-proven): patch 0015's `ensureTitleBar()` dialog branch
+grew every dialog by the 44 px strip height through a direct
+`QWidget::resize()` and shifted its children down once. That
+resize bypassed the universal clamp (patch 0017 hooks wx
+geometry requests and `wxTopLevelWindowQt::Show()` only), and
+KiCad's grow-only size persistence — `DIALOG_SHIM::Show()`'s
+`max()` restore (`common/dialog_shim.cpp`) and the chooser
+panels' raw size saves — banked the +44 into settings on every
+open (dialogs are recreated per open, so the once-guard reset
+each time): a +44-per-open ratchet ending with the dialog at
+screen height + 44 and its bottom-anchored button row
+off-screen. This patch deletes the grow-and-shift: the strip
+is installed on dialogs as a pure overlay — the state every
+dialog already reached in practice, since any wx relayout
+undid the shift (patch 0015's own comment conceded it). With
+nothing grown, saved sizes stop ratcheting and already-banked
+sizes self-heal through the clamp on the next open; no
+settings wipe and no KiCad-side change. The fix sits in the
+app-wide event-filter path, below every dialog class (~170
+`DIALOG_SHIM` dialogs, both choosers, `PAGED_DIALOG`, non-shim
+`wxDialog`s, the wizard); frames take the `QMainWindow`
+menu-host path, which never grew, and are untouched. A
+`wxLogTrace` literal (`jobo-titlebar-overlay-only`) marks the
+fixed path in the shipped binary; the grow expression
+`host->height() + kTitleBarHeight` no longer exists in the
+file. Patch 0025 also adds the `wx/log.h` include that patch
+0024's trace uses.
+
+### KiCad patch 0041 — ios-footprint-preview-create-diagnostics (round 17, Job Q)
+
+`common/widgets/footprint_preview_widget.cpp`,
+`include/widgets/footprint_preview_widget.h`. Device report:
+footprints do not show up in the symbol chooser — the exhibit
+symbol (AD558JP) shows an empty Footprint line and no preview.
+Forensics (round 17 Job Q) convicted per-symbol data for the
+exhibit: AD558JP's `Footprint` property is genuinely empty in
+the shipped stock data, as for 4,745 of 22,750 shipped symbols
+— upstream state, deliberately not edited. This patch
+addresses the one convicted code-level hazard the same
+forensics found at this layer: upstream
+`FOOTPRINT_PREVIEW_PANEL_BASE::Create()` swallows every
+failure (the pcbnew-kiface load throwing, a null kiface,
+`CreateKiWindow` failing, a wrong-type window) into a silent
+nullptr, and the widget then displays an empty status label
+forever — a broken preview is indistinguishable from a symbol
+with no footprint. `Create()` now records why it failed, per
+stage, in `LastCreateError()`, and the widget's constructor
+shows "Footprint preview unavailable: <reason>" in its status
+label when the panel is missing. Success-path behaviour is
+unchanged and every stage stays fully guarded. This makes
+the on-device check decisive: a symbol with a real default
+footprint (e.g. `Timer:NE555D`) either previews, or the pane
+names the failing stage.
+
+### wx patch 0026 — qt-ios-dialog-strip-clickthrough (round 17, Job O sweep)
+
+`src/qt/toplevel.cpp`, iOS only. The round-17 whole-app sweep
+convicted patch 0025's overlay itself: the strip is opaque,
+full-width and raised across the top 44 px of every dialog,
+and patch 0024's topmost arbitration leaves two regimes —
+strip topmost (content beneath invisible and untappable) or
+strip covered (content works, the strip's Minimize/Close
+dead). Interactive content provably lives in that band: the
+`LIB_TREE` Filter row's cancel X and sort gear (the symbol
+chooser), embedded `WX_INFOBAR`s built as a dialog's first
+sizer row (~15 dialog bases, ERC/DRC included), and the PCM
+dialog's notebook tab row. When the strip is installed on a
+non-`QMainWindow` host it now gets
+`Qt::WA_TransparentForMouseEvents` (the strip widget and its
+title label; the buttons do not carry it) and a transparent
+repaint — the title sits on a translucent scrim, only the
+buttons stay opaque. `QApplication::widgetAt()` tests each
+widget's own attribute, so the buttons stay claimable
+through patch 0024's hit-test exactly as before, while any
+other press in the band resolves to the dialog content
+beneath and is delivered there. The strip's title-area drag
+claim on dialogs ends with the band (frames keep their
+layout-space strip and full drag; dialogs are clamped modal
+sheets). A `wxLogTrace` literal (`jobo2-strip-clickthrough`)
+marks the path in the shipped binary.
+
+### KiCad patch 0042 — ios-dialog-shim-minsize-cap (round 17, Job O sweep)
+
+`common/dialog_shim.cpp`, `DIALOG_SHIM::Show()`'s
+saved-geometry branch. Upstream re-asserts
+`SetMinSize(GetBestSize())` after the port's universal clamp
+has had its last look (the clamp hooks wx geometry requests
+and `wxTopLevelWindowQt::Show()`, not this), so a dialog
+whose best height exceeded the display would re-arm Qt's
+minimum-size refusal for every later resize. The round-17
+sweep census found no stock dialog binding at the current
+scale (largest static minimum 940×550) — this is the latent
+hole made unbindable: the re-asserted minimum is capped at
+the window's live display client area, the same failsafe
+shape `PAGED_DIALOG` applies to itself, against the live
+display rather than fixed numbers. Behaviour changes only
+when a best size exceeds the display — precisely the broken
+case, and precisely the limit the clamp already imposes on
+the dialog's size.
