@@ -1751,3 +1751,29 @@ V1 binary fails every one of those checks (the negative
 control). The deciding check remains the device
 fresh-install test, listed first in the report's device
 checks: V1 does not claim the fix from gates alone.
+
+### wx patch 0022 — qt-ios-desktop-scale (round 16, Job C reopened)
+
+`src/qt/app.cpp`, iOS only (`Q_OS_IOS`). Device verdict on the
+shipped build: the UI still renders ~2x too big and dense dialogs
+(the parts choosers) overflow the screen with OK unreachable,
+despite the earlier plist/maximise fix removing the letterbox.
+Root cause in three layers: the iOS QPA reports the panel in
+points (1180x820, devicePixelRatio 2);
+`wxWindowQt::GetContentScaleFactor()` (src/qt/window.cpp)
+returns that ratio (2.0); and KiCad sizes dialogs in DIPs via
+`wxWindow::FromDIP()` (common/dialog_shim.cpp and throughout),
+doubling every DIP dimension inside the already-halved logical
+workspace. The patch adds `wxQtIosDesktopScaleFactor()`, called
+in `wxApp::Initialize` immediately before the QApplication is
+constructed, which sets `QT_SCALE_FACTOR=0.5` — the reciprocal
+of the iPad family's fixed UIScreen scale (the app is iPad-only,
+UIDeviceFamily 2). Qt's high-DPI layer then reports an effective
+devicePixelRatio of 1.0: the logical workspace becomes the
+panel's pixel size (queried from the live display by the QPA;
+no resolution is hardcoded), wx reads content scale 1.0, and
+FromDIP stops doubling — the desktop-monitor model. Gate:
+`hidden_files/scale_gate.py` requires the exported symbol and
+the `QT_SCALE_FACTOR` literal in the shipped manager
+executable; the previous build fails both. Whether the on-device
+look is right is device-judged, not gate-claimed.
