@@ -192,8 +192,14 @@
   <div class="pagehero">
     <span class="kicker">KiCad‑iOS · Release</span>
     <h1 style="font-size:clamp(2.1rem,5vw,3.2rem)">V1 — the first official release.</h1>
-    <p class="sub">Fifteen Spike builds proved the port on hardware, one defect list at a time. <strong>V1</strong> graduates from the Spike numbering: the same real KiCad 10.0.1, with the window layer rebuilt and every defect the device passes found answered. Every item below is <strong>verified in the shipped binary</strong> by the release gates — the previous release fails each of these counts. V1's on-device pass runs next; where a claim is the device's to confirm, it says so.</p>
+    <p class="sub">Fifteen Spike builds proved the port on hardware, one defect list at a time. <strong>V1</strong> graduates from the Spike numbering: the same real KiCad 10.0.1, with the window layer rebuilt and every defect the device passes found answered. Every item below is <strong>verified in the shipped binary</strong> by the release gates — the previous release fails each of these counts. V1's on-device pass came back with one failure — the fresh-install crash, surviving through a second path in the same toolkit code — and <strong>V1.1</strong> answers it, first below.</p>
   </div>
+  <section>
+    <h2><span class="bar">/</span> V1.1 — the fresh-install crash, closed structurally</h2>
+    <ul class="status-list">
+      <li><span class="tag tag-shipped">Fixed in V1.1</span><strong>The fresh-install first-launch crash — both mutation windows.</strong> V1 was installed fresh on device and crashed again: same moment (first-run library preload), same faulting frame. Disassembly of the shipped V1 binary proved V1's creation guard present and correct — and convicted the second way the pane set mutates: when the preload path sets status widths, the toolkit deleted the panes one by one and cleared its pane list only afterwards, so the resize delivered mid-teardown re-entered the layout and read a pane that no longer existed. V1.1 freezes the status bar — hidden, size events blocked, updates off — around <em>both</em> pane mutations, and publishes the empty pane set before a single widget is removed, so the re-entrant call cannot be delivered while the set is inconsistent. The gate requires that exact order in the shipped binary, and V1 fails it. The deciding check is unchanged: a fresh install's first launch, on device.</li>
+    </ul>
+  </section>
   <section>
     <ul class="status-list">
       <li><span class="tag tag-shipped">Fixed in V1</span><strong>The fresh-install first-launch crash.</strong> A fresh install of the pre-release candidate died 0.44 s after launch: first-run library preload laid out the manager's status bar before its fields existed, the toolkit created them lazily one widget at a time, a resize delivered mid-creation re-entered the layout, and a field rect was read from a pane that did not exist yet. The toolkit now builds the full field set before publishing any of it, with a re-entrancy guard while creation is in flight. The deciding check is a fresh-install first launch on device, and it heads V1's device list.</li>
