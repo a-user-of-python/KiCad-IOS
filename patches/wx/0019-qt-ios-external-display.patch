@@ -38,7 +38,7 @@
 +        // disconnect returns any external window to the iPad
 +        // (deferred: the QPA's own screen-removal migration runs
 +        // first, then returnWindowToPrimary() settles geometry).
-+        if ( QGuiApplication *app = QGuiApplication::instance() )
++        if ( QGuiApplication *app = qobject_cast<QGuiApplication *>( QCoreApplication::instance() ) )
 +        {
 +            QObject::connect( app, &QGuiApplication::screenAdded, this,
 +                              [this]( QScreen * ) { updateExtButtons(); } );
