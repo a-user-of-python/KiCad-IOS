@@ -11,7 +11,7 @@ Not a recreation. Not a lookalike. The genuine program, rebuilt for Apple's tabl
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-current%20release%20V1-brightgreen.svg)](#-status)
+[![Status](https://img.shields.io/badge/status-current%20release%20V1.1-brightgreen.svg)](#-status)
 
 **[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)**
 
@@ -107,7 +107,11 @@ v15's own layer answers the two things v14's pass surfaced. The editors no longe
 
 Its on-device pass is the immediate next step: the first editor open with no OpenGL dialog; project creation with zero dialogs — or the remaining error's exact text; and the library choosers itemised — the library verdict is still outstanding.
 
-### V1 — the current release (2026‑11‑09)
+### V1.1 — the current release (2026‑11‑09)
+
+V1.1 replaces V1 and changes exactly one thing: the fresh-install first-launch crash, which V1 did not cure. V1's on-device pass installed V1 fresh and it crashed again — same moment (first-run library preload), same faulting frame (`wxStatusBar::GetFieldRect`). Disassembly of the shipped V1 binary proves V1's creation-side guard (patch 0020) is present and correct; the surviving path is the pane set's OTHER mutation. The preload chain sets status widths before laying out (`KISTATUSBAR::updateAuxFieldWidths` → `SetStatusWidths` → `layoutControls`), and the wxQt `SetStatusWidths` deleted every pane and cleared the pane vector only after the loop — the shipped V1 disassembly shows the delete inside the loop and the clear after it. A `removeWidget` on the visible bar delivers the same synchronous resize mid-teardown, and the re-entered layout reads a pane deleted earlier in the loop (fault at 0x14, a freed pane's Qt data pointer reading as null). No reader-side guard covers that window, so patch 0021 removes the window: an RAII freeze (status bar hidden, `wxEVT_SIZE` blocked, updates off) wraps BOTH pane mutations, and `SetStatusWidths` publishes the empty pane set before removing or deleting anything. The gate disassembles the shipped executable and requires that order — freeze and publish-empty before the first `removeWidget`, freeze before the first `addWidget` — and the shipped V1 binary fails every one of those checks. The deciding check is unchanged and still first in the report: delete the app, install V1.1, first launch.
+
+### V1 (2026‑11‑09)
 
 V1 is the first official release, graduating from the Spike numbering. It stands on v15's on-device pass (2026‑11‑09): the app works — the Schematic Editor opens and draws on the Cairo canvas, no crash — and that pass reported five defects. Six more jobs were added the same day, and pre-release testing added a twelfth: a fresh install of the pre-release candidate crashed 0.44 s after first launch. All twelve are answered in V1. Every fix is proven in the shipped binary by the gate, which fails on v15 on every round‑16 count; V1's on-device pass runs next, and the report enumerates the exact device checks.
 
@@ -129,7 +133,7 @@ The 3D viewer remains OpenGL-bound and does not work on iOS — the standing lim
 
 Builds are produced by the **Spike** workflow as unsigned `.ipa` files (≈263 MB — the stock libraries ride along). To run one:
 
-1. Download `KiCad-V1.ipa` (the release build; workflow artifacts from the **Spike** workflow are the same unsigned package).
+1. Download `KiCad-V1.1.ipa` (the release build; workflow artifacts from the **Spike** workflow are the same unsigned package).
 2. Sideload it with a signer such as Signulous (or your own signing setup).
 3. Launch **KiCad (spike)** — the first-run wizard walks you through setup, and the project manager opens behind it.
 
