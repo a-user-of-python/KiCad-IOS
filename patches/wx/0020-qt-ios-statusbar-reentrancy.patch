@@ -1,0 +1,138 @@
+# KiCad-IOS port patch 0020 (wxWidgets v3.3.4, wxWindows licence)
+# Round 16, Job L (KiCad-V1): wxQt status-bar re-entrancy --
+# fresh-install first-launch crash. CreateFieldsIfNeeded()
+# published each pane and immediately addWidget()ed it; on the
+# iOS QPA addWidget() synchronously delivers a resize, KiCad's
+# KISTATUSBAR answers with GetFieldRect() for its last fields,
+# and those panes did not exist yet in the half-published
+# vector (EXC_BAD_ACCESS at 0x14, device crash log 2026-11-09).
+# The fix builds the full pane set first, publishes it to
+# m_qtPanes, and only then hands widgets to QStatusBar; a
+# m_creatingFields guard makes GetFieldRect() and
+# DoUpdateStatusText() defer while creation is in flight.
+# Apply with: patch -p1 (from the wx source root), after
+# patches 0001-0019.
+#
+--- a/include/wx/qt/statusbar.h
++++ b/include/wx/qt/statusbar.h
+@@ -40,6 +40,15 @@
+ 
+     std::vector<QWidget*> m_qtPanes;
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): true while CreateFieldsIfNeeded() is building
++    // the pane widgets. Handing a widget to QStatusBar can
++    // synchronously deliver a resize event on the iOS QPA, and
++    // a re-entered GetFieldRect()/DoUpdateStatusText() must not
++    // touch the pane vector until creation has finished (Job L:
++    // fresh-install first-launch crash). See src/qt/statusbar.cpp.
++    bool m_creatingFields = false;
++
+     wxDECLARE_DYNAMIC_CLASS(wxStatusBar);
+ };
+ 
+--- a/src/qt/statusbar.cpp
++++ b/src/qt/statusbar.cpp
+@@ -11,6 +11,7 @@
+ #if wxUSE_STATUSBAR
+ 
+ #include "wx/statusbr.h"
++#include "wx/log.h"             // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1): wxLogTrace for the Job L gate literal.
+ #include "wx/qt/private/utils.h"
+ #include "wx/qt/private/converter.h"
+ #include "wx/qt/private/winevent.h"
+@@ -111,6 +112,15 @@
+ 
+     const_cast<wxStatusBar *>(this)->CreateFieldsIfNeeded();
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): while the panes are being created (or if they
++    // somehow still are not), there is no rect to report. The
++    // caller re-runs its layout on the resize that creation
++    // itself is in the middle of delivering, with the complete
++    // pane set in place (Job L).
++    if ( m_creatingFields || (size_t)i >= m_qtPanes.size() )
++        return false;
++
+     rect = wxQtConvertRect(m_qtPanes[i]->geometry());
+     return true;
+ }
+@@ -134,6 +144,16 @@
+ {
+     CreateFieldsIfNeeded();
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1): same re-entrancy guard as GetFieldRect() --
++    // the wxEVT_SIZE handler installed in Create() calls this
++    // for every pane, and it can be reached from a resize
++    // delivered synchronously while the panes are mid-creation
++    // (Job L).
++    if ( m_creatingFields || number < 0
++            || (size_t)number >= m_qtPanes.size() )
++        return;
++
+     const auto pane = dynamic_cast<QLabel*>(m_qtPanes[number]);
+ 
+     if ( !pane )
+@@ -168,9 +188,36 @@
+ 
+ void wxStatusBar::CreateFieldsIfNeeded()
+ {
+-    if ( !m_qtPanes.empty() )
++    if ( !m_qtPanes.empty() || m_creatingFields )
+         return;
+ 
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): build the FULL pane set first and publish it
++    // to m_qtPanes BEFORE handing any widget to QStatusBar.
++    //
++    // Upstream published each pane (push_back) and immediately
++    // addWidget()ed it. On the iOS QPA, addWidget() on the
++    // visible status bar synchronously runs a layout that
++    // delivers a wx resize event; KiCad's KISTATUSBAR answers a
++    // resize by asking GetFieldRect() for its LAST fields --
++    // whose panes did not exist yet in the half-published
++    // vector, so m_qtPanes[i] read out of bounds and the
++    // process died on a near-null dereference. That is the
++    // fresh-install first-launch crash of round 16 (Job L):
++    // first-run library preload clears the warning messages,
++    // which lays the bar out before anything else has forced
++    // field creation. With the complete set published first, a
++    // re-entered reader always finds a valid widget, and
++    // m_creatingFields makes readers defer until creation has
++    // finished. Desktop Qt delivers the resize asynchronously,
++    // which is why upstream never sees this.
++    m_creatingFields = true;
++
++    std::vector<QWidget*> panes;
++    std::vector<int> stretches;
++    panes.reserve( m_panes.GetCount() );
++    stretches.reserve( m_panes.GetCount() );
++
+     for ( size_t i = 0; i < m_panes.GetCount(); ++i )
+     {
+         //Set sizes
+@@ -208,10 +255,20 @@
+             static_cast<QLabel*>(pane)->setFrameStyle(style);
+         }
+ 
+-        m_qtPanes.push_back(pane);
+-
+-        GetQStatusBar()->addWidget(pane, width < 0 ? -width : 0);
++        panes.push_back(pane);
++        stretches.push_back( width < 0 ? -width : 0 );
+     }
++
++    m_qtPanes = panes;
++
++    for ( size_t i = 0; i < panes.size(); ++i )
++        GetQStatusBar()->addWidget(panes[i], stretches[i]);
++
++    m_creatingFields = false;
++
++    wxLogTrace( "kicad-ios-round16-jobl",
++                "wxStatusBar: created %d fields (publish-before-add)",
++                (int) panes.size() );
+ }
+ 
+ #endif
