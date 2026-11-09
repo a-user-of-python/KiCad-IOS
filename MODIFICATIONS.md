@@ -1690,3 +1690,64 @@ the shipped manager executable (absent from v15). The
 deciding check is a device fresh-install test — delete the
 app, reinstall, first launch must reach the manager — and
 is listed first in the V1 report's device checks.
+
+### wx patch 0021 — qt-ios-statusbar-mutation-freeze (round 16, KiCad-V1.1)
+
+**`src/qt/statusbar.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0021-qt-ios-statusbar-mutation-freeze.patch`.
+
+*Why.* KiCad-V1 still crashed on a fresh install at the same
+point (device report, 2026-11-09: same timing — first-run
+preload — and the same faulting frame,
+`wxStatusBar::GetFieldRect`). Disassembly of the shipped V1
+binary proves patch 0020's creation-side guard is present and
+correct; the surviving path is the OTHER mutation of the pane
+set. The preload chain calls
+`KISTATUSBAR::updateAuxFieldWidths()` before
+`layoutControls()`, and it calls `SetStatusWidths()` first.
+The wxQt `SetStatusWidths()` deleted every pane
+(`removeWidget` + `delete`) and cleared `m_qtPanes` only
+AFTER the loop — the shipped V1 disassembly shows the delete
+inside the loop and the clear after it. On the iOS QPA a
+`removeWidget()` on the visible bar synchronously delivers
+the same resize; the size handler's `GetFieldRect()` then
+reads the not-yet-cleared vector and dereferences a pane
+deleted earlier in the loop (a freed pane's QWidgetData
+pointer reads as null — the same fault address, 0x14).
+Patch 0020's flag is false in this window and the index is in
+range, so no reader-side guard can cover it: the mutation
+window itself has to go.
+
+*What.* An RAII freeze, `wxQtStatusBarMutationFreeze`, is
+engaged around BOTH pane mutations. While it is engaged the
+QStatusBar is hidden (if it was visible), so the main window
+layout has no visible bar to geometry-manage and no resize
+can be generated for it; `wxEVT_SIZE` for the bar is blocked
+at the wx layer; and updates are disabled. All three lift
+when the freeze goes out of scope, after the pane set is
+complete and consistent again. `SetStatusWidths()` also
+publishes the empty pane set first (`swap` into a local)
+BEFORE removing or deleting anything, so any other reader
+observes "no panes" instead of dangling pointers.
+`CreateFieldsIfNeeded()` engages the same freeze around the
+0020 publish-and-hand-over, and clears `m_creatingFields`
+before the freeze lifts, so the layout pass triggered by the
+bar becoming visible again runs against the finished set
+with readers fully live. This is a structural change, not a
+timing one: the re-entrant call cannot be delivered while a
+mutation is in flight. Carries the trace mask
+`kicad-ios-round16-jobm` alongside 0020's.
+
+*Verification.* The patch applies over the cumulative wx
+series (byte-identical result from base + 0020 + 0021). The
+binary gate disassembles the shipped manager executable and
+requires, in `wxStatusBar::SetStatusWidths`, a
+`QWidget::hide` call BEFORE the first
+`QStatusBar::removeWidget` call and the pane-vector clear
+BEFORE that same call; and in
+`wxStatusBar::CreateFieldsIfNeeded`, a `QWidget::hide` call
+BEFORE the first `QStatusBar::addWidget` call. The shipped
+V1 binary fails every one of those checks (the negative
+control). The deciding check remains the device
+fresh-install test, listed first in the report's device
+checks: V1.1 does not claim the fix from gates alone.
