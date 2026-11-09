@@ -1,0 +1,179 @@
+# KiCad-IOS port patch 0021 (wxWidgets v3.3.4, wxWindows licence)
+# Round 16, Job M (KiCad-V1.1): wxQt status-bar pane mutation made
+# structurally non-re-enterable. KiCad-V1 still crashed on a fresh
+# install in wxStatusBar::GetFieldRect: patch 0020 protected pane
+# CREATION (publish-before-add + a deferring reader guard), but
+# SetStatusWidths() still deleted the panes one by one and cleared
+# m_qtPanes only after the loop; on the iOS QPA a removeWidget()
+# on the visible bar synchronously delivers a resize, the owner's
+# size handler (KISTATUSBAR::layoutControls) reads pane rects
+# through GetFieldRect(), and the not-yet-cleared vector pointed
+# at freed panes (EXC_BAD_ACCESS at 0x14 -- a freed pane's
+# QWidgetData pointer reads as null). This patch introduces an
+# RAII freeze (hide the QStatusBar + block wxEVT_SIZE + disable
+# updates) engaged around BOTH pane mutations, and makes
+# SetStatusWidths() publish the empty pane set BEFORE removing or
+# deleting anything, so no size handler can run at all while the
+# pane set is inconsistent. Apply with: patch -p1 (from the wx
+# source root), after patches 0001-0020.
+#
+--- a/src/qt/statusbar.cpp
++++ b/src/qt/statusbar.cpp
+@@ -11,6 +11,7 @@
+ #if wxUSE_STATUSBAR
+ 
+ #include "wx/statusbr.h"
++#include "wx/event.h"           // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1.1): wxEventBlocker for the Job M mutation freeze below.
+ #include "wx/log.h"             // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1): wxLogTrace for the Job L gate literal.
+ #include "wx/qt/private/utils.h"
+ #include "wx/qt/private/converter.h"
+@@ -31,6 +32,68 @@
+ {
+ }
+ 
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1.1,
++// Job M): RAII freeze engaged around every mutation of the status
++// bar's pane set (creation in CreateFieldsIfNeeded(), teardown in
++// SetStatusWidths()).
++//
++// Why: on the iOS QPA, QStatusBar::addWidget()/removeWidget() on a
++// VISIBLE bar synchronously runs the main window's layout
++// (QMainWindowLayout::setGeometry), which delivers a resize to the
++// bar in the middle of the mutation. KiCad's KISTATUSBAR answers a
++// resize with layoutControls(), which reads pane rects through
++// GetFieldRect(). Patch 0020 made CREATION publish the full pane
++// set before the first addWidget() and made readers defer while
++// creation is in flight -- but SetStatusWidths() still deleted the
++// panes one by one and only cleared m_qtPanes afterwards, so a
++// resize delivered by removeWidget() re-entered layoutControls()
++// while the vector still pointed at freed panes, and GetFieldRect()
++// dereferenced a dead widget (device crash, KiCad-V1 fresh install:
++// EXC_BAD_ACCESS at 0x14 in wxStatusBar::GetFieldRect -- the freed
++// pane's QWidgetData pointer reads as null).
++//
++// A guard inside the reader cannot fix a mutation window; this
++// freeze removes the window. While it is engaged:
++//   * the QStatusBar is hidden (if it was visible), so the main
++//     window layout has no visible bar to geometry-manage and no
++//     resize can be generated for it at all, and
++//   * wxEVT_SIZE for the bar is blocked at the wx layer as well,
++//     so no size handler can run even if a resize were posted, and
++//   * updates are disabled, so nothing paints a half-mutated bar.
++// All three are lifted when the freeze goes out of scope -- AFTER
++// the pane set is complete and consistent again -- and the layout
++// pass that follows (triggered by the bar becoming visible again
++// and by the caller's own relayout) runs against the finished set.
++// This is not a timing change: the re-entrant call is impossible
++// while the freeze is engaged, not merely less likely.
++class wxQtStatusBarMutationFreeze
++{
++public:
++    explicit wxQtStatusBarMutationFreeze( wxStatusBar* sb )
++        : m_bar( sb->GetQStatusBar() ),
++          m_wasVisible( sb->GetQStatusBar()->isVisible() ),
++          m_blocker( sb, wxEVT_SIZE )
++    {
++        if ( m_wasVisible )
++            m_bar->hide();
++
++        m_bar->setUpdatesEnabled( false );
++    }
++
++    ~wxQtStatusBarMutationFreeze()
++    {
++        m_bar->setUpdatesEnabled( true );
++
++        if ( m_wasVisible )
++            m_bar->show();
++    }
++
++private:
++    QStatusBar*      m_bar;
++    bool             m_wasVisible;
++    wxEventBlocker   m_blocker;
++};
++
+ //==============================================================================
+ 
+ 
+@@ -87,8 +150,27 @@
+ 
+     if ( !m_qtPanes.empty() )
+     {
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1.1, Job M): freeze the bar for the whole teardown
++        // (see wxQtStatusBarMutationFreeze above) and publish the
++        // empty pane set BEFORE removing or deleting anything.
++        // Upstream deleted the panes one by one and cleared
++        // m_qtPanes only after the loop: on the iOS QPA a
++        // removeWidget() on the visible bar synchronously delivers
++        // a resize, the owner's size handler reads pane rects
++        // through GetFieldRect(), and the not-yet-cleared vector
++        // still pointed at the panes deleted earlier in the loop
++        // (KiCad-V1 fresh-install crash). With the freeze engaged
++        // no resize can be delivered at all during the teardown,
++        // and with the vector emptied first, any other reader
++        // observes "no panes" instead of dangling pointers.
++        wxQtStatusBarMutationFreeze freeze( this );
++
++        std::vector<QWidget*> panes;
++        panes.swap( m_qtPanes );
++
+         int i = 0;
+-        for ( auto pane : m_qtPanes )
++        for ( auto pane : panes )
+         {
+             GetQStatusBar()->removeWidget(pane);
+ 
+@@ -99,7 +181,10 @@
+             }
+         }
+ 
+-        m_qtPanes.clear();
++        wxLogTrace( "kicad-ios-round16-jobm",
++                    "wxStatusBar: tore down %d fields (frozen, "
++                    "cleared-before-delete)",
++                    (int) panes.size() );
+     }
+ 
+     wxStatusBarBase::SetStatusWidths(number, widths);
+@@ -213,6 +298,16 @@
+     // which is why upstream never sees this.
+     m_creatingFields = true;
+ 
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++    // KiCad-V1.1, Job M): freeze the bar for the whole creation
++    // (see wxQtStatusBarMutationFreeze above). Patch 0020 made the
++    // pane set complete before the first addWidget(); the freeze
++    // removes the remaining hazard class entirely -- with the bar
++    // hidden and wxEVT_SIZE blocked, addWidget() cannot deliver a
++    // resize at all while the widgets are being handed over, so no
++    // size handler can observe or disturb the set mid-creation.
++    wxQtStatusBarMutationFreeze freeze( this );
++
+     std::vector<QWidget*> panes;
+     std::vector<int> stretches;
+     panes.reserve( m_panes.GetCount() );
+@@ -264,11 +359,22 @@
+     for ( size_t i = 0; i < panes.size(); ++i )
+         GetQStatusBar()->addWidget(panes[i], stretches[i]);
+ 
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1.1, Job M): the creation flag is cleared BEFORE the
++    // freeze goes out of scope at the end of this function, so the
++    // layout pass the freeze's destructor triggers by showing the
++    // bar again runs against the complete pane set with readers
++    // fully live -- the deferred layout lands deterministically,
++    // as part of this call, not on some later event.
+     m_creatingFields = false;
+ 
+     wxLogTrace( "kicad-ios-round16-jobl",
+                 "wxStatusBar: created %d fields (publish-before-add)",
+                 (int) panes.size() );
++
++    wxLogTrace( "kicad-ios-round16-jobm",
++                "wxStatusBar: created %d fields (frozen hand-over)",
++                (int) panes.size() );
+ }
+ 
+ #endif
