@@ -1,0 +1,1216 @@
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -36,6 +36,14 @@
+ // KiCad-Spike-v16): QLabel for the floating bar's "Move" grip.
+ #include <QtWidgets/QLabel>
+ #include <QtWidgets/QPushButton>
++// [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16, KiCad-V1):
++// QMainWindow/QVBoxLayout for the Job F titlebar rework: a frame's
++// titlebar strip is hosted inside a container set as the
++// QMainWindow's menu widget, above the real menu bar. QChildEvent
++// arrives via QtCore/qcoreevent.h.
++#include <QtCore/qcoreevent.h>
++#include <QtWidgets/QMainWindow>
++#include <QtWidgets/QVBoxLayout>
+ #endif // Q_OS_IOS
+ 
+ wxTopLevelWindowQt::wxTopLevelWindowQt(wxWindow *parent,
+@@ -512,6 +520,45 @@
+ //     is intercepted, and touch/mouse behaviour is exactly the
+ //     pre-Job-H behaviour.
+ //
++// Round 16, Job F -- the floating pill becomes titlebar chrome
++// (this patch). The user asked for the controls at the TOP of
++// each window like a Windows/macOS title bar, not a floating
++// pill at the corner. The single roaming bar is replaced by a
++// PER-WINDOW titlebar strip (objectName wxQtIOSWindowTitleBar):
++// the window's title on the left, then Job H's "Cursor" toggle
++// (same objectName, wxQtIOSFloatingControlsCursorToggle, kept in
++// its bar slot relative to the buttons), then Minimize and Close
++// at the right end (Windows order, Close outermost). The strip
++// itself is the drag region -- the 0013 "Move" grip is RETIRED
++// because the whole non-button strip now arms the same
++// coordinate-based drag (0013's arming, un-maximise and
++// TouchCancel handling are unchanged). Each strip acts on its
++// OWN window, so the modal-host question of rounds 11/12 no
++// longer decides which window Close/Minimize hit. Job H's cursor
++// overlay, which rode the roaming bar's host, now rides the
++// topmost titlebar host (the modal window while one is up, else
++// the current window) -- the same window the bar would have
++// picked, picked the same way.
++//
++// The strip must not cover the host's menu bar or toolbar. wxQt
++// frames are QMainWindows (src/qt/frame.cpp): the menu bar,
++// toolbars and central widget are placed by QMainWindow's own
++// layout, and wx client children live in the central widget
++// (wxFrame::QtGetParentWidget()). For a QMainWindow host the
++// strip therefore sits in a container widget (objectName
++// wxQtIOSWindowTitleBarMenuHost) installed with
++// QMainWindow::setMenuWidget(): the container stacks the strip
++// ABOVE the window's real menu bar, QMainWindow's layout
++// reserves real space for the container, and the menu bar,
++// toolbars and client area shift down intact -- nothing is
++// overlaid. Dialogs and plain top-level widgets have no menu
++// bar and no layout slot to reserve, so their strip is a child
++// overlay at the top AND the dialog is grown by the strip
++// height with its existing children shifted down by the same
++// amount, so the strip occupies newly created space rather
++// than covering content (a later wx relayout can only undo the
++// shift, returning that dialog to a plain top overlay).
++//
+ // The implementation compiles only for iOS (Q_OS_IOS); other wxQt
+ // builds get the empty stub at the bottom.
+ // ---------------------------------------------------------------------------
+@@ -564,14 +611,29 @@
+ class wxQtIOSFloatingControls : public QObject
+ {
+ public:
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): one window's titlebar widgets (Job F). Declared
++    // at the top of the class because member functions below use
++    // it in their signatures.
++    struct StripWidgets
++    {
++        QPointer<QWidget> strip;
++        QPointer<QWidget> menuHost;
++        QPointer<QLabel> title;
++        QPointer<QPushButton> cursorBtn;
++        QPointer<QPushButton> minBtn;
++        QPointer<QPushButton> closeBtn;
++        bool shifted = false;
++    };
++
+     wxQtIOSFloatingControls( QObject *parent )
+         : QObject( parent ),
+           m_current( nullptr ),
+-          m_host( nullptr ),
+           m_pressArmed( false ),
+           m_dragging( false ),
+           m_dragIsStrip( false ),
+           m_cursorEnabled( false ),
++          m_menuWrapInProgress( false ),
+           m_cursorPosValid( false ),
+           m_cursorTracking( false ),
+           m_cursorTrackingIsTouch( false ),
+@@ -580,17 +642,25 @@
+           m_cursorMaxDisp( 0 )
+     {
+         // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+-        // KiCad-V1): restore the virtual-cursor toggle BEFORE
+-        // createBar() so the "Cursor" button is created in its
+-        // persisted (checked) state. Default is OFF.
++        // KiCad-V1): restore the virtual-cursor toggle before any
++        // strip is created so each strip's "Cursor" button is
++        // created in its persisted (checked) state. Default OFF.
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): strips are created per window by
++        // ensureTitleBar() when that window is shown; there is no
++        // createBar() up front any more (Job F).
+         m_cursorEnabled = loadCursorEnabled();
+-        createBar();
+         createCursor();
+ 
+         if ( QScreen *screen = QGuiApplication::primaryScreen() )
+         {
+             QObject::connect( screen, &QScreen::availableGeometryChanged, this,
+-                              [this]( const QRect & ) { positionBar(); } );
++                              [this]( const QRect & )
++            {
++                for ( QWidget *host : m_titleBars.keys() )
++                    positionTitleBar( host );
++                positionCursor();
++            } );
+         }
+     }
+ 
+@@ -609,59 +679,75 @@
+         {
+         case QEvent::Show:
+         case QEvent::WindowActivate:
+-            if ( isBarObject( watched ) )
++            if ( isTitleBarObject( watched ) )
+                 break;
+             if ( QWidget *win = windowOf( watched ) )
+             {
+                 if ( isRealWindow( win ) )
+                 {
+                     noteWindow( win );
+-                    refreshBar();
++                    // [KiCad-IOS port] Modified 2026-11-09 for iOS
++                    // (round 16, KiCad-V1): each window gets its
++                    // OWN titlebar strip when it is shown (Job F);
++                    // the cursor overlay follows the topmost host.
++                    ensureTitleBar( win );
++                    refreshCursor();
++                }
++            }
++            break;
++
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the window's title text lives in its strip.
++        case QEvent::WindowTitleChange:
++            if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
++            {
++                if ( m_titleBars.contains( w ) )
++                    updateTitleBarTitle( w );
++            }
++            break;
++
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): a QMainWindow whose menu widget is replaced
++        // after its strip was installed (wxFrame::SetMenuBar()
++        // calls QMainWindow::setMenuBar(), which replaces the
++        // menu widget and would drop the strip's container) gets
++        // re-wrapped here. The wrap check inside ensureTitleBar()
++        // makes the ChildAdded raised by our own setMenuWidget()
++        // a no-op, so this terminates.
++        case QEvent::ChildAdded:
++            if ( !isTitleBarObject( watched ) )
++            {
++                if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
++                {
++                    if ( w->isWindow() && isRealWindow( w )
++                            && m_titleBars.contains( w ) )
++                        ensureTitleBar( w );
+                 }
+             }
+             break;
+ 
+         case QEvent::Hide:
+-            if ( isBarObject( watched ) )
++            if ( isTitleBarObject( watched ) )
+                 break;
+             if ( QWidget *win = windowOf( watched ) )
+             {
+                 // Only the window's own Hide matters here (children
+                 // hide constantly): if the current window went away,
+-                // the bar falls back to the window beneath -- this
+-                // is the "dialog closed" re-raise path.
++                // the notion of "current" falls back to the window
++                // beneath. Per-window strips need no re-hosting:
++                // the window beneath kept its own strip all along.
+                 if ( watched == win && win == m_current )
+                     m_current = fallbackCurrent();
+                 if ( watched == win && win == m_dragWindow.data() )
+                     resetDrag();
+             }
+-            refreshBar();
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round
++            // 16, KiCad-V1): the cursor overlay follows the window
++            // stack down when the window it rode on hides.
++            refreshCursor();
+             break;
+ 
+         case QEvent::Destroy:
+-            if ( watched == m_bar.data() )
+-            {
+-                // The bar is a CHILD of its host window, so a host
+-                // that is destroyed (the stack-allocated wizard
+-                // dialog, an editor frame KiCad tears down) takes
+-                // the bar with it. Drop the pointers explicitly --
+-                // do not rely on QPointer's clearing order relative
+-                // to this event -- and let refreshBar() below build
+-                // a fresh bar for the next host.
+-                m_bar.clear();
+-                // [KiCad-IOS port] Modified 2026-11-09 for iOS
+-                // (round 16, KiCad-Spike-v16): the grip is a bar
+-                // child too and dies with it.
+-                m_grip.clear();
+-                m_closeBtn.clear();
+-                m_minBtn.clear();
+-                // [KiCad-IOS port] Added 2026-11-09 for iOS
+-                // (round 16, KiCad-V1): the Cursor toggle is a bar
+-                // child too and dies with it.
+-                m_cursorBtn.clear();
+-                m_host = nullptr;
+-                resetDrag();
+-            }
+             // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+             // KiCad-V1): the cursor overlay is a child of the host
+             // window, so a dying host takes it down as well; drop
+@@ -674,6 +760,16 @@
+             }
+             if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
+             {
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS
++                // (round 16, KiCad-V1): a window's strip and menu
++                // host are its children (or its menu widget) and
++                // die with it; the map entry is dropped here. The
++                // StripWidgets fields are QPointer, so an entry whose
++                // widgets died first reads as empty until this
++                // erase runs. The deferred refreshCursor() below
++                // re-hosts the cursor once the teardown cascade
++                // has finished.
++                m_titleBars.remove( w );
+                 m_history.removeAll( w );
+                 m_docked.remove( w );
+                 m_dockOrder.removeAll( w );
+@@ -681,37 +777,30 @@
+                 m_savedWindowMinSize.remove( w );
+                 if ( w == m_current )
+                     m_current = fallbackCurrent();
+-                if ( w == m_host )
+-                {
+-                    m_host = nullptr;
+-                    detachBar();
+-                }
+                 if ( w == m_dragWindow.data() )
+                     resetDrag();
+-                // Deferred, not synchronous: this event fires in
+-                // the middle of a teardown cascade (a dying host
+-                // takes the bar, its own child, down first), and
+-                // re-hosting the bar must wait until the cascade
+-                // has finished and the history above is final.
+-                QTimer::singleShot( 0, this, [this]() { refreshBar(); } );
++                QTimer::singleShot( 0, this, [this]() { refreshCursor(); } );
+             }
+             break;
+ 
+         case QEvent::Resize:
+         case QEvent::Move:
+-            // The bar rides the host's top-right corner. A move
+-            // matters too (round 12): Stage Manager can place or
+-            // shift the host without a resize, and the anchor must
+-            // follow the frame the user sees.
+-            if ( watched == m_host )
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round
++            // 16, KiCad-V1): a dialog's overlay strip follows the
++            // host's width; a frame's strip is laid out by
++            // QMainWindow, and the same call re-checks that the
++            // menu-widget wrap is still in place.
++            if ( QWidget *w = qobject_cast<QWidget *>( watched ) )
+             {
+-                positionBar();
++                if ( m_titleBars.contains( w ) )
++                    positionTitleBar( w );
+                 // [KiCad-IOS port] Added 2026-11-09 for iOS
+                 // (round 16, KiCad-V1): the cursor overlay is
+                 // positioned in host-local coordinates, so it
+                 // must be re-anchored on host geometry changes
+-                // exactly like the bar.
+-                positionCursor();
++                // exactly like the bar was.
++                if ( !m_cursor.isNull() && m_cursor->parentWidget() == w )
++                    positionCursor();
+             }
+             break;
+ 
+@@ -749,30 +838,44 @@
+             if ( event->type() == QEvent::MouseButtonPress )
+                 noteHardwareMouse( static_cast<QMouseEvent *>( event ) );
+ 
+-            // The bar's own buttons first: hit-test them here
+-            // rather than relying on QPushButton::clicked, because
+-            // while a modal dialog is up Qt blocks input delivery
+-            // to other windows -- but application event filters
+-            // still see the press.
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round
++            // 16, KiCad-V1): the strips' own buttons first, hit-
++            // tested here rather than relying on
++            // QPushButton::clicked, because while a modal dialog
++            // is up Qt blocks input delivery to other windows --
++            // but application event filters still see the press.
++            // Each strip's buttons act on that strip's OWN window.
++            // Windows are tried topmost-first (the modal window,
++            // then the current window, then the rest) because two
++            // windows' strips can overlap on screen.
+             // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+             // KiCad-V1): the "Cursor" toggle rides the same
+             // hit-test path (it must work even while the cursor is
+             // OFF -- it is how the cursor is turned on -- and
+-            // while a modal dialog is up).
+-            if ( globalPosIn( m_cursorBtn.data(), globalPos ) )
+-            {
+-                setCursorEnabled( !m_cursorEnabled );
+-                return true;
+-            }
+-            if ( globalPosIn( m_closeBtn.data(), globalPos ) )
++            // while a modal dialog is up). [Modified 2026-11-09
++            // for iOS (round 16, KiCad-V1), Job F: the toggle now
++            // lives on every window's titlebar strip with the same
++            // objectName; any strip's toggle flips the one global
++            // cursor state.]
++            for ( QWidget *win : titleBarHostsByPriority() )
+             {
+-                closeCurrent();
+-                return true;
+-            }
+-            if ( globalPosIn( m_minBtn.data(), globalPos ) )
+-            {
+-                minimizeCurrent();
+-                return true;
++                const StripWidgets &tb = m_titleBars[win];
++
++                if ( globalPosIn( tb.cursorBtn.data(), globalPos ) )
++                {
++                    setCursorEnabled( !m_cursorEnabled );
++                    return true;
++                }
++                if ( globalPosIn( tb.closeBtn.data(), globalPos ) )
++                {
++                    closeWindow( win );
++                    return true;
++                }
++                if ( globalPosIn( tb.minBtn.data(), globalPos ) )
++                {
++                    minimizeWindow( win );
++                    return true;
++                }
+             }
+ 
+             // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+@@ -789,10 +892,21 @@
+             // this kit does not reliably produce for finger drags.
+             // The bar is a child of m_host and of nothing else, so
+             // a coordinate hit on it already identifies the host.
+-            if ( m_host && globalPosIn( m_bar.data(), globalPos ) )
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++            // KiCad-V1): the same coordinate arming, now against
++            // each window's titlebar strip. The strip's whole
++            // non-button area -- the title text included -- is the
++            // drag surface, which is why the 0013 "Move" grip is
++            // retired: its job is subsumed by the strip itself.
++            for ( QWidget *win : titleBarHostsByPriority() )
+             {
+-                armDrag( m_host, globalPos, false );
+-                return true;
++                const StripWidgets &tb = m_titleBars[win];
++
++                if ( globalPosIn( tb.strip.data(), globalPos ) )
++                {
++                    armDrag( win, globalPos, false );
++                    return true;
++                }
+             }
+ 
+             // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+@@ -956,19 +1070,55 @@
+         return globalRect.contains( globalPos );
+     }
+ 
+-    bool isBarObject( QObject *obj ) const
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): true for any window's titlebar strip, its menu
++    // host container, any widget inside them (title, Cursor
++    // toggle, Minimize, Close), or the cursor overlay, so their
++    // Show/Hide events never re-infer the current window.
++    // Replaces the old isBarObject() test for the single roaming
++    // bar (and its retired "Move" grip).
++    bool isTitleBarObject( QObject *obj ) const
+     {
+-        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+-        // KiCad-Spike-v16): the grip counts as part of the bar.
+-        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+-        // KiCad-V1): the Cursor toggle and the cursor overlay
+-        // count as bar objects too, so their Show/Hide events
+-        // never re-infer the current window.
+-        return obj == m_bar.data() || obj == m_grip.data()
+-                || obj == m_closeBtn.data()
+-                || obj == m_minBtn.data()
+-                || obj == m_cursorBtn.data()
+-                || obj == m_cursor.data();
++        if ( obj == m_cursor.data() )
++            return true;
++
++        for ( const StripWidgets &tb : m_titleBars )
++        {
++            if ( obj == tb.strip.data() || obj == tb.menuHost.data()
++                    || obj == tb.title.data()
++                    || obj == tb.cursorBtn.data()
++                    || obj == tb.closeBtn.data()
++                    || obj == tb.minBtn.data() )
++                return true;
++        }
++        return false;
++    }
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): the windows that carry a strip, topmost first:
++    // the active modal window (the only one the user can touch
++    // while it is up), then the current window, then the rest.
++    // This is also the host preference refreshCursor() uses for
++    // the cursor overlay -- the same window pickHost() made for
++    // the roaming bar (round 12: the modal widget wins outright).
++    QVector<QWidget *> titleBarHostsByPriority() const
++    {
++        QVector<QWidget *> ordered;
++
++        if ( QWidget *modal = QApplication::activeModalWidget() )
++        {
++            if ( m_titleBars.contains( modal ) )
++                ordered.append( modal );
++        }
++        if ( m_current && m_titleBars.contains( m_current )
++                && !ordered.contains( m_current ) )
++            ordered.append( m_current );
++        for ( QWidget *host : m_titleBars.keys() )
++        {
++            if ( !ordered.contains( host ) )
++                ordered.append( host );
++        }
++        return ordered;
+     }
+ 
+     // The top-level window an event object belongs to, or nullptr.
+@@ -990,7 +1140,7 @@
+ 
+     bool isRealWindow( QWidget *w ) const
+     {
+-        if ( !w || w == m_bar.data() || !w->isWindow() )
++        if ( !w || isTitleBarObject( w ) || !w->isWindow() )
+             return false;
+ 
+         // Only frames and dialogs count as "the current window":
+@@ -1018,115 +1168,75 @@
+         return nullptr;
+     }
+ 
+-    // The window the bar should ride on: the current window if it
+-    // can host the bar, else the most recent visible window that
+-    // can. A docked strip never hosts the bar -- it is narrower
+-    // than the bar, and the bar belongs to the active full-size
+-    // window.
+-    QWidget *pickHost()
+-    {
+-        // While a modal dialog is up it is the only window the
+-        // user can interact with, so it hosts the bar, full stop.
+-        // Qt tracks that authoritatively; the event-inferred
+-        // m_current can be flipped back to the window beneath by
+-        // a stray Show on one of its children mid-session, and
+-        // the bar must not follow it there (round 12).
+-        if ( QWidget *modal = QApplication::activeModalWidget() )
+-        {
+-            if ( modal->isVisible() && isRealWindow( modal )
+-                    && !m_docked.contains( modal ) )
+-            {
+-                m_current = modal;
+-                return modal;
+-            }
+-        }
+-
+-        if ( m_current && m_current->isVisible()
+-                && isRealWindow( m_current )
+-                && !m_docked.contains( m_current ) )
+-            return m_current;
+-
+-        for ( QWidget *w : m_history )
+-        {
+-            if ( w->isVisible() && isRealWindow( w )
+-                    && !m_docked.contains( w ) )
+-            {
+-                m_current = w;
+-                return w;
+-            }
+-        }
+-        return nullptr;
+-    }
+-
+-    // The bar widget itself. A plain child widget, deliberately
+-    // NOT a top-level window: see the round 11 note above. It is
+-    // created parentless and hidden; refreshBar() parents it into
+-    // the current window before ever showing it. Because it lives
+-    // as a child, a host destroyed by the application destroys the
+-    // bar too -- the members are QPointer and refreshBar() simply
+-    // builds a fresh bar when it finds none.
+-    void createBar()
+-    {
+-        QWidget *bar = new QWidget( nullptr );
+-        bar->setObjectName( QStringLiteral( "wxQtIOSFloatingControls" ) );
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): the titlebar strip height. 44 pt keeps the
++    // buttons' 36 pt touch height from the old bar (round 12)
++    // inside 4 pt of vertical padding.
++    static const int kTitleBarHeight = 44;
+ 
+-        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+-        // KiCad-Spike-v16): a dedicated "Move" grip at the bar's
+-        // left end. Until now the only drag surface was the
+-        // layout's margins and the 4 pt gap between the buttons --
+-        // about 12 pt of a ~210 pt bar -- so a finger aiming to
+-        // drag landed on Minimize or Close instead. The grip is a
+-        // plain label, not a button: presses on it fall through
+-        // the button hit-tests above into the bar-background arm
+-        // path, and its object name doubles as the shipped-binary
+-        // marker the round 16 gate checks for.
+-        QLabel *grip = new QLabel( QStringLiteral( "Move" ), bar );
+-        grip->setObjectName( QStringLiteral( "wxQtIOSFloatingControlsGrip" ) );
+-        grip->setAlignment( Qt::AlignCenter );
+-        grip->setMinimumWidth( 52 );
+-        grip->setMinimumHeight( 36 );
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): build one window's titlebar strip -- title label
++    // on the left, then the Cursor toggle, then Minimize and
++    // Close at the right end (Windows order, Close outermost).
++    // The strip's object name is the shipped-binary gate marker
++    // for this chrome; it replaces the retired
++    // wxQtIOSFloatingControls / ...Grip names. The strip is
++    // created parentless; ensureTitleBar() installs it (in a
++    // menu-host container for frames, as a direct child for
++    // dialogs). Square corners and a full-width dark band are the
++    // point: this is titlebar chrome, not a floating pill.
++    StripWidgets createTitleBar()
++    {
++        StripWidgets tb;
++
++        QWidget *strip = new QWidget( nullptr );
++        strip->setObjectName( QStringLiteral( "wxQtIOSWindowTitleBar" ) );
++        strip->setFixedHeight( kTitleBarHeight );
++
++        QLabel *title = new QLabel( strip );
++        title->setObjectName( QStringLiteral( "wxQtIOSWindowTitleBarTitle" ) );
++        title->setAlignment( Qt::AlignVCenter | Qt::AlignLeft );
+ 
+         // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+-        // KiCad-V1): the virtual-cursor toggle. A checkable button
+-        // riding the same bar and the same filter hit-test as
+-        // Minimize/Close (its objectName doubles as a
+-        // shipped-binary gate marker). It is toggled ONLY from
+-        // the event filter's press hit-test, which swallows the
+-        // press, so the button's own clicked() never fires and
+-        // the state cannot double-toggle. If Job F's titlebar
+-        // restyle restructures this bar, the toggle keeps this
+-        // objectName and this layout slot (after the grip).
+-        QPushButton *cursorBtn = new QPushButton( QStringLiteral( "Cursor" ), bar );
++        // KiCad-V1): the virtual-cursor toggle (Job H). A
++        // checkable button riding the same strip and the same
++        // filter hit-test as Minimize/Close (its objectName
++        // doubles as a shipped-binary gate marker). It is toggled
++        // ONLY from the event filter's press hit-test, which
++        // swallows the press, so the button's own clicked() never
++        // fires and the state cannot double-toggle.
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): per Job H's own note, the titlebar restyle
++        // keeps this objectName and the toggle's slot relative to
++        // the buttons -- after the (now retired) grip's position,
++        // i.e. after the title and before Minimize. Every strip
++        // carries one; all reflect the one global state.
++        QPushButton *cursorBtn = new QPushButton( QStringLiteral( "Cursor" ), strip );
+         cursorBtn->setObjectName(
+             QStringLiteral( "wxQtIOSFloatingControlsCursorToggle" ) );
+         cursorBtn->setCheckable( true );
+         cursorBtn->setChecked( m_cursorEnabled );
+         cursorBtn->setMinimumHeight( 36 );
+ 
+-        QPushButton *closeBtn = new QPushButton( QStringLiteral( "Close" ), bar );
+-        QPushButton *minBtn = new QPushButton( QStringLiteral( "Minimize" ), bar );
++        QPushButton *minBtn = new QPushButton( QStringLiteral( "Minimize" ), strip );
++        minBtn->setObjectName( QStringLiteral( "wxQtIOSWindowTitleBarMinimize" ) );
++        QPushButton *closeBtn = new QPushButton( QStringLiteral( "Close" ), strip );
++        closeBtn->setObjectName( QStringLiteral( "wxQtIOSWindowTitleBarClose" ) );
+ 
+-        QHBoxLayout *layout = new QHBoxLayout( bar );
+-        layout->setContentsMargins( 4, 4, 4, 4 );
++        QHBoxLayout *layout = new QHBoxLayout( strip );
++        layout->setContentsMargins( 10, 4, 4, 4 );
+         layout->setSpacing( 4 );
+-        layout->addWidget( grip );
++        layout->addWidget( title, 1 );
+         layout->addWidget( cursorBtn );
+         layout->addWidget( minBtn );
+         layout->addWidget( closeBtn );
+ 
+-        // Fully opaque and at least 44 pt tall (round 12): the
+-        // round 11 bar was translucent and short, and in the v13
+-        // device screenshots it reads as a faint pill that is easy
+-        // to overlook at the window's corner. A solid near-black
+-        // bar with solid buttons cannot blend into either the
+-        // light manager or a dark surround.
+         minBtn->setMinimumHeight( 36 );
+         closeBtn->setMinimumHeight( 36 );
+-        cursorBtn->setMinimumHeight( 36 );
+-        bar->setMinimumHeight( 44 );
+-        bar->setStyleSheet( QStringLiteral(
+-            "QWidget { background-color: rgb(24, 24, 28);"
+-            "          border-radius: 10px; }"
++        strip->setStyleSheet( QStringLiteral(
++            "QWidget { background-color: rgb(24, 24, 28); }"
++            "QLabel { color: white; background-color: transparent;"
++            "         font-size: 15px; }"
+             "QPushButton { color: white;"
+             "              background-color: rgb(62, 62, 68);"
+             "              border: none; border-radius: 7px;"
+@@ -1135,132 +1245,278 @@
+             // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+             // KiCad-V1): the Cursor toggle reads ON at a glance
+             // (system blue) while checked.
+-            "QPushButton:checked { background-color: rgb(10, 110, 220); }"
+-            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+-            // KiCad-Spike-v16): grip styling (see createBar()).
+-            "QLabel { color: rgb(190, 190, 198);"
+-            "         background-color: transparent;"
+-            "         font-size: 13px; }" ) );
+-        bar->resize( bar->sizeHint() );
+-        bar->hide();
+-
+-        m_bar = bar;
+-        m_grip = grip;
+-        m_cursorBtn = cursorBtn;
+-        m_closeBtn = closeBtn;
+-        m_minBtn = minBtn;
++            "QPushButton:checked { background-color: rgb(10, 110, 220); }" ) );
++        strip->hide();
++
++        tb.strip = strip;
++        tb.title = title;
++        tb.cursorBtn = cursorBtn;
++        tb.minBtn = minBtn;
++        tb.closeBtn = closeBtn;
++        return tb;
+     }
+ 
+-    void detachBar()
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): make sure the frame's menu-host container is the
++    // QMainWindow's menu widget, with the window's real menu bar
++    // (if any) wrapped beneath the strip inside it. wxFrame::
++    // SetMenuBar() (src/qt/frame.cpp) replaces the menu widget
++    // wholesale, so this runs from ensureTitleBar() and from the
++    // ChildAdded/Resize paths and re-wraps whatever menu widget
++    // is current. A previously wrapped widget that has since been
++    // replaced is lifted back out of the container first.
++    void ensureMenuHost( QWidget *host, StripWidgets &tb )
+     {
+-        m_host = nullptr;
+-        if ( !m_bar.isNull() && m_bar->parentWidget() )
++        QMainWindow *mainWin = qobject_cast<QMainWindow *>( host );
++        if ( !mainWin || tb.menuHost.isNull() )
++            return;
++
++        if ( mainWin->menuWidget() == tb.menuHost.data() )
++            return;
++
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): re-entrancy guard. addWidget() and
++        // setMenuWidget() below raise ChildAdded/Resize events
++        // that re-enter this function (via the event filter)
++        // while QMainWindow is mid-replacement and menuWidget()
++        // transiently reads nullptr; a nested call would mistake
++        // the just-wrapped menu bar for a stale widget and lift
++        // it back out. The outer call completes the wrap alone.
++        if ( m_menuWrapInProgress )
++            return;
++        m_menuWrapInProgress = true;
++
++        QVBoxLayout *layout =
++            qobject_cast<QVBoxLayout *>( tb.menuHost->layout() );
++        if ( !layout )
+         {
+-            m_bar->hide();
+-            m_bar->setParent( nullptr );
++            m_menuWrapInProgress = false;
++            return;
+         }
+-        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+-        // KiCad-V1): the cursor overlay shares the bar's host, so
+-        // it detaches with it (refreshCursor() re-hosts it on the
+-        // next current window, or keeps it hidden).
+-        if ( !m_cursor.isNull() && m_cursor->parentWidget() )
++
++        while ( layout->count() > 1 )
+         {
+-            m_cursor->hide();
+-            m_cursor->setParent( nullptr );
++            QLayoutItem *item = layout->takeAt( 1 );
++            if ( item->widget() )
++                item->widget()->setParent( nullptr );
++            delete item;
++        }
++
++        if ( QWidget *menuWidget = mainWin->menuWidget() )
++        {
++            if ( menuWidget != tb.menuHost.data() )
++                layout->addWidget( menuWidget );
+         }
++        mainWin->setMenuWidget( tb.menuHost.data() );
++        m_menuWrapInProgress = false;
+     }
+ 
+-    // Anchor the bar to its host's top-right corner, fully
+-    // inside with a margin on both axes. The clamp matters: a
+-    // child widget is not itself clamped, and the bar must never
+-    // hang off the edge if the host is resized smaller. The width
+-    // comes from the host's wx-level size when the host is a wx
+-    // window (round 12): wx is the layer that owns top-level
+-    // geometry in this port and its reported size is the size of
+-    // the frame the user actually sees -- exactly the edge the
+-    // bar must sit inside -- while the Qt widget's size can lag a
+-    // geometry change wx has already applied.
+-    void positionBar()
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): give a window its titlebar strip, or repair the
++    // installation (frame menu-widget wrap) if it lost it. A
++    // docked (minimized) window is skipped: its strip stays
++    // suspended until restoreWindow() re-runs this.
++    void ensureTitleBar( QWidget *host )
+     {
+-        if ( m_bar.isNull() || !m_host )
++        if ( !host || !isRealWindow( host ) || m_docked.contains( host ) )
+             return;
+ 
+-        int hostWidth = m_host->width();
++        StripWidgets &tb = m_titleBars[host];
+ 
+-        if ( wxWindowQt *wxHost =
+-                wxWindowQt::QtRetrieveWindowPointer( m_host ) )
+-        {
+-            const int wxWidth = wxHost->GetSize().GetWidth();
++        if ( tb.strip.isNull() )
++            tb = createTitleBar();
+ 
+-            if ( wxWidth > 0 )
+-                hostWidth = wxWidth;
++        if ( qobject_cast<QMainWindow *>( host ) )
++        {
++            if ( tb.menuHost.isNull() )
++            {
++                QWidget *menuHost = new QWidget( nullptr );
++                menuHost->setObjectName(
++                    QStringLiteral( "wxQtIOSWindowTitleBarMenuHost" ) );
++                QVBoxLayout *layout = new QVBoxLayout( menuHost );
++                layout->setContentsMargins( 0, 0, 0, 0 );
++                layout->setSpacing( 0 );
++                layout->addWidget( tb.strip.data() );
++                tb.menuHost = menuHost;
++            }
++            ensureMenuHost( host, tb );
++            // [KiCad-IOS port] Modified 2026-11-09 for iOS (round
++            // 16, KiCad-V1): QMainWindow hides the outgoing menu
++            // widget when it is replaced (during a SetMenuBar()
++            // cascade, or this code's own suspend for minimize),
++            // and setMenuWidget() does not show it again. An
++            // invisible container makes the strip invisible too
++            // and freezes its layout, so re-show it -- DEFERRED,
++            // because showing it synchronously inside the Show
++            // cascade makes QMainWindow's layout settle with the
++            // container at its pre-layout size and the wrapped
++            // menu bar lands on top of the strip.
++            if ( !tb.menuHost.isNull() && !tb.menuHost->isVisible()
++                    && host->isVisible() )
++            {
++                QPointer<QWidget> menuHost = tb.menuHost;
++                QTimer::singleShot( 0, this, [menuHost]()
++                {
++                    if ( !menuHost.isNull() && !menuHost->isVisible() )
++                    {
++                        menuHost->show();
++                        if ( menuHost->layout() )
++                            menuHost->layout()->activate();
++                    }
++                } );
++            }
++        }
++        else
++        {
++            // Dialogs and plain top-levels: no menu bar, no layout
++            // slot. Grow the window by the strip height and shift
++            // its existing children down by the same amount ONCE,
++            // so the overlay strip at the top occupies new space
++            // instead of covering the top row of content.
++            if ( !tb.shifted )
++            {
++                host->resize( host->width(),
++                              host->height() + kTitleBarHeight );
++                const QList<QObject *> children = host->children();
++                for ( QObject *obj : children )
++                {
++                    if ( QWidget *child = qobject_cast<QWidget *>( obj ) )
++                        child->move( child->x(),
++                                     child->y() + kTitleBarHeight );
++                }
++                tb.shifted = true;
++            }
++            if ( tb.strip->parentWidget() != host )
++                tb.strip->setParent( host );
++            positionTitleBar( host );
+         }
+ 
+-        const int x = qMax( 0, hostWidth - m_bar->width() - 12 );
+-        m_bar->move( x, 12 );
++        updateTitleBarTitle( host );
++        if ( !tb.strip->isVisible() )
++            tb.strip->show();
++        tb.strip->raise();
+     }
+ 
+-    void refreshBar()
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): take a window's strip out of view before the
++    // window docks to its minimize strip -- the titlebar must not
++    // be squished into the 84 pt dock. For a frame the real menu
++    // bar is unwrapped back to being the menu widget on its own;
++    // for a dialog the overlay strip is simply hidden. The
++    // StripWidgets entry is kept; restoreWindow() re-installs via
++    // ensureTitleBar().
++    void suspendTitleBar( QWidget *host )
+     {
+-        if ( m_bar.isNull() )
+-            createBar();
++        if ( !m_titleBars.contains( host ) )
++            return;
+ 
+-        QWidget *host = pickHost();
++        StripWidgets &tb = m_titleBars[host];
+ 
+-        if ( !host )
+-        {
+-            detachBar();
+-            m_bar->hide();
++        if ( tb.strip.isNull() )
+             return;
++
++        tb.strip->hide();
++
++        if ( QMainWindow *mainWin = qobject_cast<QMainWindow *>( host ) )
++        {
++            if ( !tb.menuHost.isNull()
++                    && mainWin->menuWidget() == tb.menuHost.data() )
++            {
++                QVBoxLayout *layout =
++                    qobject_cast<QVBoxLayout *>( tb.menuHost->layout() );
++                QWidget *menuWidget = nullptr;
++
++                if ( layout && layout->count() > 1 )
++                {
++                    QLayoutItem *item = layout->takeAt( 1 );
++                    menuWidget = item->widget();
++                    delete item;
++                }
++                // [KiCad-IOS port] Modified 2026-11-09 for iOS
++                // (round 16, KiCad-V1): QMainWindow deletes the
++                // outgoing menu widget when the menu widget is
++                // replaced (the same behaviour wxFrame::
++                // SetMenuBar() guards against by reparenting the
++                // old QMenuBar first, src/qt/frame.cpp). Reparent
++                // the container out first, or setMenuWidget()
++                // below would destroy it and the strip with it.
++                tb.menuHost->setParent( nullptr );
++                mainWin->setMenuWidget( menuWidget );
++                tb.menuHost->hide();
++            }
+         }
+ 
+-        if ( host != m_host )
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the cursor overlay detaches from a window
++        // that is docking (refreshCursor() re-hosts it on the
++        // next window, or keeps it hidden) -- the old detachBar()
++        // did the same for the roaming bar's host.
++        if ( !m_cursor.isNull() && m_cursor->parentWidget() == host )
+         {
+-            m_bar->hide();
+-            m_bar->setParent( host );
+-            m_host = host;
++            m_cursor->hide();
++            m_cursor->setParent( nullptr );
+         }
++    }
+ 
+-        // Settle the bar's final size under its (possibly new)
+-        // parent BEFORE anchoring: a size hint computed parentless
+-        // or under a previous host can be stale once the host's
+-        // style and fonts apply, and anchoring with a stale width
+-        // leaves the bar's right end short of -- or past -- the
+-        // corner it is meant to sit in (round 12).
+-        m_bar->adjustSize();
+-        positionBar();
+-        if ( !m_bar->isVisible() )
+-            m_bar->show();
+-        m_bar->raise();
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): lay out a window's strip. A frame's strip needs
++    // nothing (it is inside the menu-host container, which
++    // QMainWindow's layout stretches across the top); this call
++    // only re-checks the wrap. A dialog's overlay strip is pinned
++    // to the host's top edge at full host width.
++    void positionTitleBar( QWidget *host )
++    {
++        if ( !m_titleBars.contains( host ) || m_docked.contains( host ) )
++            return;
+ 
+-        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+-        // KiCad-V1): the cursor overlay follows the bar's host.
+-        refreshCursor();
++        StripWidgets &tb = m_titleBars[host];
+ 
+-        // Re-anchor once the current event cascade has settled: a
+-        // host's geometry can still change between its Show event
+-        // and its first paint (Stage Manager placement above all),
+-        // after every synchronous trigger above has already run.
+-        QTimer::singleShot( 0, this, [this]()
++        if ( tb.strip.isNull() )
++            return;
++
++        if ( qobject_cast<QMainWindow *>( host ) )
+         {
+-            positionBar();
+-            // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+-            // KiCad-V1): same deferred re-anchor for the cursor.
+-            positionCursor();
+-        } );
++            ensureMenuHost( host, tb );
++            return;
++        }
++
++        tb.strip->setGeometry( 0, 0, host->width(), kTitleBarHeight );
+     }
+ 
+-    void closeCurrent()
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): the strip's title text is the window's own title
++    // (the Qt window title, which wxTopLevelWindowQt::SetTitle()
++    // maintains from the wx title).
++    void updateTitleBarTitle( QWidget *host )
+     {
+-        if ( m_current && m_current != m_bar.data() )
+-            m_current->close();
++        if ( !m_titleBars.contains( host ) )
++            return;
++
++        StripWidgets &tb = m_titleBars[host];
++
++        if ( !tb.title.isNull() )
++        {
++            tb.title->setText( host->windowTitle() );
++            tb.title->setToolTip( host->windowTitle() );
++        }
+     }
+ 
+-    void minimizeCurrent()
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): Close acts on the strip's own window (the old
++    // closeCurrent() acted on the inferred current window).
++    void closeWindow( QWidget *w )
+     {
+-        QWidget *w = m_current;
++        if ( w )
++            w->close();
++    }
+ 
+-        if ( !w || w == m_bar.data() || m_docked.contains( w ) )
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): Minimize acts on the strip's own window (the old
++    // minimizeCurrent() acted on the inferred current window);
++    // the dock animation itself is unchanged.
++    void minimizeWindow( QWidget *w )
++    {
++        if ( !w || m_docked.contains( w ) )
+             return;
+ 
+         QScreen *screen = QGuiApplication::primaryScreen();
+@@ -1317,15 +1573,16 @@
+         if ( dockY + dockH > avail.bottom() + 1 )
+             dockY = avail.bottom() - dockH + 1;
+ 
+-        // The bar cannot ride into the strip (it is wider than the
+-        // strip and belongs to the active full-size window): detach
+-        // it before the animation, then let refreshBar() re-host it
+-        // on the next window down, or hide it if none is left.
+-        if ( m_host == w )
+-            detachBar();
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the window's titlebar is suspended before the
++        // animation (a frame's real menu bar is unwrapped back to
++        // the menu widget on its own); other windows' strips are
++        // theirs and stay exactly where they are. The cursor
++        // overlay, if it rode this window, is re-hosted after.
++        suspendTitleBar( w );
+ 
+         animateTo( w, QRect( avail.left() + 4, dockY, dockW, dockH ) );
+-        refreshBar();
++        refreshCursor();
+     }
+ 
+     void restoreWindow( QWidget *w )
+@@ -1351,10 +1608,13 @@
+             }
+         } );
+ 
+-        // The bar re-attaches at once and follows the window's
+-        // top-right corner out through the animation (the Resize
+-        // branch of the event filter repositions it per step).
+-        refreshBar();
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the window's own titlebar is re-installed at
++        // once and rides the restore animation (a frame's strip
++        // is back inside its menu-host container; a dialog's
++        // overlay strip follows the Resize branch of the event
++        // filter per step).
++        ensureTitleBar( w );
+         w->raise();
+     }
+ 
+@@ -1599,8 +1859,15 @@
+             QStringLiteral( "wxQtIOS/virtualCursorEnabled" ), enabled );
+         settings.sync();
+ 
+-        if ( !m_cursorBtn.isNull() )
+-            m_cursorBtn->setChecked( enabled );
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): every window's strip carries a Cursor toggle
++        // (Job F); all of them reflect the one global state (Job H
++        // had a single toggle on the single roaming bar).
++        for ( StripWidgets &tb : m_titleBars )
++        {
++            if ( !tb.cursorBtn.isNull() )
++                tb.cursorBtn->setChecked( enabled );
++        }
+ 
+         if ( enabled )
+         {
+@@ -1647,10 +1914,15 @@
+                        qBound( avail.top(), pos.y(), avail.bottom() ) );
+     }
+ 
+-    // Re-host and place the overlay on the bar's current host
+-    // (m_host, maintained by refreshBar()/pickHost(), which
+-    // already prefers the active modal widget). Called at the end
+-    // of refreshBar() and whenever the toggle flips.
++    // Re-host and place the overlay on the topmost titlebar host
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): Job H hosted the overlay on the roaming bar's
++    // host (m_host, maintained by refreshBar()/pickHost(), modal
++    // preferred). There is no roaming bar any more; the host is
++    // picked the same way from the per-window strips --
++    // titleBarHostsByPriority(), modal first -- skipping hidden
++    // and docked windows. Called whenever a window is shown or
++    // hidden, a window docks or restores, and the toggle flips.
+     void refreshCursor()
+     {
+         if ( !m_cursorEnabled )
+@@ -1663,7 +1935,18 @@
+             createCursor();
+         ensureCursorPos();
+ 
+-        if ( !m_host )
++        QWidget *host = nullptr;
++
++        for ( QWidget *candidate : titleBarHostsByPriority() )
++        {
++            if ( candidate->isVisible() && !m_docked.contains( candidate ) )
++            {
++                host = candidate;
++                break;
++            }
++        }
++
++        if ( !host )
+         {
+             if ( m_cursor->parentWidget() )
+             {
+@@ -1674,10 +1957,10 @@
+             return;
+         }
+ 
+-        if ( m_cursor->parentWidget() != m_host )
++        if ( m_cursor->parentWidget() != host )
+         {
+             m_cursor->hide();
+-            m_cursor->setParent( m_host );
++            m_cursor->setParent( host );
+         }
+         positionCursor();
+         if ( !m_cursor->isVisible() )
+@@ -1687,9 +1970,15 @@
+ 
+     void positionCursor()
+     {
+-        if ( m_cursor.isNull() || !m_host || !m_cursorEnabled )
++        if ( m_cursor.isNull() || !m_cursorEnabled )
++            return;
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): the overlay's host is its parent widget now
++        // (Job H read the roaming bar's m_host).
++        QWidget *host = m_cursor->parentWidget();
++        if ( !host )
+             return;
+-        const QPoint local = m_host->mapFromGlobal( m_cursorGlobal );
++        const QPoint local = host->mapFromGlobal( m_cursorGlobal );
+         m_cursor->move( local
+                         - wxQtIOSVirtualCursorWidget::hotSpot() );
+     }
+@@ -1698,10 +1987,11 @@
+     // topmost widget at the cursor's global position, with the
+     // cursor overlay itself hidden out of the hit test (it is
+     // WA_TransparentForMouseEvents, but widgetAt() is not
+-    // guaranteed to honour that on every platform) and the bar
+-    // excluded (a cursor over the bar addresses the host window
+-    // beneath, never a bar button -- bar buttons are operated by
+-    // direct finger taps through the press hit-test above).
++    // guaranteed to honour that on every platform) and the
++    // titlebar strips excluded (a cursor over a strip addresses
++    // the strip's window beneath, never a strip button -- strip
++    // buttons are operated by direct finger taps through the
++    // press hit-test above).
+     QWidget *widgetUnderCursor()
+     {
+         if ( !m_cursorPosValid )
+@@ -1719,9 +2009,32 @@
+             m_cursor->raise();
+         }
+ 
+-        if ( w && !m_bar.isNull()
+-                && ( w == m_bar.data() || m_bar->isAncestorOf( w ) ) )
+-            w = m_host;
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): strip exclusion, per window (Job H excluded
++        // the one roaming bar and substituted its host).
++        if ( w )
++        {
++            for ( auto it = m_titleBars.constBegin();
++                  it != m_titleBars.constEnd(); ++it )
++            {
++                const StripWidgets &tb = it.value();
++
++                if ( !tb.strip.isNull()
++                        && ( w == tb.strip.data()
++                                || tb.strip->isAncestorOf( w ) ) )
++                {
++                    w = it.key();
++                    break;
++                }
++                if ( !tb.menuHost.isNull()
++                        && ( w == tb.menuHost.data()
++                                || tb.menuHost->isAncestorOf( w ) ) )
++                {
++                    w = it.key();
++                    break;
++                }
++            }
++        }
+         if ( w && w == m_cursor.data() )
+             w = nullptr;
+         return w;
+@@ -1974,18 +2287,25 @@
+         return false;
+     }
+ 
+-    QPointer<QWidget> m_bar;
+     // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
+-    // KiCad-Spike-v16): the bar's "Move" grip label.
+-    QPointer<QLabel> m_grip;
+-    QPointer<QPushButton> m_closeBtn;
+-    QPointer<QPushButton> m_minBtn;
++    // KiCad-V1): one titlebar per window, replacing the single
++    // roaming bar's m_bar/m_grip/m_closeBtn/m_minBtn/m_host. The
++    // strip is the drag surface, so the 0013 "Move" grip has no
++    // member any more -- it is retired, and with it the
++    // wxQtIOSFloatingControlsGrip object name the old Job D gate
++    // looked for (the Job F gate looks for wxQtIOSWindowTitleBar
++    // instead; see the round 16 Job F findings). Job H's Cursor
++    // toggle (wxQtIOSFloatingControlsCursorToggle) is NOT
++    // retired: it lives on as a member of every StripWidgets.
++    QMap<QWidget *, StripWidgets> m_titleBars;
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): ensureMenuHost() re-entrancy guard (see there).
++    bool m_menuWrapInProgress;
+     // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
+-    // KiCad-V1): virtual-cursor overlay + its bar toggle.
++    // KiCad-V1): virtual-cursor overlay (Job H); its toggle lives
++    // in each StripWidgets above.
+     QPointer<wxQtIOSVirtualCursorWidget> m_cursor;
+-    QPointer<QPushButton> m_cursorBtn;
+     QWidget *m_current;
+-    QWidget *m_host;
+     QVector<QWidget *> m_history;
+     QMap<QWidget *, QRect> m_docked;
+     QMap<QWidget *, QSize> m_savedMinSize;
