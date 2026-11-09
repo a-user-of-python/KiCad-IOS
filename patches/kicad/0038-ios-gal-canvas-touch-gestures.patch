@@ -4,8 +4,8 @@
      Bind( wxEVT_GESTURE_ZOOM, &CAIRO_GAL::skipGestureEvent, this );
      Bind( wxEVT_GESTURE_PAN, &CAIRO_GAL::skipGestureEvent, this );
  
-+#ifdef __WXQT__
-+    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-Spike-v16): enable touch gestures on the canvas window itself. WX_VIEW_CONTROLS already calls EnableTouchEvents() on EDA_DRAW_PANEL_GAL (common/view/wx_view_controls.cpp), and on wxMSW/wxGTK that panel-level registration covers the canvas. On the wxQt port, wxWindowQt::EnableTouchEvents() grabs Qt gestures per-QWidget (QWidget::grabGesture on that window's own widget only), and the touch points land on this GAL window -- a child wxWindow filling the panel -- which never grabbed any gesture, so the Qt recognizers never ran and no wxEVT_GESTURE_* event was ever produced on iOS. Grabbing the same zoom/pan gestures here makes the events bound above fire; skipGestureEvent forwards them to the panel, where WX_VIEW_CONTROLS::onZoomGesture / onPanGesture zoom at the pinch centroid through VIEW::SetScale and pan through VIEW::SetCenter. This constructor is shared by every GAL canvas (schematic, PCB, footprint, drawing-sheet and Gerber panels all create their GAL through EDA_DRAW_PANEL_GAL::SwitchBackend), so both editors gain the gestures from this one call.
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-Spike-v16): enable touch gestures on the canvas window itself. WX_VIEW_CONTROLS already calls EnableTouchEvents() on EDA_DRAW_PANEL_GAL (common/view/wx_view_controls.cpp), and on wxMSW/wxGTK that panel-level registration covers the canvas. On the wxQt port, wxWindowQt::EnableTouchEvents() grabs Qt gestures per-QWidget (QWidget::grabGesture on that window's own widget only), and the touch points land on this GAL window -- a child wxWindow filling the panel -- which never grabbed any gesture, so the Qt recognizers never ran and no wxEVT_GESTURE_* event was ever produced on iOS. Grabbing the same zoom/pan gestures here makes the events bound above fire; skipGestureEvent forwards them to the panel, where WX_VIEW_CONTROLS::onZoomGesture / onPanGesture zoom at the pinch centroid through VIEW::SetScale and pan through VIEW::SetCenter. This constructor is shared by every GAL canvas (schematic, PCB, footprint, drawing-sheet and Gerber panels all create their GAL through EDA_DRAW_PANEL_GAL::SwitchBackend), so both editors gain the gestures from this one call. The block is gated on KICAD_IOS_PORT, defined for the gal target by this patch's CMakeLists.txt change: an earlier revision gated on __WXQT__, which KiCad's targets never receive (only wx's own build compiles with -D__WXQT__), and the block was silently preprocessed out of the first v16 build -- proven from that build's shipped binaries, which contain neither this call nor the trace literal below.
 +    EnableTouchEvents( wxTOUCH_ZOOM_GESTURE | wxTOUCH_PAN_GESTURES );
 +    wxLogTrace( "kicad-ios-round16", "CAIRO_GAL: wxQt touch gestures enabled on GAL canvas" );
 +#endif
@@ -13,3 +13,26 @@
      SetSize( aParent->GetClientSize() );
      m_screenSize = ToVECTOR2I( aParent->GetClientSize() );
  
+--- a/common/gal/CMakeLists.txt
++++ b/common/gal/CMakeLists.txt
+@@ -55,6 +55,20 @@
+ 
+ add_library( gal SHARED ${GAL_SRCS} )
+ 
++# [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++# KiCad-Spike-v16): define KICAD_IOS_PORT for the gal target so
++# patch 0038's touch-gesture block in cairo/cairo_gal.cpp compiles
++# in. KiCad's targets do not receive wx's -D__WXQT__ flag (only
++# wx's own build does), so gating the block on __WXQT__ silently
++# preprocessed it out of the first v16 build -- proven from that
++# build's shipped binaries. This is the same per-target define
++# patches 0026/0032/0035 place on the common, kicommon and
++# eeschema_kiface_objects targets; no other KICAD_IOS_PORT blocks
++# exist in the gal sources, so the define activates nothing else.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( gal PRIVATE KICAD_IOS_PORT )
++endif()
++
+ if( KICAD_USE_PCH )
+     target_precompile_headers( gal
+         PRIVATE
