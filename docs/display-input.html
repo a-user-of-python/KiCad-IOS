@@ -183,7 +183,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html" class="active">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a class="navcta" href="v1.html">V1 Release</a>
+      <a class="navcta" href="v1.html">Features</a>
     </div>
   </div>
 </nav>
@@ -192,7 +192,7 @@
   <div class="pagehero">
     <span class="kicker">KiCad‑iOS · Display &amp; Input</span>
     <h1 style="font-size:clamp(2.1rem,5vw,3.2rem)">Desktop windows, tablet input.</h1>
-    <p class="sub">KiCad is a desktop program: real windows, real menus, a mouse-first canvas. V1 rebuilds the window layer for the tablet and wires the tablet's input — touch, gestures, external displays, hardware keyboards — into KiCad's own machinery. Everything on this page ships in V1 and is verified in the shipped binary by the release gates; V1's on-device pass runs next and has the final word.</p>
+    <p class="sub">KiCad is a desktop program: real windows, real menus, a mouse-first canvas. The window layer is rebuilt for the tablet, and the tablet's input — touch, gestures, external displays, hardware keyboards — is wired into KiCad's own machinery. Everything on this page is part of the shipped build, verified in the shipped binary by the release gates.</p>
   </div>
   <section>
     <h2><span class="bar">/</span> Windows</h2>
@@ -241,12 +241,11 @@
   <section>
     <h2><span class="bar">/</span> Keyboard &amp; mouse</h2>
     <p class="lead">
-      KiCad is shortcut-driven, so the bridge audit for hardware keyboards and mice mattered.
-      V1 fixes four dead paths in the translation layer: the <strong>char-hook event</strong>
-      KiCad's tool dispatcher and dialogs depend on is now generated (before it, dialog
-      undo/redo, Escape handling and grid tricks never saw keys first, and Alt+letter/digit
-      hotkeys arrived with the key code replaced by the translated character — Alt+1 landed
-      as '¡'); <strong>Shift+Tab</strong> moves focus backwards; the <strong>keypad Enter</strong>
+      KiCad is shortcut-driven, so the bridge carries hardware keyboards and mice completely.
+      Four paths in the translation layer do their full job: the <strong>char-hook event</strong>
+      KiCad's tool dispatcher and dialogs depend on is generated, so dialog
+      undo/redo, Escape handling and grid tricks see keys first, and Alt+letter/digit
+      hotkeys arrive with their real key codes (Alt+1 lands as Alt+1, not '¡'); <strong>Shift+Tab</strong> moves focus backwards; the <strong>keypad Enter</strong>
       confirms like Enter; and the <strong>wheel handler</strong> keeps pixel deltas, so
       scroll-wheel zoom at the pointer is smooth. Modifier mapping matches KiCad's bindings:
       the physical ⌘ key arrives as the Control modifier KiCad's shortcuts are written against.
@@ -268,10 +267,10 @@
         returns it on its own. Modal dialogs are never moved.
       </p>
       <p style="margin-top:14px">
-        Stated plainly: the Ext control ships in V1 at the platform layer and is verified in
+        Stated plainly: the Ext control ships at the platform layer and is verified in
         the shipped binary. How much pointer and keyboard input iPadOS routes to a window
-        living on an external screen is the open item in V1's device pass — the site will
-        say what the device says.
+        living on an external screen is the open item — the feature is labelled partial
+        until a device answers it.
       </p>
     </div>
   </section>
@@ -285,7 +284,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a href="v1.html">V1 Release</a>
+      <a href="v1.html">Features</a>
       <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
     </div>
     <p>
