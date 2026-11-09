@@ -1,0 +1,61 @@
+--- a/common/draw_panel_gal.cpp
++++ b/common/draw_panel_gal.cpp
+@@ -552,6 +552,34 @@
+ 
+ bool EDA_DRAW_PANEL_GAL::SwitchBackend( GAL_TYPE aGalType )
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-Spike-v16): iOS has no OpenGL, so an OpenGL backend must
++    // never be attempted on this platform. Patch 0035 made every
++    // editor frame resolve its canvas type to Cairo through
++    // EDA_DRAW_FRAME::loadCanvasTypeSetting(), but the v15 device
++    // report showed the "Could not use OpenGL, falling back to
++    // software rendering" dialog (detail: "Failed to load OpenGL via
++    // loader") STILL appearing occasionally in the Schematic Editor:
++    // some auxiliary path -- a preview panel or chooser widget that
++    // obtains its GAL type from a route other than
++    // loadCanvasTypeSetting() -- can still request GAL_TYPE_OPENGL,
++    // and this function is the single choke point every one of those
++    // requests funnels through (it is the only caller of
++    // OPENGL_GAL::CheckFeatures and the only place an OPENGL_GAL is
++    // constructed for an editor canvas). Coerce the request to the
++    // Cairo software canvas here, before the early return, so
++    // m_backend bookkeeping also records Cairo: m_backend is only
++    // ever assigned from aGalType at the end of this function, so
++    // with this coercion it can never hold GAL_TYPE_OPENGL on iOS,
++    // which also keeps EDA_DRAW_PANEL_GAL::DoRePaint's GL recovery
++    // branch (guarded on GAL_FALLBACK != m_backend) unreachable.
++    // The GAL_TYPE_OPENGL switch case below is additionally compiled
++    // to build the Cairo GAL directly, so no OpenGL construction or
++    // feature check remains in this function at all on iOS.
++    if( aGalType == GAL_TYPE_OPENGL )
++        aGalType = GAL_TYPE_CAIRO;
++#endif
+     // Do not do anything if the currently used GAL is correct
+     if( aGalType == m_backend && m_gal != nullptr )
+         return true;
+@@ -571,6 +599,15 @@
+         {
+         case GAL_TYPE_OPENGL:
+         {
++#ifdef KICAD_IOS_PORT
++            // [KiCad-IOS port] See the coercion at the top of this
++            // function: unreachable in practice (OpenGL requests are
++            // coerced to Cairo on entry), and compiled without the
++            // OpenGL feature check / construction / fallback dialog
++            // so the shipped binary provably contains no OpenGL
++            // attempt in this function.
++            new_gal = new KIGFX::CAIRO_GAL( m_options, this, this, this );
++#else
+             wxString errormsg = KIGFX::OPENGL_GAL::CheckFeatures( m_options );
+ 
+             if( errormsg.empty() )
+@@ -594,6 +631,7 @@
+                     DisplayInfoMessage( m_parent, _( "Could not use OpenGL" ), errormsg );
+                 }
+             }
++#endif
+ 
+             break;
+         }
