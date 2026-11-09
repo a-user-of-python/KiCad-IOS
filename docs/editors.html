@@ -117,6 +117,7 @@
     padding:24px 24px 20px;
   }
   .card h3{font-size:1.12rem;font-weight:750;margin-bottom:8px}
+  .toolicon{width:56px;height:56px;display:block;margin-bottom:12px}
   .card p{color:var(--muted);font-size:1rem}
   .card .tick{color:var(--good);font-weight:800;margin-right:8px}
   .card .num{
@@ -183,7 +184,7 @@
       <a href="editors.html" class="active">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a class="navcta" href="v1.html">V1 Release</a>
+      <a class="navcta" href="v1.html">Features</a>
     </div>
   </div>
 </nav>
@@ -197,38 +198,52 @@
   <section>
     <div class="grid">
       <div class="card">
+        <img class="toolicon" src="images/icon_kicad_128.png" alt="KiCad project manager icon">
         <h3><span class="tick">✓</span>Project Manager</h3>
         <p>The home window: the real menu bar (File / Edit / View / Tools / Preferences), the Project Files tree, the launcher column with the real colour icons, and the tool description pane — in KiCad's light desktop appearance. Audited control by control: every menu opens, every item acts, every button does its real job. Confirmed standing on device from v10 on.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_eeschema_128.png" alt="Schematic Editor icon">
         <h3><span class="tick">✓</span>Schematic Editor</h3>
-        <p>Full schematic capture on the Cairo software canvas. Confirmed on device in v15's pass: it opens and <strong>draws</strong> — symbols, wires, the sheet — with no crash. V1 adds pinch zoom and two-finger pan, titlebar chrome, and removes the last OpenGL attempt at the root.</p>
+        <p>Full schematic capture on the Cairo software canvas. It opens and <strong>draws</strong> on device — symbols, wires, the sheet. Pinch zoom and two-finger pan, titlebar chrome, and no OpenGL attempt anywhere: the canvas is Cairo from the first pixel.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_pcbnew_128.png" alt="PCB Editor icon">
         <h3><span class="tick">✓</span>PCB Editor</h3>
-        <p>Board layout with the same canvas machinery as the schematic side — footprint placement, routing, zones, DRC. It opens and works (v14's device pass), and V1 treats it as a first-class citizen: the same pinch zoom, pan, titlebar and keyboard work as the Schematic Editor, gated in its own binary.</p>
+        <p>Board layout with the same canvas machinery as the schematic side — footprint placement, routing, zones, DRC. It opens and works, a first-class citizen: the same pinch zoom, pan, titlebar and keyboard support as the Schematic Editor.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_libedit_128.png" alt="Symbol Editor icon">
         <h3>Symbol Editor</h3>
         <p>Create and edit schematic symbols against the bundled symbol libraries — all 222 of them ride in the bundle, with the default tables resolving straight to them.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_modedit_128.png" alt="Footprint Editor icon">
         <h3>Footprint Editor</h3>
         <p>Create and edit footprints against the 155 bundled footprint libraries. The PCM addons from the official index — the PCBWay plug-in and the JLCPCB Fabrication Toolkit — ship in the bundle too, each with its own license.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_cvpcb_128.png" alt="CvPcb icon">
+        <h3>CvPcb</h3>
+        <p>Footprint assignment: match every symbol in the schematic to its footprint from the bundled libraries.</p>
+      </div>
+      <div class="card">
+        <img class="toolicon" src="images/icon_gerbview_128.png" alt="Gerber Viewer icon">
         <h3>Gerber Viewer</h3>
         <p>KiCad's Gerber viewer opens inside the app — on the desktop it launched as a separate program; here it is a window in the same process, like every other tool.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_pcbcalculator_128.png" alt="PCB Calculator icon">
         <h3>PCB Calculator</h3>
         <p>The calculator tools ship and open in-app, alongside the rest of the manager's launcher column.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_bitmap2component_128.png" alt="Image Converter icon">
         <h3>Image Converter</h3>
-        <p>Bitmap2Component carries its module in the bundle and opens inside the app — it was one of the tools the manager audit caught launching nothing, and it is fixed at the packaging level.</p>
+        <p>Bitmap2Component opens inside the app and turns images into schematic symbols and PCB footprints.</p>
       </div>
       <div class="card">
+        <img class="toolicon" src="images/icon_pagelayout_editor_128.png" alt="Drawing Sheet Editor icon">
         <h3>Drawing Sheet Editor</h3>
         <p>The page-layout editor for title blocks and sheet templates, in-app like the rest — and its canvas gets the same no-OpenGL guarantee as the two main editors.</p>
       </div>
@@ -258,7 +273,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a href="v1.html">V1 Release</a>
+      <a href="v1.html">Features</a>
       <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
     </div>
     <p>
