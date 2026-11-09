@@ -1352,6 +1352,23 @@ from v15. The gate run against the first v16 build failed on
 exactly this patch's literal in both kifaces, which is how the
 `__WXQT__` gating defect above was caught before delivery.
 
+*Correction (2026-11-09, later the same day).* The paragraph
+above states the first revision's block was "silently
+preprocessed out of the first v16 build — proven from that
+build's shipped binaries". That proof was itself defective:
+it searched the editor kiface executables for this patch's
+trace literal, but `CAIRO_GAL` compiles into the shared
+`libkigal` library, where the literal never resides in the
+kifaces. Checked directly on 2026-11-09, the first build's
+`libkigal` DOES contain the literal: the `__WXQT__`-gated
+first revision compiled in after all (wx's CMake targets
+evidently propagate the define to KiCad's targets). The
+`KICAD_IOS_PORT` revision described above is retained — an
+explicit per-target define is the more robust gate
+condition, and it is what V1 ships — but the defect was in
+the gate's search target, not in the first revision's code.
+The gate now searches `libkigal`.
+
 ### wx patch 0013 — qt-ios-floating-controls-coordinate-drag-and-unmaximize (round 16, KiCad-Spike-v16)
 
 **`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
