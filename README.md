@@ -13,9 +13,9 @@ Not a recreation. Not a lookalike. The genuine program, compiled for Apple's tab
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-current%20release%20V1%20(1.0)-brightgreen.svg)](#-installing)
+[![Status](https://img.shields.io/badge/status-current%20release%200.5-brightgreen.svg)](#-installing)
 
-**[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)** · **[⬇️ Get the release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0)**
+**[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)** · **[⬇️ Get the release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v0.5)**
 
 </div>
 
@@ -69,7 +69,7 @@ Every tool in the manager's launcher column is present and opens in its own wind
 
 The build is an unsigned `.ipa` (≈263 MB — the stock libraries ride along), sideloaded with your own signing.
 
-1. **Download the IPA** from the project's [**Releases page**](https://github.com/a-user-of-python/KiCad-IOS/releases) — the [v1.0 release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0). The same unsigned package is attached to every green run of the **Spike** workflow as the `kicad-spike-ipa` artifact.
+1. **Download the IPA** from the project's [**Releases page**](https://github.com/a-user-of-python/KiCad-IOS/releases) — the [0.5 release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v0.5). The same unsigned package is attached to every green run of the **Spike** workflow as the `kicad-spike-ipa` artifact.
 2. **Sideload it** with a signer such as [Signulous](https://www.signulous.com/), or your own signing setup.
 3. **Launch KiCad.** The first-run wizard walks through setup, and the project manager opens behind it. A fresh install is a supported path, and upgrading over an earlier build keeps projects and settings.
 
@@ -94,6 +94,10 @@ Two more pieces of the foundation: a real **iODBC** is cross-compiled into the s
 - **External display support is partial.** A window can be sent to a connected display and fills it at its native size (the **Ext** toggle on the titlebar) instead of mirroring — how much keyboard/mouse input iPadOS routes to a window on an external display is the open item.
 - **ngspice codemodels are not bundled**, so some simulation device models are unavailable.
 - **Oversized dialog content can clip.** A window always fits its display and stays closable, but content whose own minimum size exceeds the panel can clip inside a window that fits.
+
+## 🛠️ Building
+
+Builds run on free, standard GitHub Actions macOS runners (public repo) — nothing paid, ever.
 
 ```text
 Actions → "Spike" workflow → Run workflow
