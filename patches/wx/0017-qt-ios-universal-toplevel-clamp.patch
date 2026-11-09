@@ -1,0 +1,382 @@
+--- a/include/wx/qt/private/utils.h
++++ b/include/wx/qt/private/utils.h
+@@ -15,6 +15,24 @@
+ 
+ void wxQtFillMouseButtons( Qt::MouseButtons buttons, wxMouseState *state );
+ 
++#include <QtGlobal>
++#if defined( Q_OS_IOS )
++#include <QtCore/QRect>
++
++class QWidget;
++
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++// the universal top-level geometry clamp. Returns the given global
++// rect shrunk to, and moved fully inside, the available geometry of
++// the display the window is on (see src/qt/utils.cpp for the screen
++// choice and the minimum-size rule). Maximized, full-screen and
++// minimized windows, empty rects and a missing screen are returned
++// unchanged. Implemented in src/qt/utils.cpp; called by
++// wxWindowQt::DoMoveWindow()/DoSetClientSize() and by
++// wxTopLevelWindowQt::Show().
++QRect wxQtIOSClampTopLevelRect( QWidget *widget, const QRect& rect );
++#endif // Q_OS_IOS
++
+ void wxMissingImplementation( const char fileName[], unsigned lineNumber,
+     const char feature[] );
+ 
+--- a/src/qt/toplevel.cpp
++++ b/src/qt/toplevel.cpp
+@@ -10,6 +10,9 @@
+ 
+ #include "wx/toplevel.h"
+ #include "wx/qt/private/converter.h"
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++// wxQtIOSClampTopLevelRect() declaration for the Show() clamp below.
++#include "wx/qt/private/utils.h"
+ #include <QtGui/QIcon>
+ #include <QtWidgets/QWidget>
+ #if defined( Q_OS_IOS )
+@@ -75,43 +78,32 @@
+ {
+ #if defined( Q_OS_IOS )
+     // [KiCad-IOS port] Last-chance geometry clamp before a top-level
+-    // window becomes visible (launch fix round 9, KiCad-Spike-v11).
+-    // wxWindowQt::DoMoveWindow() clamps positions as they are set,
+-    // but a window can also reach show time with geometry that never
+-    // passed through wx (Qt's own default placement) or that was
+-    // computed against a since-changed screen. There is no window
+-    // manager on this platform to rescue an off-screen window and
+-    // the user cannot drag it back (no decorations, no
+-    // startSystemMove() in the iOS QPA), so intersect the frame
+-    // geometry with the screen's available geometry here: shrink
+-    // what is larger than the screen, move what sticks out back
+-    // inside. Maximized and full-screen windows manage their own
+-    // geometry and are left alone.
++    // window becomes visible (launch fix round 9, KiCad-Spike-v11;
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++    // KiCad-V1): the clamp is now the shared
++    // wxQtIOSClampTopLevelRect() -- the window's own display instead
++    // of blindly the primary screen, and effective minimum sizes
++    // capped so Qt honours the clamped size -- and
++    // wxWindowQt::DoMoveWindow() applies the same clamp at set time,
++    // so this hook is once again only the safety net it was meant to
++    // be). A window can reach show time with geometry that never
++    // passed through wx (Qt's own default placement, a QDialog::exec()
++    // placement, geometry computed against a since-changed screen),
++    // and there is no window manager on this platform to rescue an
++    // off-screen window. Maximized and full-screen windows manage
++    // their own geometry and are left alone (the helper exempts the
++    // other window states too).
+     if ( show )
+     {
+         QWidget *widget = GetHandle();
+ 
+         if ( widget && !widget->isMaximized() && !widget->isFullScreen() )
+         {
+-            if ( QScreen *screen = QGuiApplication::primaryScreen() )
+-            {
+-                const QRect avail = screen->availableGeometry();
+-                QRect geo = widget->frameGeometry();
+-
+-                if ( geo.width() > 0 && geo.height() > 0 && !avail.contains( geo ) )
+-                {
+-                    if ( geo.width() > avail.width() )
+-                        geo.setWidth( avail.width() );
+-                    if ( geo.height() > avail.height() )
+-                        geo.setHeight( avail.height() );
+-
+-                    geo.moveLeft( qBound( avail.left(), geo.left(),
+-                                          avail.right() - geo.width() + 1 ) );
+-                    geo.moveTop( qBound( avail.top(), geo.top(),
+-                                         avail.bottom() - geo.height() + 1 ) );
+-                    widget->setGeometry( geo );
+-                }
+-            }
++            const QRect geo = widget->frameGeometry();
++            const QRect clamped = wxQtIOSClampTopLevelRect( widget, geo );
++
++            if ( clamped != geo )
++                widget->setGeometry( clamped );
+         }
+     }
+ #endif // Q_OS_IOS
+--- a/src/qt/utils.cpp
++++ b/src/qt/utils.cpp
+@@ -129,3 +129,157 @@
+     return wxString::Format("Compile-time QT version is %s.\n",
+                             QT_VERSION_STR);
+ }
++
++#if defined( Q_OS_IOS )
++#include <QtGui/QGuiApplication>
++#include <QtGui/QScreen>
++#include <QtGui/QWindow>
++#include <QtWidgets/QWidget>
++#include "wx/log.h"
++
++// ---------------------------------------------------------------------------
++// [KiCad-IOS port] Added 2026-11-09 for iOS (round 16, KiCad-V1):
++// the universal top-level geometry clamp, shared by every geometry
++// entry point (wxWindowQt::DoMoveWindow(), wxWindowQt::
++// DoSetClientSize() and wxTopLevelWindowQt::Show()).
++//
++// KiCad's dialogs and frames are sized for desktop monitors: the
++// editor frames' default size is 1280x720, PAGED_DIALOG (Preferences,
++// Schematic Setup, Board Setup) sets its minimum to the best size of
++// its widest page -- floored at 600x500 and "failsafe"-capped only at
++// 1500x900 -- and both frames (EDA_BASE_FRAME::LoadWindowState()) and
++// dialogs (DIALOG_SHIM::Show(), which re-applies the persisted
++// __geometry with SetSize() AFTER wxDialog::Show() has run, growing
++// to max(current, restored)) restore persisted sizes verbatim. The
++// iPad panel is 1180x820 pt, so any of those can put a window's
++// right/bottom edge -- and its OK/Close buttons -- off-screen, and
++// this platform has no window manager to pull it back. Patch 0009
++// clamped only the position in DoMoveWindow() (an oversized window
++// was pinned to the top-left corner and still overflowed) and the
++// size only in Show() (which DIALOG_SHIM's post-Show SetSize()
++// undid). This helper is the single full clamp both hooks now use:
++// size AND position, at set time as well as at show time, so the
++// persisted-restore paths above are caught by construction -- they
++// all funnel through wx SetSize()/Move().
++//
++// Screen choice: the display the rect belongs to, not blindly the
++// primary screen (an external display is a parallel round's work and
++// must not be broken by a primary-screen assumption). The proposed
++// rect's biggest-overlap screen wins -- the same rule wx's own
++// wxDisplayFactory::GetFromWindow() uses (src/common/dpycmn.cpp:
++// GetFromRect(), biggest intersection) -- falling back to the
++// widget's current screen and then to the primary screen. The clamp
++// target is that screen's availableGeometry(), the same value
++// wxDisplayImplQt::GetClientArea() reports to wx code.
++//
++// Minimum sizes: QWidget/QWindow refuse any geometry smaller than
++// their minimum size, so a dialog whose sizer minimum exceeds the
++// screen (the PAGED_DIALOG case above) would silently stay oversized
++// even with its requested size clamped. When -- and only when -- a
++// minimum exceeds the available geometry, the helper lowers that
++// minimum to the available size first (widget and QWindow alike;
++// the floating-controls dock in toplevel.cpp suspends minima the
++// same way). The minimum is only ever lowered toward the screen,
++// never raised, and KiCad re-asserts its minima on its own layout
++// passes (e.g. PAGED_DIALOG::onPageChanged()), which the next clamp
++// call caps again. Content laid out for the larger minimum is then
++// clipped by Qt inside a screen-fitting window: the titlebar area
++// and the window's own move/close affordances stay reachable, which
++// is the guarantee this clamp can honestly make (see the round 16
++// Job I findings for the dialogs whose content minimum still
++// exceeds the screen).
++//
++// Maximized, full-screen and minimized windows are left alone:
++// their geometry is owned by the window state (on the iOS QPA a
++// setGeometry() in those states is discarded anyway), KiCad's
++// frames are maximized deliberately (KiCad patch 0037), and the
++// floating-controls drag un-maximizes before it moves a window.
++// ---------------------------------------------------------------------------
++QRect wxQtIOSClampTopLevelRect( QWidget *widget, const QRect& rect )
++{
++    if ( !widget || rect.width() <= 0 || rect.height() <= 0 )
++        return rect;
++
++    if ( widget->isMaximized() || widget->isFullScreen()
++            || widget->isMinimized() )
++        return rect;
++
++    QScreen *screen = nullptr;
++    int bestArea = 0;
++
++    for ( QScreen *candidate : QGuiApplication::screens() )
++    {
++        const QRect overlap = candidate->availableGeometry().intersected( rect );
++        const int area = overlap.width() * overlap.height();
++
++        if ( area > bestArea )
++        {
++            bestArea = area;
++            screen = candidate;
++        }
++    }
++
++    if ( !screen )
++        screen = widget->screen();
++
++    if ( !screen )
++        screen = QGuiApplication::primaryScreen();
++
++    if ( !screen )
++        return rect;
++
++    const QRect avail = screen->availableGeometry();
++
++    if ( avail.isEmpty() )
++        return rect;
++
++    const QSize minSize = widget->minimumSize();
++
++    if ( minSize.width() > avail.width() || minSize.height() > avail.height() )
++    {
++        widget->setMinimumSize( qMin( minSize.width(), avail.width() ),
++                                qMin( minSize.height(), avail.height() ) );
++    }
++
++    if ( QWindow *window = widget->windowHandle() )
++    {
++        const QSize winMinSize = window->minimumSize();
++
++        if ( winMinSize.width() > avail.width()
++                || winMinSize.height() > avail.height() )
++        {
++            window->setMinimumSize( QSize( qMin( winMinSize.width(), avail.width() ),
++                                           qMin( winMinSize.height(), avail.height() ) ) );
++        }
++    }
++
++    QRect clamped = rect;
++
++    if ( clamped.width() > avail.width() )
++        clamped.setWidth( avail.width() );
++    if ( clamped.height() > avail.height() )
++        clamped.setHeight( avail.height() );
++
++    clamped.moveLeft( qBound( avail.left(), clamped.left(),
++                              avail.right() - clamped.width() + 1 ) );
++    clamped.moveTop( qBound( avail.top(), clamped.top(),
++                             avail.bottom() - clamped.height() + 1 ) );
++
++    if ( clamped != rect )
++    {
++        // [KiCad-IOS port] Added 2026-11-09 for iOS (round 16,
++        // KiCad-V1): trace literal doubling as the shipped-binary
++        // gate marker proving this clamp is compiled into the
++        // shipped wx library (Job I gate: strings | grep
++        // "jobi-universal-clamp").
++        wxLogTrace( "kicad-ios-round16",
++                    "jobi-universal-clamp: (%d, %d %dx%d) -> (%d, %d %dx%d), "
++                    "available (%d, %d %dx%d)",
++                    rect.x(), rect.y(), rect.width(), rect.height(),
++                    clamped.x(), clamped.y(), clamped.width(), clamped.height(),
++                    avail.x(), avail.y(), avail.width(), avail.height() );
++    }
++
++    return clamped;
++}
++#endif // Q_OS_IOS
+--- a/src/qt/window.cpp
++++ b/src/qt/window.cpp
+@@ -1200,6 +1200,21 @@
+     const int dx = width - geometry.width();
+     geometry.setWidth( width );
+     geometry.setHeight( height );
++
++#if defined( Q_OS_IOS )
++    if ( IsTopLevel() )
++    {
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): this direct setGeometry() re-applies the
++        // caller's requested client size after DoMoveWindow() above
++        // has already clamped it, which would put an oversized
++        // top-level window straight back off-screen (position kept,
++        // size restored). Run the result through the same universal
++        // clamp so SetClientSize() cannot bypass it.
++        geometry = wxQtIOSClampTopLevelRect( qtWidget, geometry );
++    }
++#endif // Q_OS_IOS
++
+     qtWidget->setGeometry( geometry );
+ 
+     if ( GetLayoutDirection() == wxLayout_RightToLeft )
+@@ -1220,6 +1235,49 @@
+ {
+     QWidget *qtWidget = GetHandle();
+ 
++#if defined( Q_OS_IOS )
++    if ( IsTopLevel() )
++    {
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 16,
++        // KiCad-V1): full-fit clamp, applied BEFORE the resize below.
++        // Patch 0009 clamped only the position here, on the theory
++        // that wxTopLevelWindowQt::Show() would shrink oversized
++        // windows at show time -- but KiCad re-sizes windows after
++        // showing them: DIALOG_SHIM::Show() applies the persisted
++        // __geometry with SetSize() after wxDialog::Show() has run,
++        // and EDA_BASE_FRAME::LoadWindowState() restores persisted
++        // frame geometry with SetSize() at load. Both funnel through
++        // this function (SetSize()/Move()/SetPosition()/Centre() all
++        // end here, as does window creation: wxWindowQt::Create()
++        // calls DoMoveWindow() with the initial size), so clamping
++        // size AND position here, before wxQtSetClientSize() performs
++        // the resize, catches every wx-level geometry path at the
++        // moment it is requested. The clamp itself (per-window
++        // screen choice, minimum-size capping, state exemptions) is
++        // wxQtIOSClampTopLevelRect() in src/qt/utils.cpp. With no
++        // valid size yet (width/height <= 0) only the position is
++        // bounded, preserving patch 0009's behaviour for that case.
++        // Non-top-level windows are positioned by their parent and
++        // are not touched.
++        if ( width > 0 && height > 0 )
++        {
++            const QRect clamped = wxQtIOSClampTopLevelRect(
++                    qtWidget, QRect( x, y, width, height ) );
++            x = clamped.x();
++            y = clamped.y();
++            width = clamped.width();
++            height = clamped.height();
++        }
++        else
++        {
++            const QRect clamped = wxQtIOSClampTopLevelRect(
++                    qtWidget, QRect( x, y, 1, 1 ) );
++            x = clamped.x();
++            y = clamped.y();
++        }
++    }
++#endif // Q_OS_IOS
++
+     const auto clientSize = wxQtSetClientSize(qtWidget, width, height);
+ 
+     if ( qtWidget->testAttribute(Qt::WA_PendingResizeEvent) )
+@@ -1238,44 +1296,6 @@
+         }
+     }
+ 
+-#if defined( Q_OS_IOS )
+-    if ( IsTopLevel() )
+-    {
+-        // [KiCad-IOS port] Clamp the requested position so the window
+-        // stays inside the screen's available geometry (launch fix
+-        // round 9, KiCad-Spike-v11). This platform has no window
+-        // manager: QWidget::move() applies the coordinates literally,
+-        // and KiCad restores frame positions from its settings and
+-        // creates its manager frame at 775 x -1 with the default
+-        // position -- on device the manager window could open
+-        // partially off-screen with no way to drag it back (the iOS
+-        // QPA draws no titlebar and implements neither
+-        // startSystemMove() nor any other move affordance). Only the
+-        // position is adjusted here; the size is the caller's (the
+-        // wxTopLevelWindowQt::Show() clamp shrinks oversized windows
+-        // at show time). Non-top-level windows are positioned by
+-        // their parent and are not touched.
+-        if ( QScreen *screen = QGuiApplication::primaryScreen() )
+-        {
+-            const QRect avail = screen->availableGeometry();
+-
+-            if ( width > 0 && width <= avail.width() )
+-                x = qBound( avail.left(), x, avail.right() - width + 1 );
+-            else if ( width > avail.width() )
+-                x = avail.left();
+-            else
+-                x = qBound( avail.left(), x, avail.right() );
+-
+-            if ( height > 0 && height <= avail.height() )
+-                y = qBound( avail.top(), y, avail.bottom() - height + 1 );
+-            else if ( height > avail.height() )
+-                y = avail.top();
+-            else
+-                y = qBound( avail.top(), y, avail.bottom() );
+-        }
+-    }
+-#endif // Q_OS_IOS
+-
+     qtWidget->move( x, y );
+ }
+ 
