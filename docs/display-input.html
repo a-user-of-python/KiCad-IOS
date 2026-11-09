@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Display &amp; Input — KiCad‑iOS</title>
-<meta name="description" content="V1 window chrome and input on iPad: per-window titlebar strips, drag-by-titlebar, full-screen natural scale, universal window clamping from live display geometry, pinch zoom and two-finger pan in both editors, an optional virtual cursor, hardware keyboard and mouse fixes, and an external-display Ext control.">
+<meta name="description" content="Window chrome and input on iPad: per-window titlebar strips, drag-by-titlebar, full-screen natural scale, universal window clamping from live display geometry, pinch zoom and two-finger pan in both editors, an optional virtual cursor, hardware keyboard and mouse fixes, and an external-display Ext control.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -215,7 +215,7 @@
       </div>
       <div class="card">
         <h3>Smoother moves</h3>
-        <p>Dragging used to repaint the world per mouse sample: every size event forced a full canvas buffer realloc and redraw, and each touch sample arrived twice. V1 defers the canvas resize until the size settles — a burst becomes one redraw at the final size, at full quality — and coalesces drag moves to the latest position. Final geometry is identical; the churn in between is gone.</p>
+        <p>Dragging used to repaint the world per mouse sample: every size event forced a full canvas buffer realloc and redraw, and each touch sample arrived twice. The canvas resize is deferred until the size settles — a burst becomes one redraw at the final size, at full quality — and drag moves are coalesced to the latest position. Final geometry is identical; the churn in between is gone.</p>
       </div>
     </div>
   </section>
