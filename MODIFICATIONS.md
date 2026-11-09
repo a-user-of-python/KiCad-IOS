@@ -1425,3 +1425,207 @@ and reads the shipped Info.plist with plistlib (v15: no launch
 screen key, `UIRequiresFullScreen` False). Whether the error
 dialog and the oversized rendering are gone on the iPad is the
 device's verdict.
+
+### wx patch 0014 — qt-ios-virtual-cursor (round 16, KiCad-V1)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0014-qt-ios-virtual-cursor.patch`.
+
+*Why.* Precise canvas work with a finger is hard: the finger
+covers the point it acts on. *What.* An optional virtual
+cursor: a 26x26 arrow overlay widget (objectName
+`wxQtIOSVirtualCursor`) re-hosted as a child of the topmost
+titlebar host window. One-finger touch drags move the cursor
+relatively (trackpad-style, ~1.6x gain, clamped to the host);
+lifting the finger clicks at the cursor position through
+KiCad's normal event path; mouse hover follows the cursor.
+Touches of two or more fingers are never captured by the
+cursor, so the editors' pinch/pan gestures pass through
+untouched. A "Cursor" checkable toggle (objectName
+`wxQtIOSFloatingControlsCursorToggle`) rides every window's
+titlebar strip (patch 0015); the setting persists in QSettings
+key `wxQtIOS/virtualCursorEnabled` and defaults to OFF — with
+it off, no behaviour changes anywhere.
+
+*Verification.* Host harness (QPA-level injection): 6
+scenarios / 23 checks pass, including gesture pass-through
+with the cursor on. The binary gate requires the three
+markers above in the shipped manager executable; all are
+absent from v15. Device behaviour is the device's verdict.
+
+### wx patch 0015 — qt-ios-titlebar-chrome (round 16, KiCad-V1)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0015-qt-ios-titlebar-chrome.patch`.
+
+*Why.* The floating controls bar (patches 0009–0013) rendered
+as a roaming pill and its "Move" grip was the only drag
+affordance. *What.* Every top-level window gets its own
+titlebar strip (objectName `wxQtIOSWindowTitleBar`): window
+title on the left, then the Cursor toggle (0014), Minimize
+and Close at the right end in Windows order. Frames host the
+strip in a container (objectName
+`wxQtIOSWindowTitleBarMenuHost`) installed as the
+QMainWindow's menu widget with the real menu bar wrapped
+beneath it, so the layout reserves real space and nothing is
+overlaid; dialogs get a top overlay strip plus a one-time
+44 pt grow-and-shift of their content. The whole strip is
+the drag surface, reusing 0013's coordinate-armed drag and
+un-maximise machinery unchanged; the 0013 "Move" grip and its
+`wxQtIOSFloatingControlsGrip` marker are retired.
+Minimize/Close behaviour is unchanged.
+
+*Verification.* Host harness (QPA-level injection, two
+frames + parented modal dialog): 56/56 checks across 6
+scenarios, including menubar-below-strip in both
+set-before-show and late-SetMenuBar cases and TouchCancel.
+The binary gate requires the two titlebar objectNames in the
+shipped executable and the retired grip marker absent; v15
+has neither titlebar marker. Device behaviour is the
+device's verdict.
+
+### wx patch 0016 — qt-ios-drag-move-coalescing (round 16, KiCad-V1)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0016-qt-ios-drag-move-coalescing.patch`.
+
+*Why.* Window dragging was visibly laggy. One convicted
+cause, at this layer: drag moves reached the window twice
+per touch sample (the TouchUpdate delivery and the
+synthesised MouseMove), each forcing a synchronous QPA
+layout+flush, with no dedup or throttle. *What.* Moves from
+the titlebar drag path are coalesced through a 16 ms timer
+(objectName `wxQtIOSDragMoveCoalesceTimer`): the first move
+applies immediately, subsequent samples collapse to the
+latest position (~62 applications/sec), and the final
+position is flushed exactly on release/cancel — final
+geometry is identical to the uncoalesced path. Only the
+drag path coalesces; programmatic moves are untouched.
+
+*Verification.* The patch test-applies over the cumulative
+wx series and host-compiles (also with -DQ_OS_IOS); the
+binary gate requires the timer objectName in the shipped
+executable (absent from v15). The companion KiCad-side fix
+is patch 0039. Perceived smoothness is the device's verdict.
+
+### KiCad patch 0039 — ios-deferred-gal-resize (round 16, KiCad-V1)
+
+**`common/draw_panel_gal.cpp`, `include/class_draw_panel_gal.h`**
+(KiCad 10.0.1) — 2026-11-09 —
+`patches/kicad/0039-ios-deferred-gal-resize.patch`.
+
+*Why.* The larger half of the window-move lag: every
+distinct size event synchronously ran
+`EDA_DRAW_PANEL_GAL::onSize` into the Cairo GAL's
+`ResizeScreen` — freeing and reallocating both full-screen
+buffers plus a full scene redraw, per event. *What.* The
+upstream `onSize()` body is renamed verbatim to
+`performSizeUpdate()`; under `KICAD_IOS_PORT`, `onSize()`
+only logs the trace "deferred GAL resize" and (re)arms a
+50 ms one-shot timer, and `onSizeTimer()` runs
+`performSizeUpdate()` once at the settled size. A burst of
+N realloc+redraw cycles becomes 1, at full quality. The
+header's new declarations are unconditional (the header is
+included by translation units built without the define;
+guarding them would change class layout between TUs).
+
+*Verification.* The binary gate requires the "deferred GAL
+resize" trace in both editor kifaces (absent from v15).
+Perceived smoothness is the device's verdict.
+
+### wx patch 0017 — qt-ios-universal-toplevel-clamp (round 16, KiCad-V1)
+
+**`src/qt/utils.cpp`, `src/qt/window.cpp`, `src/qt/toplevel.cpp`**
+(wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0017-qt-ios-universal-toplevel-clamp.patch`.
+
+*Why.* Some KiCad windows/dialogs are larger than the
+screen, leaving Close/OK buttons unreachable (the
+Preferences family defaults to a 1500x900 "failsafe" cap).
+*What.* A shared helper `wxQtIOSClampTopLevelRect()` shrinks
+any top-level rect to — and moves it fully inside — the
+`availableGeometry()` **of the display the window is
+actually on**, queried live at runtime (no resolution is
+hardcoded anywhere; the same code follows an external
+display under patch 0019), and caps the widget/QWindow
+minimum size at that geometry when the minimum exceeds it.
+It is called from `wxWindowQt::DoMoveWindow()`,
+`wxWindowQt::DoSetClientSize()` and
+`wxTopLevelWindowQt::Show()`; maximised/fullscreen/minimised
+windows are exempt. Carries the trace literal
+`jobi-universal-clamp`. Honest limit: the clamp guarantees
+the window fits and stays closable/reachable; dialog content
+whose own minimum exceeds the panel is clipped inside the
+fitting window.
+
+*Verification.* The patch test-applies over the cumulative
+series and host-compiles with the real wx flags; an
+offscreen-QPA logic harness passes 5/5 cases. The binary
+gate requires the trace literal and the helper's symbol in
+the shipped executable (absent from v15). On-device fit is
+the device's verdict.
+
+### wx patch 0018 — qt-ios-keyboard-mouse-bridge-fixes (round 16, KiCad-V1)
+
+**`src/qt/window.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0018-qt-ios-keyboard-mouse-bridge-fixes.patch`.
+
+*Why.* A bridge audit for hardware keyboard + mouse found
+four dead paths. (1) wxQt never generated `wxEVT_CHAR_HOOK`,
+so KiCad's tool dispatcher hook branch, dialog undo/redo
+and Escape handling, grid/scintilla tricks and status
+popups never saw keys first; Alt+letter/digit hotkeys also
+reached the dispatcher as `wxEVT_CHAR` with the key code
+already replaced by the translated character (Alt+1 arrived
+as '¡'). (2) Backtab was not mapped to `WXK_TAB`.
+(3) The keypad Enter was not mapped to `WXK_NUMPAD_ENTER`.
+(4) The wheel handler dropped pixel deltas. *What.* All
+four are fixed in the wxQt key/wheel translation; every fix
+site carries the trace mask `kicad-ios-round16-jobk` (wheel
+handler, CHAR_HOOK, Backtab, Enter), with format strings
+`wxWindowQt::QtHandleWheelEvent pixels=%d dx=%d dy=%d`,
+`wxWindowQt::QtHandleKeyEvent CHAR_HOOK key=%d`,
+`wxQtConvertKeyCode Backtab -> WXK_TAB` and
+`wxQtConvertKeyCode Enter -> WXK_NUMPAD_ENTER`. A binary
+audit of the exact shipped Qt kit corroborates the modifier
+mapping (physical Cmd arrives as Qt Control, i.e. wx
+ControlDown, matching KiCad's MD_CTRL bindings; physical
+Ctrl arrives as wx Meta).
+
+*Verification.* The binary gate requires the trace mask and
+all four format strings in the shipped executable (absent
+from v15). End-to-end key delivery is device-only; the
+report carries the one-keypress tests.
+
+### wx patch 0019 — qt-ios-external-display (round 16, KiCad-V1)
+
+**`src/qt/toplevel.cpp`** (wxWidgets 3.3.4) — 2026-11-09 —
+`patches/wx/0019-qt-ios-external-display.patch`.
+
+*Why.* An attached external display should act as a second
+screen (extended), not a mirror. *What.* Every titlebar
+strip gains an "Ext" toggle (objectName
+`wxQtIOSExternalDisplayButton`), visible only while a
+second QScreen exists or a window is already external.
+Toggling moves the strip's frame to the external screen —
+screen assignment first (`QWindow::setScreen`, the QPA's
+designed path: it reparents the window's view into the
+target screen's own UIWindow, which the QPA un-hides,
+ending mirroring for that screen), then `showMaximized()`
+fills it at that display's native (runtime-queried) size —
+and toggling again from any strip, or a display disconnect,
+returns the window to its saved iPad-side geometry/state.
+Modal dialogs are never moved. The patch was written
+against the retired single roaming bar and was rebased by
+the round coordinator onto patch 0015's per-window titlebar
+design (the toggle keeps its objectName and acts on the
+strip's own window, as the original patch's porting note
+prescribed); the rebased patch applies cleanly over the
+full series and the merged file host-compiles.
+
+*Verification.* The binary gate requires the toggle
+objectName in the shipped executable (absent from v15).
+HONEST LABEL: extended desktop at the QPA level, shipped
+without device proof — how much pointer/keyboard input
+iPadOS routes to a window on an external UIScreen is only
+settled by the round 16 device test in the report.
