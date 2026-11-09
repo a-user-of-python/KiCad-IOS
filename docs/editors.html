@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Editors — KiCad‑iOS</title>
+<meta name="description" content="The KiCad project manager, Schematic Editor, PCB Editor, symbol and footprint editors, Gerber viewer, calculator, image converter and drawing sheet editor — the real KiCad modules on iPad. The 3D viewer does not work on iOS and is named as such.">
+<style>
+  :root{
+    --bg:#0a0d12;
+    --bg2:#0e1219;
+    --panel:#131926;
+    --panel2:#171f2e;
+    --line:#26324a;
+    --text:#f2f5f9;
+    --muted:#a9bcd4;
+    --accent:#57a8ff;
+    --accent2:#ff7a59;
+    --good:#4ade80;
+    --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6;
+    font-size:18px;
+  }
+  a{color:var(--accent)}
+  a:hover{color:#8cc2ff}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+
+  /* ---------- nav ---------- */
+  .topnav{
+    position:sticky;top:0;z-index:50;
+    background:rgba(10,13,18,.94);
+    border-bottom:1px solid var(--line);
+  }
+  .navrow{display:flex;align-items:center;justify-content:space-between;gap:14px 22px;flex-wrap:wrap;padding-top:13px;padding-bottom:13px}
+  .brand{font-weight:800;font-size:1.12rem;color:var(--text);text-decoration:none;white-space:nowrap}
+  .brand:hover{color:var(--text)}
+  .navlinks{display:flex;flex-wrap:wrap;gap:4px 20px}
+  .navlinks a{color:var(--muted);text-decoration:none;font-weight:600;font-size:1rem;padding:4px 2px}
+  .navlinks a:hover{color:var(--text)}
+  .navlinks a.active{color:var(--accent)}
+  .navlinks a.navcta{color:var(--accent2)}
+  .navlinks a.navcta:hover{color:#ffa28c}
+
+  /* ---------- hero ---------- */
+  header{
+    position:relative;
+    overflow:hidden;
+    background:
+      radial-gradient(1100px 500px at 85% -10%, rgba(87,168,255,.16), transparent 60%),
+      radial-gradient(800px 420px at 8% 110%, rgba(255,122,89,.10), transparent 60%),
+      linear-gradient(180deg,var(--bg2),var(--bg));
+    border-bottom:1px solid var(--line);
+  }
+  header .traces{position:absolute;inset:0;opacity:.35;pointer-events:none}
+  .hero{position:relative;padding:88px 0 72px;text-align:left}
+  .pagehero{position:relative;padding:64px 0 10px;text-align:left}
+  .kicker{
+    display:inline-block;
+    font-size:.85rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);
+    border:1px solid var(--line);border-radius:999px;
+    padding:6px 14px;background:rgba(87,168,255,.08);
+  }
+  h1{
+    font-size:clamp(2.6rem,6.5vw,4.4rem);
+    line-height:1.05;font-weight:800;letter-spacing:-.02em;
+    margin:26px 0 8px;
+  }
+  h1 .thin{display:block;color:var(--text)}
+  h1 .glow{
+    display:block;
+    background:linear-gradient(92deg,var(--accent),#9fd0ff 55%,var(--accent2));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .sub{
+    font-size:clamp(1.1rem,2.4vw,1.35rem);
+    color:var(--muted);max-width:46rem;margin-top:18px;
+  }
+  .sub strong{color:var(--text)}
+  .chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+  .chip{
+    font-size:.95rem;font-weight:600;color:var(--text);
+    background:var(--panel);border:1px solid var(--line);
+    border-radius:999px;padding:8px 16px;
+  }
+  .chip b{color:var(--good);font-weight:800}
+  .cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:34px}
+  .btn{
+    display:inline-block;text-decoration:none;font-weight:700;
+    padding:14px 26px;border-radius:12px;font-size:1.02rem;
+  }
+  .btn-primary{background:var(--accent);color:#06121f}
+  .btn-primary:hover{background:#7db9ff;color:#06121f}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+  .btn-ghost:hover{border-color:var(--accent);color:var(--text)}
+
+  /* ---------- sections ---------- */
+  section{padding:72px 0 8px}
+  h2{
+    font-size:clamp(1.7rem,3.6vw,2.3rem);font-weight:800;letter-spacing:-.01em;
+    margin-bottom:14px;
+  }
+  h2 .bar{color:var(--accent2)}
+  .lead{color:var(--muted);max-width:52rem;font-size:1.08rem}
+  .lead strong{color:var(--text)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:30px}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px 24px 20px;
+  }
+  .card h3{font-size:1.12rem;font-weight:750;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:1rem}
+  .card .tick{color:var(--good);font-weight:800;margin-right:8px}
+  .card .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;border-radius:10px;margin-bottom:14px;
+    background:rgba(87,168,255,.12);color:var(--accent);font-weight:800;
+    border:1px solid var(--line);
+  }
+  a.card{display:block;text-decoration:none}
+  a.card:hover{border-color:var(--accent)}
+  a.card h3{color:var(--text)}
+  .card .go{color:var(--accent);font-weight:700}
+
+  .status-band{
+    margin-top:30px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:var(--radius);padding:28px;
+  }
+  .status-band h3{font-size:1.2rem;margin-bottom:6px}
+  .status-band p{color:var(--muted)}
+  .status-band p strong{color:var(--text)}
+  .status-list{list-style:none;margin-top:18px}
+  .status-list li{
+    padding:12px 0;border-top:1px solid var(--line);color:var(--muted);
+  }
+  .status-list li:first-child{border-top:none}
+  .status-list li strong{color:var(--text)}
+  .tag{
+    display:inline-block;font-size:.78rem;font-weight:800;letter-spacing:.06em;
+    text-transform:uppercase;border-radius:6px;padding:2px 9px;margin-right:10px;
+    vertical-align:1px;white-space:nowrap;
+  }
+  .tag-proven{background:rgba(74,222,128,.14);color:var(--good);border:1px solid rgba(74,222,128,.4)}
+  .tag-now{background:rgba(87,168,255,.14);color:var(--accent);border:1px solid rgba(87,168,255,.4)}
+  .tag-shipped{background:rgba(255,122,89,.14);color:var(--accent2);border:1px solid rgba(255,122,89,.45)}
+
+  ol.install, ul.plain{margin:22px 0 0 1.4rem;color:var(--muted)}
+  ol.install li, ul.plain li{padding:6px 0}
+  ol.install strong, ul.plain strong{color:var(--text)}
+  code{
+    background:#0b1220;border:1px solid var(--line);border-radius:6px;
+    padding:1px 7px;font-size:.92em;color:#cfe4ff;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+
+  footer{
+    margin-top:84px;border-top:1px solid var(--line);
+    background:var(--bg2);padding:44px 0 54px;color:var(--muted);font-size:.95rem;
+  }
+  footer strong{color:var(--text)}
+  footer .fine{margin-top:16px;font-size:.88rem;color:#8298b3}
+  footer a{color:var(--accent)}
+  footer .footnav{display:flex;flex-wrap:wrap;gap:6px 20px;margin-bottom:22px}
+  footer .footnav a{color:var(--muted);text-decoration:none;font-weight:600}
+  footer .footnav a:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap navrow">
+    <a class="brand" href="index.html">🔌 KiCad‑iOS</a>
+    <div class="navlinks">
+      <a href="how-it-works.html">How It Works</a>
+      <a href="editors.html" class="active">The Editors</a>
+      <a href="display-input.html">Display &amp; Input</a>
+      <a href="install.html">Install</a>
+      <a class="navcta" href="v1.html">V1 Release</a>
+    </div>
+  </div>
+</nav>
+
+<main class="wrap">
+  <div class="pagehero">
+    <span class="kicker">KiCad‑iOS · The Editors</span>
+    <h1 style="font-size:clamp(2.1rem,5vw,3.2rem)">Every tool is the real tool.</h1>
+    <p class="sub">Each editor is <strong>KiCad's own module</strong> — the same code that ships on the desktop — loaded inside the one app process and opened as its own window from the project manager's launcher.</p>
+  </div>
+  <section>
+    <div class="grid">
+      <div class="card">
+        <h3><span class="tick">✓</span>Project Manager</h3>
+        <p>The home window: the real menu bar (File / Edit / View / Tools / Preferences), the Project Files tree, the launcher column with the real colour icons, and the tool description pane — in KiCad's light desktop appearance. Audited control by control: every menu opens, every item acts, every button does its real job. Confirmed standing on device from v10 on.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>Schematic Editor</h3>
+        <p>Full schematic capture on the Cairo software canvas. Confirmed on device in v15's pass: it opens and <strong>draws</strong> — symbols, wires, the sheet — with no crash. V1 adds pinch zoom and two-finger pan, titlebar chrome, and removes the last OpenGL attempt at the root.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tick">✓</span>PCB Editor</h3>
+        <p>Board layout with the same canvas machinery as the schematic side — footprint placement, routing, zones, DRC. It opens and works (v14's device pass), and V1 treats it as a first-class citizen: the same pinch zoom, pan, titlebar and keyboard work as the Schematic Editor, gated in its own binary.</p>
+      </div>
+      <div class="card">
+        <h3>Symbol Editor</h3>
+        <p>Create and edit schematic symbols against the bundled symbol libraries — all 222 of them ride in the bundle, with the default tables resolving straight to them.</p>
+      </div>
+      <div class="card">
+        <h3>Footprint Editor</h3>
+        <p>Create and edit footprints against the 155 bundled footprint libraries. The PCM addons from the official index — the PCBWay plug-in and the JLCPCB Fabrication Toolkit — ship in the bundle too, each with its own license.</p>
+      </div>
+      <div class="card">
+        <h3>Gerber Viewer</h3>
+        <p>KiCad's Gerber viewer opens inside the app — on the desktop it launched as a separate program; here it is a window in the same process, like every other tool.</p>
+      </div>
+      <div class="card">
+        <h3>PCB Calculator</h3>
+        <p>The calculator tools ship and open in-app, alongside the rest of the manager's launcher column.</p>
+      </div>
+      <div class="card">
+        <h3>Image Converter</h3>
+        <p>Bitmap2Component carries its module in the bundle and opens inside the app — it was one of the tools the manager audit caught launching nothing, and it is fixed at the packaging level.</p>
+      </div>
+      <div class="card">
+        <h3>Drawing Sheet Editor</h3>
+        <p>The page-layout editor for title blocks and sheet templates, in-app like the rest — and its canvas gets the same no-OpenGL guarantee as the two main editors.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> Stated plainly</h2>
+    <div class="status-band">
+      <h3>The 3D viewer does not work on iOS</h3>
+      <p>
+        KiCad's 3D viewer renders through OpenGL, and iOS has no OpenGL. The port leaves it
+        that way rather than faking a viewport: <strong>the 3D viewer does not work</strong>,
+        and everything else — the 2D editors, the manager, the companion tools — is
+        unaffected. It is the port's one standing functional limitation, and it is named
+        wherever the tool list appears.
+      </p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="footnav">
+      <a href="index.html">Home</a>
+      <a href="how-it-works.html">How It Works</a>
+      <a href="editors.html">The Editors</a>
+      <a href="display-input.html">Display &amp; Input</a>
+      <a href="install.html">Install</a>
+      <a href="v1.html">V1 Release</a>
+      <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
+    </div>
+    <p>
+      <strong>KiCad‑iOS</strong> is an unofficial port of
+      <a href="https://www.kicad.org/">KiCad</a> 10.0.1
+      (upstream source: <a href="https://gitlab.com/kicad/code/kicad">gitlab.com/kicad/code/kicad</a>,
+      baseline commit <code>2db9e5a7</code>).
+    </p>
+    <p style="margin-top:12px">
+      KiCad is © its many contributors and the KiCad project. This port is licensed under the
+      <strong>GNU General Public License v3.0 or later</strong>, matching upstream — the full text
+      ships in the repository as <code>LICENSE</code>, and every change to upstream files is recorded
+      in <code>MODIFICATIONS.md</code> per GPL §5.
+    </p>
+    <p class="fine">
+      Disclaimer: this is an unofficial port and an independent experiment. It is not affiliated with,
+      sponsored by, or endorsed by the KiCad project, CERN, or any KiCad sponsor. “KiCad” is a trademark
+      of the KiCad project; it is used here descriptively, to identify the upstream software this port is
+      based on, and for no other purpose.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
