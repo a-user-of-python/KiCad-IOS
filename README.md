@@ -13,7 +13,7 @@ Not a recreation. Not a lookalike. The genuine program, compiled for Apple's tab
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-current%20release%20V1.1-brightgreen.svg)](#-installing)
+[![Status](https://img.shields.io/badge/status-current%20release%20V1%20(1.0)-brightgreen.svg)](#-installing)
 
 **[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)** · **[⬇️ Get the release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0)**
 
