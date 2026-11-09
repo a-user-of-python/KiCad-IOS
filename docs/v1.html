@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>V1 Release — KiCad‑iOS</title>
-<meta name="description" content="KiCad‑iOS V1, the first official release: titlebar window controls, pinch zoom in both editors, universal window clamping, external-display extension, keyboard and mouse fixes, and the fresh-install, OpenGL-dialog and schema-error fixes — each verified in the shipped binary.">
+<title>Features — KiCad‑iOS V1</title>
+<meta name="description" content="KiCad‑iOS V1 (1.0), feature by feature: the real KiCad 10.0.1 on iPad — every editor, the full stock libraries, titlebar window controls, pinch zoom in both editors, an optional virtual cursor, keyboard and mouse, and how to install it.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -117,6 +117,7 @@
     padding:24px 24px 20px;
   }
   .card h3{font-size:1.12rem;font-weight:750;margin-bottom:8px}
+  .toolicon{width:56px;height:56px;display:block;margin-bottom:12px}
   .card p{color:var(--muted);font-size:1rem}
   .card .tick{color:var(--good);font-weight:800;margin-right:8px}
   .card .num{
@@ -138,6 +139,9 @@
   .status-band p{color:var(--muted)}
   .status-band p strong{color:var(--text)}
   .status-list{list-style:none;margin-top:18px}
+  ol.steps{margin:18px 0 0 22px}
+  ol.steps li{margin-bottom:12px;color:var(--muted)}
+  ol.steps li strong{color:var(--text)}
   .status-list li{
     padding:12px 0;border-top:1px solid var(--line);color:var(--muted);
   }
@@ -183,47 +187,86 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a class="navcta active" href="v1.html">V1 Release</a>
+      <a class="navcta active" href="v1.html">Features</a>
     </div>
   </div>
 </nav>
 
 <main class="wrap">
   <div class="pagehero">
-    <span class="kicker">KiCad‑iOS · Release</span>
-    <h1 style="font-size:clamp(2.1rem,5vw,3.2rem)">V1 — the first official release.</h1>
-    <p class="sub">Fifteen Spike builds proved the port on hardware, one defect list at a time. <strong>V1</strong> graduates from the Spike numbering: the same real KiCad 10.0.1, with the window layer rebuilt and every defect the device passes found answered. Every item below is <strong>verified in the shipped binary</strong> by the release gates — the previous release fails each of these counts. V1's on-device pass came back with one failure — the fresh-install crash, surviving through a second path in the same toolkit code — and <strong>V1.1</strong> answers it, first below.</p>
+    <span class="kicker">KiCad‑iOS · V1 (1.0)</span>
+    <h1 style="font-size:clamp(2.1rem,5vw,3.2rem)">Features — everything the app does.</h1>
+    <p class="sub">V1 is the first official release of the real KiCad 10.0.1 on iPad. This page lists the app's features as they ship — every item is part of the build and <strong>verified in the shipped binary</strong> by the release gates; the features the device passes have confirmed are stated as device facts on the pages where they belong.</p>
+    <div class="cta" style="margin-top:22px">
+      <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0" rel="noopener">Download V1</a>
+      <a class="btn btn-ghost" href="install.html">Installation steps</a>
+    </div>
   </div>
+
   <section>
-    <h2><span class="bar">/</span> V1.1 — the fresh-install crash, closed structurally</h2>
+    <h2><span class="bar">/</span> The editors</h2>
+    <p class="lead">Every tool in the project manager's launcher opens as its own real window — KiCad's own modules, shown with KiCad's own icons.</p>
+    <div class="grid">
+      <div class="card"><img class="toolicon" src="images/icon_kicad_128.png" alt="KiCad project manager icon"><h3>Project Manager</h3><p>The home window: project files tree, recent projects, and the launcher for every editor. Projects live in the app's shared Documents folder.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_eeschema_128.png" alt="Schematic Editor icon"><h3>Schematic Editor</h3><p>Full schematic capture on the Cairo software canvas — it opens and draws on device. Pinch zoom, two-finger pan, ERC, hierarchy, the complete stock symbol libraries.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_pcbnew_128.png" alt="PCB Editor icon"><h3>PCB Editor</h3><p>Board layout with the complete stock footprint libraries — placement, routing, zones, DRC, and the same gesture and keyboard support as the schematic side.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_libedit_128.png" alt="Symbol Editor icon"><h3>Symbol Editor</h3><p>Create and edit schematic symbols and libraries.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_modedit_128.png" alt="Footprint Editor icon"><h3>Footprint Editor</h3><p>Create and edit PCB footprints and libraries.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_cvpcb_128.png" alt="CvPcb icon"><h3>CvPcb</h3><p>Assign footprints to symbols from the bundled libraries.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_gerbview_128.png" alt="Gerber Viewer icon"><h3>Gerber Viewer</h3><p>Inspect Gerber and drill output before fabrication.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_pcbcalculator_128.png" alt="PCB Calculator icon"><h3>PCB Calculator</h3><p>Track widths, via sizes, electrical spacings, and the rest of the board-design calculators.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_pagelayout_editor_128.png" alt="Drawing Sheet Editor icon"><h3>Drawing Sheet Editor</h3><p>Title-block sheets and templates for schematics and boards.</p></div>
+      <div class="card"><img class="toolicon" src="images/icon_bitmap2component_128.png" alt="Image Converter icon"><h3>Image Converter</h3><p>Bitmap2Component: turn images into schematic symbols and PCB footprints.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> Display &amp; input</h2>
+    <div class="grid">
+      <div class="card"><h3>Titlebar window controls</h3><p>Every window and dialog carries a titlebar strip — title left, Cursor and Ext toggles, Minimize and Close right — as real window chrome. Drag the strip and the window follows; a maximised window un-maximises and comes with the drag.</p></div>
+      <div class="card"><h3>Full screen, natural scale, every window fits</h3><p>Windows open maximised and fill the display at its true scale, and every window is clamped to the live geometry of its display — asked from the display at runtime, never hardcoded — so Close and OK buttons stay reachable.</p></div>
+      <div class="card"><h3>Pinch zoom &amp; two-finger pan</h3><p>In the Schematic and PCB editors alike: a pinch zooms at its centre through KiCad's own view machinery, and a two-finger drag pans.</p></div>
+      <div class="card"><h3>Virtual cursor (option)</h3><p>A Cursor toggle on every titlebar, off by default and remembered: one finger drives an on-screen arrow trackpad-style, lifting the finger clicks at the arrow, and two-finger gestures pass straight through.</p></div>
+      <div class="card"><h3>Keyboard &amp; mouse</h3><p>Full shortcuts (⌘ arrives as the Control modifier KiCad expects), Alt hotkeys with their real key codes, Shift+Tab, keypad Enter, mouse hover and crosshair tracking, right-click menus, and scroll-wheel zoom with pixel deltas.</p></div>
+      <div class="card"><h3>Smooth window moves</h3><p>Drag moves are coalesced to the latest position, and canvas resizes land once, at the final size and full quality — moving a window doesn't redraw it a size at a time.</p></div>
+    </div>
+    <p class="lead" style="margin-top:18px"><a href="display-input.html">Display &amp; input in full →</a></p>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> Libraries, Python, and a solid first run</h2>
     <ul class="status-list">
-      <li><span class="tag tag-shipped">Fixed in V1.1</span><strong>The fresh-install first-launch crash — both mutation windows.</strong> V1 was installed fresh on device and crashed again: same moment (first-run library preload), same faulting frame. Disassembly of the shipped V1 binary proved V1's creation guard present and correct — and convicted the second way the pane set mutates: when the preload path sets status widths, the toolkit deleted the panes one by one and cleared its pane list only afterwards, so the resize delivered mid-teardown re-entered the layout and read a pane that no longer existed. V1.1 freezes the status bar — hidden, size events blocked, updates off — around <em>both</em> pane mutations, and publishes the empty pane set before a single widget is removed, so the re-entrant call cannot be delivered while the set is inconsistent. The gate requires that exact order in the shipped binary, and V1 fails it. The deciding check is unchanged: a fresh install's first launch, on device.</li>
+      <li><span class="tag tag-shipped">Libraries</span><strong>Complete stock libraries, bundled.</strong> KiCad 10.0.1's 222 symbol libraries and 155 footprint libraries ship in the app, with 19 project templates and the demo projects; the manager's content schemas ship too.</li>
+      <li><span class="tag tag-shipped">Python</span><strong>KiCad's Python environment, embedded whole.</strong> CPython 3.13, the compiled <code>pcbnew</code> module, KiCad's stock scripting plugins and footprint wizards, and two PCM addons — the PCBWay plug-in and the JLCPCB Fabrication Toolkit, each under its own license.</li>
+      <li><span class="tag tag-shipped">First run</span><strong>A fresh install is a supported path.</strong> The manager's status bar is built to survive its own first-run library preload — fields are published whole, and no layout re-enters while the pane set changes. KiCad's first-run wizard runs end to end, exactly as on a fresh desktop install.</li>
+      <li><span class="tag tag-shipped">Canvas</span><strong>The editors never attempt OpenGL.</strong> The canvas factory itself returns the Cairo software canvas, so there is no OpenGL failure dialog on any path, in any editor.</li>
     </ul>
   </section>
+
   <section>
+    <h2><span class="bar">/</span> Install V1</h2>
+    <ol class="steps">
+      <li><strong>Download</strong> the IPA from the <a href="https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0" rel="noopener">v1.0 release</a> — the same unsigned package is attached to every green Spike workflow run as the <code>kicad-spike-ipa</code> artifact.</li>
+      <li><strong>Sideload</strong> it with a signer such as Signulous, or your own signing setup.</li>
+      <li><strong>Launch KiCad</strong> — the first-run wizard walks through setup, and the project manager opens behind it.</li>
+    </ol>
+    <p class="lead"><strong>Requirements:</strong> an M‑series iPad running iPadOS 17 or later. The <a href="install.html">Install page</a> has the full walkthrough, including where project files live.</p>
+  </section>
+
+  <section>
+    <h2><span class="bar">/</span> Known limitations</h2>
     <ul class="status-list">
-      <li><span class="tag tag-shipped">Fixed in V1</span><strong>The fresh-install first-launch crash.</strong> A fresh install of the pre-release candidate died 0.44 s after launch: first-run library preload laid out the manager's status bar before its fields existed, the toolkit created them lazily one widget at a time, a resize delivered mid-creation re-entered the layout, and a field rect was read from a pane that did not exist yet. The toolkit now builds the full field set before publishing any of it, with a re-entrancy guard while creation is in flight. The deciding check is a fresh-install first launch on device, and it heads V1's device list.</li>
-      <li><span class="tag tag-shipped">Fixed in V1</span><strong>The editors never attempt OpenGL — at the root.</strong> v15 stopped the canvas choice; an occasional path still constructed an OpenGL canvas and showed the "Could not use OpenGL" dialog before falling back. V1 coerces the canvas type inside the one function every editor panel uses to switch backends: an OpenGL request becomes the Cairo canvas before any OpenGL object exists. The gate disassembles that function in all five canvas modules — 0 OpenGL checks, 0 OpenGL constructions.</li>
-      <li><span class="tag tag-shipped">Fixed in V1</span><strong>The manager's "schema file" error.</strong> The dialog that had shadowed the port since v13 is convicted: the manager validates plugin data against JSON schemas at startup, the schemas resolve to a bundle folder — and the bundle shipped without that folder entirely. The schemas ship in V1 (all nine upstream files), and the packager fails the build if a startup schema is ever missing again.</li>
-      <li><span class="tag tag-shipped">Fixed in V1</span><strong>Windows fill the screen, at natural scale.</strong> The manager sat in a band with black bars and the UI rendered about twice too big: the app declared no launch screen, so the system presented it at a legacy size and magnified everything. V1 declares a launch screen and full-screen presentation, and frames maximise on open whatever geometry older builds persisted. Both halves are gate-checked against the shipped package.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>Titlebar window controls.</strong> The floating pill is replaced by a per-window titlebar strip — title left, Cursor toggle, Minimize, Close right — hosted above the real menu bar in frames so layout reserves the space, and grown into dialogs so nothing is covered. The strip is the drag surface, on the platform's own move path: a maximised window un-maximises and follows the drag. Host-verified with a harness that drives two frames and a modal dialog at platform level; drag feel is the device's verdict.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>Pinch zoom and two-finger pan, both editors.</strong> KiCad already had the gesture handlers; the bridge dropped the gestures. V1 fixes the bridge and has the canvas itself request zoom and pan gestures, so a pinch zooms at its centre through KiCad's own view machinery and a two-finger drag pans — in the Schematic Editor and the PCB Editor alike, gated in the shared canvas library both link.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>Smoother window moves.</strong> Two convicted costs are removed: the canvas resize is deferred until the size settles (a burst of full reallocations and redraws becomes one, at full quality), and drag moves are coalesced to the latest position at ~60 applications a second, flushed exactly on release.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>An optional virtual cursor.</strong> A Cursor toggle on every titlebar, off by default, remembered across launches. One finger moves the arrow relatively, trackpad-style; lifting clicks at the arrow; two-finger gestures pass straight through to pinch and pan.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>Every window clamped to its display.</strong> Any window or dialog larger than its display is shrunk and moved fully inside it — Preferences and the setup dialogs keep their buttons reachable. The geometry comes from the display at runtime; no resolution is hardcoded, so the clamp is correct on any panel and on an external display.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>External display, extended.</strong> An Ext toggle on every titlebar moves that window to a connected display and fills it at its native size while the iPad keeps its own content; toggling back — or unplugging — restores it. It ships at the platform layer; how much input iPadOS routes to the external window is the open item in V1's device pass, and it is labelled that way wherever it is described.</li>
-      <li><span class="tag tag-shipped">In V1</span><strong>Hardware keyboard and mouse, audited and fixed.</strong> The char-hook event KiCad's dispatcher and dialogs are built around is generated; Alt hotkeys arrive with their real key codes; Shift+Tab and keypad Enter map correctly; the wheel handler keeps pixel deltas for smooth scroll zoom. ⌘ arrives as the Control modifier KiCad's bindings expect.</li>
-      <li><span class="tag tag-now">Stated plainly</span><strong>The 3D viewer still does not work on iOS.</strong> It remains OpenGL-bound, as in every Spike build. The 2D editors are unaffected.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>The 3D viewer does not work on iOS.</strong> It is bound to OpenGL, which this port does not have. The 2D editors are unaffected.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>External display support is partial.</strong> The Ext toggle moves a window to a connected display and fills it at its native size; how much input iPadOS routes to the external window is the open item.</li>
+      <li><span class="tag tag-now">Stated plainly</span><strong>ngspice codemodels are not bundled</strong>, so some simulation device models are unavailable.</li>
     </ul>
     <p class="lead" style="margin-top:22px">
-      V1 replaces all Spike builds (v1–v15). The full per-patch ledger — every change to
-      upstream KiCad and wxWidgets, with reasons and verification — is the repository's
+      The full per-patch ledger — every change to upstream KiCad and wxWidgets, with reasons
+      and verification — is the repository's
       <a href="https://github.com/a-user-of-python/KiCad-IOS/blob/main/MODIFICATIONS.md">MODIFICATIONS.md</a>.
-      V1's device pass runs next: fresh-install first launch, pinch scripts in both editors,
-      titlebar drags, Preferences fit, keyboard checks, and the external-display input test.
     </p>
     <div class="cta">
-      <a class="btn btn-primary" href="install.html">Install V1</a>
+      <a class="btn btn-primary" href="https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v1.0" rel="noopener">Download V1</a>
       <a class="btn btn-ghost" href="https://github.com/a-user-of-python/KiCad-IOS">View the repository</a>
     </div>
   </section>
@@ -237,7 +280,7 @@
       <a href="editors.html">The Editors</a>
       <a href="display-input.html">Display &amp; Input</a>
       <a href="install.html">Install</a>
-      <a href="v1.html">V1 Release</a>
+      <a href="v1.html">Features</a>
       <a href="https://github.com/a-user-of-python/KiCad-IOS">Repository</a>
     </div>
     <p>
