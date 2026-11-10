@@ -1,0 +1,44 @@
+# KiCad-IOS port patch 0027 (wxWidgets v3.3.4, wxWindows licence)
+# Round 18, Job S: desktop-density scale calibration to 75%.
+# Patch 0022 set QT_SCALE_FACTOR=0.5 (effective devicePixelRatio
+# exactly 1.0, the desktop-monitor model); patch 0023 calibrated
+# it to 0.6 (effective ratio 1.2). The device verdict on the 0.6
+# build: previews and dialogs now behave, but the interface
+# should be bigger still -- "increase the size to 75%". This
+# patch changes only the calibration constant to 0.75: the
+# effective devicePixelRatio becomes 2 x 0.75 = 1.5, so every UI
+# element renders 25% larger than at 0.6, while the logical
+# workspace is still derived live from the display by the QPA
+# (display pixels / effective ratio) -- no resolution is
+# hardcoded anywhere, and the desktop-monitor model is unchanged.
+# iOS only; the helper it edits exists only under Q_OS_IOS.
+# Apply with: patch -p1 (from the wx source root), after patches
+# 0001-0026.
+#
+#
+--- a/src/qt/app.cpp
++++ b/src/qt/app.cpp
+@@ -47,12 +47,20 @@
+ // element renders 20% larger than at exact desktop density, and
+ // the logical workspace is still the live display size divided
+ // by that ratio -- the desktop-monitor model, calibrated up one
+-// step. The 2 is the iPad family's fixed UIScreen scale; this
+-// app ships for iPad only (UIDeviceFamily 2).
++// step.
++// [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job S,
++// wx patch 0027): the device verdict on the 0.6 build asked for
++// the size at 75%, so the factor is now 0.75: the effective
++// devicePixelRatio is 2 x 0.75 = 1.5, every UI element renders
++// 25% larger than at 0.6, and the logical workspace is still the
++// live display size divided by that ratio -- the desktop-monitor
++// model, calibrated to the requested step. The 2 is the iPad
++// family's fixed UIScreen scale; this app ships for iPad only
++// (UIDeviceFamily 2).
+ // Trace token for the shipped-binary gate: kicad-ios-scale-desktop.
+ bool wxQtIosDesktopScaleFactor()
+ {
+-    qputenv("QT_SCALE_FACTOR", "0.6");
++    qputenv("QT_SCALE_FACTOR", "0.75");
+     return true;
+ }
+ #endif // Q_OS_IOS
