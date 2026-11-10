@@ -1,0 +1,697 @@
+# KiCad-IOS port patch 0045 (KiCad 10.0.1, GPL-3.0)
+# Round 19, Job U: symbol chooser preview panes not visible at all.
+# Round 18's sash band-clamps (patch 0044) run before the dialog
+# reaches its final size, and each has an escape hatch: the panels'
+# FinishSetup() falls back to the *saved* dialog size when the
+# splitter has no live extent yet (a ghost extent from another
+# display-scale era), and DIALOG_SHIM::LoadControlState() applies
+# the banked sash verbatim in the same case. Worse, the restore
+# order means no validation ever runs at the final size:
+# LoadControlState() fires on InitDialog, which wxQt delivers from
+# inside wxDialog::Show(), and DIALOG_SHIM::Show() then applies its
+# grow-only __geometry restore and resizes the dialog again. The
+# generic splitter applies a restored absolute sash verbatim
+# (gravity is suppressed while a sash request is pending) and
+# SizeWindows() clamps the second pane's size at 0 -- the preview
+# pane is not squished, it is exactly 0 px. Saves were never
+# validated either, so a collapsed close re-banked sash ~ width-28
+# into both stores, renewing the poison every era. On the paint
+# side, a preview's first paint is a one-shot ForceRefresh that
+# silently no-ops while its canvas is zero-sized or not yet shown,
+# and the footprint widget's already-displayed cache suppresses
+# any retry for the same footprint.
+# This patch: (1) DIALOG_SHIM::Show() gains a final sash
+# validation pass at the end of the show path -- the first
+# validation that runs with the dialog at its final size -- plus
+# save-side clamping in SaveControlState() and a skip (not
+# verbatim apply) in LoadControlState() when the splitter has no
+# live extent; (2) the three chooser panels' FinishSetup() clamps
+# now derive a fallback extent from the parent's post-clamp client
+# size and skip the restore when no usable extent exists;
+# (3) the symbol and footprint chooser panels gain a layout-heal
+# timer (the panels' existing wxTimer idiom; Qt-backed timers fire
+# inside the chooser's true-modal loop) that re-validates the
+# sashes at the host's settled size, writes the healed values
+# back, and re-displays both previews at real canvas sizes,
+# bypassing the footprint widget's already-displayed cache.
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0044.
+#
+--- a/common/dialog_shim.cpp
++++ b/common/dialog_shim.cpp
+@@ -451,6 +451,59 @@
+         if( wxDisplay::GetFromWindow( this ) == wxNOT_FOUND )
+             Centre();
+ 
++        // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U,
++        // KiCad patch 0045): final sash validation. Every sash restore
++        // upstream of this point runs before the dialog reaches its
++        // final size: the panels' FinishSetup() restores at ctor size,
++        // LoadControlState() restores on InitDialog -- which wxQt
++        // delivers from inside wxDialog::Show(), before it returns --
++        // and the grow-only __geometry restore above then resizes the
++        // dialog again, with nothing re-validating the sash against
++        // the result. The generic splitter applies a restored absolute
++        // sash verbatim (and suppresses gravity while a request is
++        // pending), so a value banked under a larger workspace, or by
++        // a collapsed close, can leave a pane at exactly 0 px in
++        // SizeWindows(). Walk the dialog's splitters now, with the
++        // final size in place, and band-clamp each sash to a fraction
++        // of its splitter's live size (the round-18 band).
++        wxLogTrace( wxT( "KICAD_IOS" ), wxT( "jobu-shim-sash-final-clamp" ) );
++
++        {
++            std::function<void( wxWindow* )> clampSashes =
++                    [&]( wxWindow* aWin )
++                    {
++                        if( wxSplitterWindow* splitter =
++                                    dynamic_cast<wxSplitterWindow*>( aWin ) )
++                        {
++                            if( splitter->IsSplit() )
++                            {
++                                bool   horizontal =
++                                        splitter->GetSplitMode() == wxSPLIT_VERTICAL;
++                                wxSize live = splitter->GetSize();
++                                int    extent = horizontal ? live.x : live.y;
++
++                                if( extent >= 100 )
++                                {
++                                    int minPane = splitter->GetMinimumPaneSize();
++                                    int lo = wxMax( minPane, extent * 15 / 100 );
++                                    int hi = extent * ( horizontal ? 65 : 75 ) / 100;
++                                    int sash = splitter->GetSashPosition();
++                                    int healed = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++
++                                    if( healed != sash )
++                                        splitter->SetSashPosition( healed );
++                                }
++                            }
++                        }
++
++                        for( wxWindow* child : aWin->GetChildren() )
++                            clampSashes( child );
++                    };
++
++            for( wxWindow* child : GetChildren() )
++                clampSashes( child );
++        }
++
+         m_userPositioned = false;
+         m_userResized = false;
+ 
+@@ -648,7 +701,32 @@
+                     }
+                     else if( wxSplitterWindow* splitter = dynamic_cast<wxSplitterWindow*>( win ) )
+                     {
+-                        dlgMap[ key ] = splitter->GetSashPosition();
++                        int sash = splitter->GetSashPosition();
++
++                        // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19,
++                        // Job U, KiCad patch 0045): validate on save as well
++                        // as on restore. A dialog closed while a pane is
++                        // collapsed banks GetSashPosition() ~= width - 28
++                        // verbatim -- a self-consistent poison pair with
++                        // the banked dialog size whose ratio only turns
++                        // fatal when a later display-scale change shrinks
++                        // the workspace. Clamp the banked value into the
++                        // same band the restores enforce, against the
++                        // splitter's live size at close.
++                        bool   horizontal = splitter->GetSplitMode() == wxSPLIT_VERTICAL;
++                        wxSize live = splitter->GetSize();
++                        int    extent = horizontal ? live.x : live.y;
++
++                        if( extent >= 100 )
++                        {
++                            int minPane = splitter->GetMinimumPaneSize();
++                            int lo = wxMax( minPane, extent * 15 / 100 );
++                            int hi = extent * ( horizontal ? 65 : 75 ) / 100;
++
++                            sash = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++                        }
++
++                        dlgMap[ key ] = sash;
+                     }
+                     else if( wxScrolledWindow* scrolled = dynamic_cast<wxScrolledWindow*>( win ) )
+                     {
+@@ -821,9 +899,24 @@
+                                     int hi = extent * ( horizontal ? 65 : 75 ) / 100;
+ 
+                                     sash = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++
++                                    splitter->SetSashPosition( sash );
+                                 }
+ 
+-                                splitter->SetSashPosition( sash );
++                                // [KiCad-IOS port] Modified 2026-11-10 for iOS
++                                // (round 19, Job U, KiCad patch 0045): with no
++                                // live extent (< 100) the splitter has not
++                                // been laid out at anything resembling its
++                                // final size (InitDialog fires from inside
++                                // wxDialog::Show(), before the __geometry
++                                // restore in Show() resizes the dialog), and
++                                // applying the banked sash verbatim here
++                                // plants exactly the collapse the clamp
++                                // exists to prevent -- the generic splitter
++                                // replays it onto the final size capped only
++                                // by the pane minimum. Skip the restore in
++                                // that case; the final sash validation at
++                                // the end of Show() runs at the final size.
+                             }
+                         }
+                         else if( wxScrolledWindow* scrolled = dynamic_cast<wxScrolledWindow*>( win ) )
+--- a/eeschema/widgets/panel_symbol_chooser.cpp
++++ b/eeschema/widgets/panel_symbol_chooser.cpp
+@@ -251,6 +251,7 @@
+ 
+     m_dbl_click_timer = new wxTimer( this );
+     m_open_libs_timer = new wxTimer( this );
++    m_layout_heal_timer = new wxTimer( this );
+ 
+     SetSizer( sizer );
+ 
+@@ -258,6 +259,8 @@
+ 
+     Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onCloseTimer, this, m_dbl_click_timer->GetId() );
+     Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onOpenLibsTimer, this, m_open_libs_timer->GetId() );
++    Bind( wxEVT_TIMER, &PANEL_SYMBOL_CHOOSER::onLayoutHealTimer, this,
++          m_layout_heal_timer->GetId() );
+     Bind( EVT_LIBITEM_SELECTED, &PANEL_SYMBOL_CHOOSER::onSymbolSelected, this );
+     Bind( EVT_LIBITEM_CHOSEN, &PANEL_SYMBOL_CHOOSER::onSymbolChosen, this );
+     aFrame->Bind( wxEVT_MENU_OPEN, &PANEL_SYMBOL_CHOOSER::onMenuOpen, this );
+@@ -287,8 +290,10 @@
+     // Stop the timer during destruction early to avoid potential race conditions (that do happen)
+     m_dbl_click_timer->Stop();
+     m_open_libs_timer->Stop();
++    m_layout_heal_timer->Stop();
+     delete m_dbl_click_timer;
+     delete m_open_libs_timer;
++    delete m_layout_heal_timer;
+ 
+     if( m_showPower )
+         g_powerSearchString = m_tree->GetSearchString();
+@@ -441,6 +446,19 @@
+         // struct, so the destructor's unconditional save re-banks the
+         // heal rather than the poison. In-band user drags are
+         // untouched.
++        // [KiCad-IOS port] Modified 2026-11-10 for iOS (round 19, Job U,
++        // KiCad patch 0045): patch 0044's fallback -- when the splitter
++        // has no live extent yet, compute the band from the saved dialog
++        // size w/h -- can validate a sash against a size the splitter
++        // will never have: the saved size belongs to another
++        // display-scale era, and the live dialog passes through the
++        // port's geometry clamp on its way to the screen. Use the
++        // parent's client extent instead -- the dialog was SetSize()d
++        // and Layout()ed immediately above, so it is real, post-clamp
++        // geometry. If neither extent is usable, return -1 and skip
++        // the restore entirely: DIALOG_SHIM's final sash validation in
++        // Show() (dialog hosts) and the layout-heal timer below own
++        // the sash at the final size.
+         auto clampSash =
+                 [&]( wxSplitterWindow* aSplitter, int aSash, bool aHorizontal ) -> int
+                 {
+@@ -448,7 +466,13 @@
+                     int    extent = aHorizontal ? live.x : live.y;
+ 
+                     if( extent < 100 )
+-                        extent = aHorizontal ? w : h;
++                    {
++                        wxSize parentLive = GetParent()->GetClientSize();
++                        extent = aHorizontal ? parentLive.x : parentLive.y;
++                    }
++
++                    if( extent < 100 )
++                        return -1;
+ 
+                     int minPane = aSplitter->GetMinimumPaneSize();
+                     int lo = wxMax( minPane, extent * 15 / 100 );
+@@ -457,15 +481,24 @@
+                     return wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
+                 };
+ 
+-        panelCfg.sash_pos_h = clampSash( m_hsplitter, panelCfg.sash_pos_h, true );
+-
+-        if( m_vsplitter )
+-            panelCfg.sash_pos_v = clampSash( m_vsplitter, panelCfg.sash_pos_v, false );
++        int healedSashH = clampSash( m_hsplitter, panelCfg.sash_pos_h, true );
+ 
+-        m_hsplitter->SetSashPosition( panelCfg.sash_pos_h );
++        if( healedSashH >= 0 )
++        {
++            panelCfg.sash_pos_h = healedSashH;
++            m_hsplitter->SetSashPosition( panelCfg.sash_pos_h );
++        }
+ 
+         if( m_vsplitter )
+-            m_vsplitter->SetSashPosition( panelCfg.sash_pos_v );
++        {
++            int healedSashV = clampSash( m_vsplitter, panelCfg.sash_pos_v, false );
++
++            if( healedSashV >= 0 )
++            {
++                panelCfg.sash_pos_v = healedSashV;
++                m_vsplitter->SetSashPosition( panelCfg.sash_pos_v );
++            }
++        }
+ 
+         m_adapter->SetSortMode( (LIB_TREE_MODEL_ADAPTER::SORT_MODE) panelCfg.sort_mode );
+     }
+@@ -478,6 +511,16 @@
+ 
+     if( m_fp_sel_ctrl )
+         m_fp_sel_ctrl->Load( m_frame->Kiway(), m_frame->Prj() );
++
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): arm the post-settle layout heal. Every sash restore
++    // that has run so far (this function, and DIALOG_SHIM's
++    // LoadControlState on InitDialog) ran before the host reached its
++    // final size -- DIALOG_SHIM::Show() applies its grow-only
++    // __geometry restore afterwards. The heal timer fires inside the
++    // host's event loop once the layout has settled; see
++    // onLayoutHealTimer().
++    m_layout_heal_timer->StartOnce( 250 );
+ }
+ 
+ 
+@@ -558,6 +601,117 @@
+ }
+ 
+ 
++void PANEL_SYMBOL_CHOOSER::onLayoutHealTimer( wxTimerEvent& aEvent )
++{
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): post-settle layout heal + preview repaint.
++    //
++    // Visibility half: this fires inside the host's event loop (the
++    // chooser dialog's true-modal loop, or the modeless frame's loop)
++    // when the host is shown at its final size -- the first moment
++    // every earlier sash restore (FinishSetup, DIALOG_SHIM's
++    // LoadControlState, and the grow-only __geometry restore in
++    // DIALOG_SHIM::Show) has already run. Re-validate the sashes
++    // against the live splitter sizes and write the healed values
++    // back into the settings struct, so the destructor's unconditional
++    // save re-banks the heal rather than any poisoned value an
++    // earlier restore planted.
++    //
++    // Paint half: a preview's first paint is a one-shot ForceRefresh
++    // that silently no-ops while its canvas is zero-sized or not yet
++    // shown on screen, and nothing re-asks afterwards (the footprint
++    // widget additionally caches the displayed LIB_ID, suppressing a
++    // retry of the same footprint). A selection made before the
++    // layout settled -- or into a pane an earlier restore collapsed
++    // -- therefore stays blank forever. Re-display both previews
++    // here, at real sizes: DisplaySymbol refits and repaints, and the
++    // footprint is re-displayed through the preview panel directly,
++    // bypassing the widget's already-displayed cache.
++    wxLogTrace( wxT( "KICAD_IOS" ), wxT( "jobu-chooser-layout-heal" ) );
++
++    if( EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() ) )
++    {
++        EESCHEMA_SETTINGS::PANEL_SYM_CHOOSER& panelCfg = cfg->m_SymChooserPanel;
++
++        auto healSash =
++                [&]( wxSplitterWindow* aSplitter, int& aStored, bool aHorizontal )
++                {
++                    if( !aSplitter->IsSplit() )
++                        return;
++
++                    wxSize live = aSplitter->GetSize();
++                    int    extent = aHorizontal ? live.x : live.y;
++
++                    if( extent < 100 )
++                        return;
++
++                    int minPane = aSplitter->GetMinimumPaneSize();
++                    int lo = wxMax( minPane, extent * 15 / 100 );
++                    int hi = extent * ( aHorizontal ? 65 : 75 ) / 100;
++                    int sash = aSplitter->GetSashPosition();
++                    int healed = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++
++                    if( healed != sash )
++                        aSplitter->SetSashPosition( healed );
++
++                    aStored = aSplitter->GetSashPosition();
++                };
++
++        healSash( m_hsplitter, panelCfg.sash_pos_h, true );
++
++        if( m_vsplitter )
++            healSash( m_vsplitter, panelCfg.sash_pos_v, false );
++    }
++
++    LIB_TREE_NODE* node = m_tree ? m_tree->GetCurrentTreeNode() : nullptr;
++
++    if( node && node->m_LibId.IsValid() )
++    {
++        m_symbol_preview->DisplaySymbol( node->m_LibId, node->m_Unit );
++
++        if( m_fp_preview && m_fp_preview->IsInitialized() )
++        {
++            wxString fpName = !m_fp_override.IsEmpty() ? m_fp_override
++                                                       : node->m_Footprint;
++
++            if( fpName.IsEmpty() )
++            {
++                // No default footprint on the tree node: the normal
++                // path re-reads the symbol's field, and the status
++                // text it sets for the empty case is the correct end
++                // state there.
++                showFootprintFor( node->m_LibId );
++            }
++            else
++            {
++                LIB_ID fpId;
++
++                if( fpId.Parse( fpName ) == -1 && fpId.IsValid()
++                    && m_fp_preview->GetPreviewPanel() )
++                {
++                    if( m_fp_preview->GetPreviewPanel()->DisplayFootprint( fpId ) )
++                        m_fp_preview->ClearStatus();
++                    else
++                        m_fp_preview->SetStatusText( _( "Footprint not found." ) );
++                }
++                else
++                {
++                    showFootprint( fpName );
++                }
++            }
++        }
++    }
++    else
++    {
++        if( m_symbol_preview && m_symbol_preview->GetCanvas() )
++            m_symbol_preview->GetCanvas()->ForceRefresh();
++
++        if( m_fp_preview && m_fp_preview->IsInitialized() )
++            m_fp_preview->RefreshAll();
++    }
++}
++
++
+ void PANEL_SYMBOL_CHOOSER::showFootprintFor( LIB_ID const& aLibId )
+ {
+     if( !m_fp_preview || !m_fp_preview->IsInitialized() )
+@@ -669,6 +823,11 @@
+     m_field_edits.emplace_back( std::make_pair( FIELD_T::FOOTPRINT, m_fp_override ) );
+ 
+     showFootprint( m_fp_override );
++
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): re-arm the layout heal so this selection also gets
++    // a post-settle repaint (see onLayoutHealTimer()).
++    m_layout_heal_timer->StartOnce( 150 );
+ }
+ 
+ 
+@@ -696,6 +855,11 @@
+ 
+         populateFootprintSelector( LIB_ID() );
+     }
++
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): re-arm the layout heal so every selection gets a
++    // post-settle repaint (see onLayoutHealTimer()).
++    m_layout_heal_timer->StartOnce( 150 );
+ }
+ 
+ 
+--- a/eeschema/widgets/panel_symbol_chooser.h
++++ b/eeschema/widgets/panel_symbol_chooser.h
+@@ -116,6 +116,7 @@
+     void OnDetailsCharHook( wxKeyEvent& aEvt );
+     void onCloseTimer( wxTimerEvent& aEvent );
+     void onOpenLibsTimer( wxTimerEvent& aEvent );
++    void onLayoutHealTimer( wxTimerEvent& aEvent );
+ 
+     void onFootprintSelected( wxCommandEvent& aEvent );
+     void onSymbolSelected( wxCommandEvent& aEvent );
+@@ -160,6 +161,7 @@
+ 
+     wxTimer*                  m_dbl_click_timer;
+     wxTimer*                  m_open_libs_timer;
++    wxTimer*                  m_layout_heal_timer;
+     SYMBOL_PREVIEW_WIDGET*    m_symbol_preview;
+     wxSplitterWindow*         m_hsplitter;
+     wxSplitterWindow*         m_vsplitter;
+--- a/pcbnew/widgets/panel_footprint_chooser.cpp
++++ b/pcbnew/widgets/panel_footprint_chooser.cpp
+@@ -156,6 +156,7 @@
+ 
+     m_dbl_click_timer = new wxTimer( this );
+     m_open_libs_timer = new wxTimer( this );
++    m_layout_heal_timer = new wxTimer( this );
+ 
+     SetSizer( sizer );
+ 
+@@ -163,6 +164,8 @@
+ 
+     Bind( wxEVT_TIMER, &PANEL_FOOTPRINT_CHOOSER::onCloseTimer, this, m_dbl_click_timer->GetId() );
+     Bind( wxEVT_TIMER, &PANEL_FOOTPRINT_CHOOSER::onOpenLibsTimer, this, m_open_libs_timer->GetId() );
++    Bind( wxEVT_TIMER, &PANEL_FOOTPRINT_CHOOSER::onLayoutHealTimer, this,
++          m_layout_heal_timer->GetId() );
+     Bind( EVT_LIBITEM_SELECTED, &PANEL_FOOTPRINT_CHOOSER::onFootprintSelected, this );
+     Bind( EVT_LIBITEM_CHOSEN, &PANEL_FOOTPRINT_CHOOSER::onFootprintChosen, this );
+     m_frame->Bind( wxEVT_MENU_OPEN, &PANEL_FOOTPRINT_CHOOSER::onMenuOpen, this );
+@@ -195,8 +198,10 @@
+     // I am not sure the following two lines are necessary, but they will not hurt anyone
+     m_dbl_click_timer->Stop();
+     m_open_libs_timer->Stop();
++    m_layout_heal_timer->Stop();
+     delete m_dbl_click_timer;
+     delete m_open_libs_timer;
++    delete m_layout_heal_timer;
+ 
+     if( PCBNEW_SETTINGS* cfg = GetAppSettings<PCBNEW_SETTINGS>( "pcbnew" ) )
+     {
+@@ -288,6 +293,13 @@
+         // struct, so the destructor's unconditional save re-banks the
+         // heal rather than the poison. In-band user drags are
+         // untouched.
++        // [KiCad-IOS port] Modified 2026-11-10 for iOS (round 19, Job U,
++        // KiCad patch 0045): same correction as the symbol chooser --
++        // patch 0044's ghost-extent fallback (the saved dialog size w/h)
++        // can validate a sash against a size from another display-scale
++        // era. Use the parent's post-clamp client extent instead, and
++        // skip the restore when no usable extent exists; the
++        // layout-heal timer below owns the sash at the final size.
+         auto clampSash =
+                 [&]( wxSplitterWindow* aSplitter, int aSash, bool aHorizontal ) -> int
+                 {
+@@ -295,7 +307,13 @@
+                     int    extent = aHorizontal ? live.x : live.y;
+ 
+                     if( extent < 100 )
+-                        extent = aHorizontal ? w : h;
++                    {
++                        wxSize parentLive = GetParent()->GetClientSize();
++                        extent = aHorizontal ? parentLive.x : parentLive.y;
++                    }
++
++                    if( extent < 100 )
++                        return -1;
+ 
+                     int minPane = aSplitter->GetMinimumPaneSize();
+                     int lo = wxMax( minPane, extent * 15 / 100 );
+@@ -304,18 +322,34 @@
+                     return wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
+                 };
+ 
+-        cfg.sash_h = clampSash( m_hsplitter, cfg.sash_h, true );
+-
+-        if( m_vsplitter )
+-            cfg.sash_v = clampSash( m_vsplitter, cfg.sash_v, false );
++        int healedSashH = clampSash( m_hsplitter, cfg.sash_h, true );
+ 
+-        m_hsplitter->SetSashPosition( cfg.sash_h );
++        if( healedSashH >= 0 )
++        {
++            cfg.sash_h = healedSashH;
++            m_hsplitter->SetSashPosition( cfg.sash_h );
++        }
+ 
+         if( m_vsplitter )
+-            m_vsplitter->SetSashPosition( cfg.sash_v );
++        {
++            int healedSashV = clampSash( m_vsplitter, cfg.sash_v, false );
++
++            if( healedSashV >= 0 )
++            {
++                cfg.sash_v = healedSashV;
++                m_vsplitter->SetSashPosition( cfg.sash_v );
++            }
++        }
+ 
+         m_adapter->SetSortMode( (LIB_TREE_MODEL_ADAPTER::SORT_MODE) cfg.sort_mode );
+     }
++
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): arm the post-settle layout heal (see
++    // onLayoutHealTimer()). This panel's usual host is a frame, which
++    // has no DIALOG_SHIM final validation, so the timer is the
++    // authoritative sash check at the final size.
++    m_layout_heal_timer->StartOnce( 250 );
+ }
+ 
+ 
+@@ -363,6 +397,80 @@
+ }
+ 
+ 
++void PANEL_FOOTPRINT_CHOOSER::onLayoutHealTimer( wxTimerEvent& aEvent )
++{
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): post-settle layout heal + preview repaint, the
++    // footprint-chooser half of the symbol chooser's fix. This panel's
++    // usual host is a frame (no DIALOG_SHIM final validation there),
++    // and its FinishSetup restore runs at ctor size, so this timer --
++    // firing in the host's event loop at the final size -- is the
++    // authoritative sash validation; healed values are written back
++    // so the destructor's save re-banks them. The preview is then
++    // re-displayed through the preview panel directly, bypassing
++    // FOOTPRINT_PREVIEW_WIDGET's already-displayed cache: a first
++    // paint dropped into a zero-sized or collapsed canvas would
++    // otherwise never be retried for the same footprint.
++    wxLogTrace( wxT( "KICAD_IOS" ), wxT( "jobu-fpchooser-layout-heal" ) );
++
++    if( PCBNEW_SETTINGS* settings = GetAppSettings<PCBNEW_SETTINGS>( "pcbnew" ) )
++    {
++        PCBNEW_SETTINGS::FOOTPRINT_CHOOSER& cfg = settings->m_FootprintChooser;
++
++        auto healSash =
++                [&]( wxSplitterWindow* aSplitter, int& aStored, bool aHorizontal )
++                {
++                    if( !aSplitter->IsSplit() )
++                        return;
++
++                    wxSize live = aSplitter->GetSize();
++                    int    extent = aHorizontal ? live.x : live.y;
++
++                    if( extent < 100 )
++                        return;
++
++                    int minPane = aSplitter->GetMinimumPaneSize();
++                    int lo = wxMax( minPane, extent * 15 / 100 );
++                    int hi = extent * ( aHorizontal ? 65 : 75 ) / 100;
++                    int sash = aSplitter->GetSashPosition();
++                    int healed = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++
++                    if( healed != sash )
++                        aSplitter->SetSashPosition( healed );
++
++                    aStored = aSplitter->GetSashPosition();
++                };
++
++        healSash( m_hsplitter, cfg.sash_h, true );
++
++        if( m_vsplitter )
++            healSash( m_vsplitter, cfg.sash_v, false );
++    }
++
++    if( m_preview_ctrl && m_preview_ctrl->IsInitialized() )
++    {
++        LIB_ID lib_id = m_tree->GetSelectedLibId();
++
++        if( lib_id.IsValid() && m_preview_ctrl->GetPreviewPanel() )
++        {
++            if( m_preview_ctrl->GetPreviewPanel()->DisplayFootprint( lib_id ) )
++                m_preview_ctrl->ClearStatus();
++            else
++                m_preview_ctrl->SetStatusText( _( "Footprint not found." ) );
++
++            // Keep the cached current-footprint pointer in step with
++            // the reload, exactly as onFootprintSelected() does.
++            m_CurrFootprint = static_cast<FOOTPRINT_PREVIEW_PANEL*>(
++                    m_preview_ctrl->GetPreviewPanel() )->GetCurrentFootprint();
++        }
++        else
++        {
++            m_preview_ctrl->RefreshAll();
++        }
++    }
++}
++
++
+ void PANEL_FOOTPRINT_CHOOSER::onFootprintSelected( wxCommandEvent& aEvent )
+ {
+     if( !m_preview_ctrl || !m_preview_ctrl->IsInitialized() )
+@@ -387,6 +495,11 @@
+     event.SetEventObject( this );
+ 
+     ProcessWindowEvent( event );
++
++    // [KiCad-IOS port] Added 2026-11-10 for iOS (round 19, Job U, KiCad
++    // patch 0045): re-arm the layout heal so every selection gets a
++    // post-settle repaint (see onLayoutHealTimer()).
++    m_layout_heal_timer->StartOnce( 150 );
+ }
+ 
+ 
+--- a/pcbnew/widgets/panel_footprint_chooser.h
++++ b/pcbnew/widgets/panel_footprint_chooser.h
+@@ -92,6 +92,7 @@
+     void OnDetailsCharHook( wxKeyEvent& aEvt );
+     void onCloseTimer( wxTimerEvent& aEvent );
+     void onOpenLibsTimer( wxTimerEvent& aEvent );
++    void onLayoutHealTimer( wxTimerEvent& aEvent );
+ 
+     /**
+      * Handle parent frame menu events to block tree preview
+@@ -119,6 +120,7 @@
+     wxPanel*                  m_detailsPanel;
+     wxTimer*                  m_dbl_click_timer;
+     wxTimer*                  m_open_libs_timer;
++    wxTimer*                  m_layout_heal_timer;
+     wxSplitterWindow*         m_hsplitter;
+     wxSplitterWindow*         m_vsplitter;
+ 
+--- a/common/widgets/panel_design_block_chooser.cpp
++++ b/common/widgets/panel_design_block_chooser.cpp
+@@ -239,6 +239,15 @@
+         // struct, so the destructor's unconditional save re-banks the
+         // heal rather than the poison. In-band user drags are
+         // untouched.
++        // [KiCad-IOS port] Modified 2026-11-10 for iOS (round 19, Job U,
++        // KiCad patch 0045): same correction as the symbol and
++        // footprint choosers -- patch 0044's ghost-extent fallback (the
++        // saved dialog size w/h) can validate a sash against a size
++        // from another display-scale era. Use the parent's post-clamp
++        // client extent instead, and skip the restore when no usable
++        // extent exists; this panel is dialog-hosted, so
++        // DIALOG_SHIM's final sash validation in Show() owns the sash
++        // at the final size.
+         auto clampSash =
+                 [&]( wxSplitterWindow* aSplitter, int aSash, bool aHorizontal ) -> int
+                 {
+@@ -246,7 +255,13 @@
+                     int    extent = aHorizontal ? live.x : live.y;
+ 
+                     if( extent < 100 )
+-                        extent = aHorizontal ? w : h;
++                    {
++                        wxSize parentLive = GetParent()->GetClientSize();
++                        extent = aHorizontal ? parentLive.x : parentLive.y;
++                    }
++
++                    if( extent < 100 )
++                        return -1;
+ 
+                     int minPane = aSplitter->GetMinimumPaneSize();
+                     int lo = wxMax( minPane, extent * 15 / 100 );
+@@ -256,10 +271,15 @@
+                 };
+ 
+         if( m_vsplitter )
+-            panelCfg.sash_pos_v = clampSash( m_vsplitter, panelCfg.sash_pos_v, false );
++        {
++            int healedSashV = clampSash( m_vsplitter, panelCfg.sash_pos_v, false );
+ 
+-        if( m_vsplitter )
+-            m_vsplitter->SetSashPosition( panelCfg.sash_pos_v );
++            if( healedSashV >= 0 )
++            {
++                panelCfg.sash_pos_v = healedSashV;
++                m_vsplitter->SetSashPosition( panelCfg.sash_pos_v );
++            }
++        }
+ 
+         m_adapter->SetSortMode( (LIB_TREE_MODEL_ADAPTER::SORT_MODE) panelCfg.sort_mode );
+     }
