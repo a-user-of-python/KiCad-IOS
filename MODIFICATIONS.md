@@ -2047,3 +2047,58 @@ size on every open, so it is proof against any future scale
 recalibration, and legitimate in-band user sash drags are
 preserved exactly — the patch validates the *result* of a
 restore, never its history.
+
+### KiCad patch 0045 — ios-chooser-layout-heal (round 19, Job U)
+
+`common/dialog_shim.cpp`,
+`eeschema/widgets/panel_symbol_chooser.{cpp,h}`,
+`pcbnew/widgets/panel_footprint_chooser.{cpp,h}`,
+`common/widgets/panel_design_block_chooser.cpp`. Device report:
+in the symbol chooser the preview panes are not visible at all
+(round 18's "squished to the side" became a pane of width 0).
+Forensics (round19-wx / round19-settings / round19-paint)
+convicted the sash restore *pipeline*, not any single value:
+every restore runs before the dialog reaches its final size —
+the panels' `FinishSetup()` at ctor size, then
+`DIALOG_SHIM::LoadControlState()` on InitDialog, which wxQt
+delivers from inside `wxDialog::Show()` — and
+`DIALOG_SHIM::Show()` then applies its grow-only `__geometry`
+restore and resizes the dialog again, with no validation after
+that final resize. The generic splitter applies a restored
+absolute sash verbatim (gravity is suppressed while a sash
+request is pending) and `SizeWindows()` clamps the second
+pane's size at 0. Patch 0044's clamps each had an escape hatch
+for exactly the unsettled case: `FinishSetup()` computed its
+band from the *saved* dialog size (a ghost extent from another
+display-scale era) and `LoadControlState()` applied the banked
+sash verbatim. Saves were never validated by any round, so a
+collapsed close re-banked `GetSashPosition()` ≈ width − 28
+into both stores every era. On the paint side, a preview's
+first paint is a one-shot `ForceRefresh` that silently no-ops
+while its canvas is zero-sized or not yet shown, and
+`FOOTPRINT_PREVIEW_WIDGET`'s already-displayed cache then
+suppresses any retry for the same footprint — so even a healed
+layout could have left the previews blank. The patch:
+(1) `DIALOG_SHIM::Show()` gains a **final sash validation
+pass** at the end of the show path — the first validation that
+runs with the dialog at its final size — band-clamping every
+descendant splitter's sash against its live size (trace
+literal `jobu-shim-sash-final-clamp`); `SaveControlState()`
+clamps the banked sash into the same band at close, and
+`LoadControlState()` now *skips* a restore whose splitter has
+no live extent instead of applying it verbatim.
+(2) The three chooser panels' `FinishSetup()` clamps derive a
+fallback extent from the parent's post-clamp client size and
+skip the restore when no usable extent exists.
+(3) The symbol and footprint chooser panels gain a
+**layout-heal timer** (their existing wxTimer idiom; Qt-backed
+timers fire inside the chooser's true-modal loop), armed at
+`FinishSetup()` and re-armed on every selection: it
+re-validates the sashes at the host's settled size, writes the
+healed values back to the settings struct, and re-displays the
+previews at real canvas sizes — the footprint through the
+preview panel directly, bypassing the widget's
+already-displayed cache (trace literals
+`jobu-chooser-layout-heal`, `jobu-fpchooser-layout-heal`).
+In-band user sash drags are preserved exactly; the pass
+validates results, never history.
