@@ -2105,15 +2105,13 @@ validates results, never history.
 
 ### KiCad patch 0046 — ios-quasimodal-detach (round 19, Job V)
 
-`libs/kiplatform/port/wxqt/ui.cpp` and the qt branch of
-`libs/kiplatform/CMakeLists.txt` (which gains a
-`find_package(Qt6 Widgets)` + include_directories so the
-QtWidgets headers are reachable from the kiplatform target,
-mirroring the gtk branch's GTK3 handling): implements
+`libs/kiplatform/port/wxqt/ui.cpp`: implements
 `KIPLATFORM::UI::ReparentModal` for the wxQt port (a no-op
-stub since patch 0006). Root cause: wxQt constructs a
-dialog's QDialog as a Qt child of its parent frame's widget,
-and `DIALOG_SHIM::ShowQuasiModal()` disables that parent
+stub since patch 0006) by calling
+`wxQtDetachFromQtParent()` (wx patch 0028). Root cause:
+wxQt constructs a dialog's QDialog as a Qt child of its
+parent frame's widget, and
+`DIALOG_SHIM::ShowQuasiModal()` disables that parent
 (WINDOW_DISABLER on the optimal parent) before showing the
 dialog; Qt propagates a widget's disabled state to all its
 descendants — child dialogs included — so every quasi-modal
@@ -2124,14 +2122,25 @@ editor's custom-painted canvas behind it still looked
 normal). True-modal dialogs were unaffected: wxQt's
 ShowModal goes through QDialog::exec(), whose own modal
 machinery manages enablement, and KiCad never disables the
-parent on that path. The fix detaches the dialog from its
-Qt parent widget inside ReparentModal — ShowQuasiModal's
-own platform fixup hook, called after the disabler is
-created and before Show(true) — re-applying the window
-flags that setParent resets. The wx parent chain (lifetime,
-geometry, settings) is untouched; the parent frame stays
-disabled, preserving the quasi-modal contract. Trace
-literal `jobv-modal-detach`. Covers the whole quasi-modal
-class (Board Setup, Schematic Setup if shown quasi-modally,
-and the many property dialogs in the editors' tools), not
-just the reported dialog.
+parent on that path. ReparentModal is ShowQuasiModal's own
+platform fixup hook, called after the disabler is created
+and before Show(true); the detach leaves the wx parent
+chain (lifetime, geometry, settings) untouched and keeps
+the parent frame disabled, preserving the quasi-modal
+contract. Covers the whole quasi-modal class (65 call
+sites; Board Setup is the only quasi-modal paged dialog —
+Schematic Setup and Preferences are true-modal and were
+never affected).
+
+### wx patch 0028 — qt-detach-from-qt-parent (round 19, Job V)
+
+`include/wx/qt/window.h`, `src/qt/window.cpp`: adds
+`wxQtDetachFromQtParent( wxWindow* )`, which detaches a
+window's QWidget from its Qt parent widget (re-applying
+the window flags that QWidget::setParent resets) and
+records the trace literal `jobv-modal-detach`. The Qt
+work lives in wx because the KiCad stage's CMake cannot
+find the Qt package (the iOS toolchain roots find_package
+at the sysroot only, and the Qt kit lives outside it),
+while wx's own sources compile against Qt directly.
+Called from KiCad patch 0046's ReparentModal.
