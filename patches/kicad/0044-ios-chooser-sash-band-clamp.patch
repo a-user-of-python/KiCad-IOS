@@ -1,0 +1,197 @@
+# KiCad-IOS port patch 0044 (KiCad 10.0.1, GPL-3.0)
+# Round 18, Job T: chooser previews squished to the side.
+# The chooser panels persist splitter sash positions as absolute
+# pixels (eeschema/pcbnew settings) and DIALOG_SHIM persists
+# them again in common settings; both restore verbatim, while
+# the dialog size they divide is restored through the port's
+# geometry clamp. After the port's display-scale recalibrations
+# (0.5 -> 0.6 -> 0.75) the saved pair desynchronises and the
+# sash collapses the preview pane to the splitter minimum; the
+# panels' destructors then re-save the pathological value, so
+# it never heals. This patch band-clamps every restored sash
+# to a fraction of its splitter's live size at both restore
+# chokepoints (the three chooser panels' FinishSetup() and
+# DIALOG_SHIM::LoadControlState()) and writes the healed value
+# back so the existing saves re-bank it. In-band user sash
+# drags are preserved exactly.
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0043.
+#
+--- a/eeschema/widgets/panel_symbol_chooser.cpp
++++ b/eeschema/widgets/panel_symbol_chooser.cpp
+@@ -430,6 +430,38 @@
+         if( panelCfg.sash_pos_v < 0 )
+             panelCfg.sash_pos_v = horizPixelsFromDU( 230 );
+ 
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job T,
++        // KiCad patch 0044): the persisted sash positions are absolute
++        // pixels with no scale annotation, while the width restored
++        // above passes through the port's geometry clamp -- after a
++        // display-scale recalibration the two desynchronise, and a
++        // verbatim sash can collapse a pane to the splitter minimum.
++        // Validate each sash against a fraction band of its splitter's
++        // live size and write the healed value back to the settings
++        // struct, so the destructor's unconditional save re-banks the
++        // heal rather than the poison. In-band user drags are
++        // untouched.
++        auto clampSash =
++                [&]( wxSplitterWindow* aSplitter, int aSash, bool aHorizontal ) -> int
++                {
++                    wxSize live = aSplitter->GetSize();
++                    int    extent = aHorizontal ? live.x : live.y;
++
++                    if( extent < 100 )
++                        extent = aHorizontal ? w : h;
++
++                    int minPane = aSplitter->GetMinimumPaneSize();
++                    int lo = wxMax( minPane, extent * 15 / 100 );
++                    int hi = extent * ( aHorizontal ? 65 : 75 ) / 100;
++
++                    return wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
++                };
++
++        panelCfg.sash_pos_h = clampSash( m_hsplitter, panelCfg.sash_pos_h, true );
++
++        if( m_vsplitter )
++            panelCfg.sash_pos_v = clampSash( m_vsplitter, panelCfg.sash_pos_v, false );
++
+         m_hsplitter->SetSashPosition( panelCfg.sash_pos_h );
+ 
+         if( m_vsplitter )
+--- a/pcbnew/widgets/panel_footprint_chooser.cpp
++++ b/pcbnew/widgets/panel_footprint_chooser.cpp
+@@ -274,10 +274,42 @@
+         if( cfg.sash_h < 0 )
+             cfg.sash_h = horizPixelsFromDU( 220 );
+ 
+-        m_hsplitter->SetSashPosition( cfg.sash_h );
+-
+         if( cfg.sash_v < 0 )
+             cfg.sash_v = horizPixelsFromDU( 230 );
++
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job T,
++        // KiCad patch 0044): the persisted sash positions are absolute
++        // pixels with no scale annotation, while the width restored
++        // above passes through the port's geometry clamp -- after a
++        // display-scale recalibration the two desynchronise, and a
++        // verbatim sash can collapse a pane to the splitter minimum.
++        // Validate each sash against a fraction band of its splitter's
++        // live size and write the healed value back to the settings
++        // struct, so the destructor's unconditional save re-banks the
++        // heal rather than the poison. In-band user drags are
++        // untouched.
++        auto clampSash =
++                [&]( wxSplitterWindow* aSplitter, int aSash, bool aHorizontal ) -> int
++                {
++                    wxSize live = aSplitter->GetSize();
++                    int    extent = aHorizontal ? live.x : live.y;
++
++                    if( extent < 100 )
++                        extent = aHorizontal ? w : h;
++
++                    int minPane = aSplitter->GetMinimumPaneSize();
++                    int lo = wxMax( minPane, extent * 15 / 100 );
++                    int hi = extent * ( aHorizontal ? 65 : 75 ) / 100;
++
++                    return wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
++                };
++
++        cfg.sash_h = clampSash( m_hsplitter, cfg.sash_h, true );
++
++        if( m_vsplitter )
++            cfg.sash_v = clampSash( m_vsplitter, cfg.sash_v, false );
++
++        m_hsplitter->SetSashPosition( cfg.sash_h );
+ 
+         if( m_vsplitter )
+             m_vsplitter->SetSashPosition( cfg.sash_v );
+--- a/common/widgets/panel_design_block_chooser.cpp
++++ b/common/widgets/panel_design_block_chooser.cpp
+@@ -228,6 +228,36 @@
+         if( panelCfg.sash_pos_v < 0 )
+             panelCfg.sash_pos_v = horizPixelsFromDU( 230 );
+ 
++        // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job T,
++        // KiCad patch 0044): the persisted sash positions are absolute
++        // pixels with no scale annotation, while the width restored
++        // above passes through the port's geometry clamp -- after a
++        // display-scale recalibration the two desynchronise, and a
++        // verbatim sash can collapse a pane to the splitter minimum.
++        // Validate each sash against a fraction band of its splitter's
++        // live size and write the healed value back to the settings
++        // struct, so the destructor's unconditional save re-banks the
++        // heal rather than the poison. In-band user drags are
++        // untouched.
++        auto clampSash =
++                [&]( wxSplitterWindow* aSplitter, int aSash, bool aHorizontal ) -> int
++                {
++                    wxSize live = aSplitter->GetSize();
++                    int    extent = aHorizontal ? live.x : live.y;
++
++                    if( extent < 100 )
++                        extent = aHorizontal ? w : h;
++
++                    int minPane = aSplitter->GetMinimumPaneSize();
++                    int lo = wxMax( minPane, extent * 15 / 100 );
++                    int hi = extent * ( aHorizontal ? 65 : 75 ) / 100;
++
++                    return wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
++                };
++
++        if( m_vsplitter )
++            panelCfg.sash_pos_v = clampSash( m_vsplitter, panelCfg.sash_pos_v, false );
++
+         if( m_vsplitter )
+             m_vsplitter->SetSashPosition( panelCfg.sash_pos_v );
+ 
+--- a/common/dialog_shim.cpp
++++ b/common/dialog_shim.cpp
+@@ -40,6 +40,7 @@
+ 
+ #include <wx/display.h>
+ #include <wx/evtloop.h>
++#include <wx/log.h>
+ #include <wx/app.h>
+ #include <wx/event.h>
+ #include <wx/grid.h>
+@@ -772,7 +773,39 @@
+                         else if( wxSplitterWindow* splitter = dynamic_cast<wxSplitterWindow*>( win ) )
+                         {
+                             if( j.is_number_integer() )
+-                                splitter->SetSashPosition( j.get<int>() );
++                            {
++                                // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job T, KiCad patch 0044):
++                                // persisted sash positions are absolute
++                                // pixels and desynchronise from the dialog
++                                // size across this port's display-scale
++                                // recalibrations; restored verbatim they
++                                // can collapse a pane to the splitter
++                                // minimum (and this restore runs after
++                                // the chooser panels' own, so it has the
++                                // last word in dialog hosts). Band-clamp
++                                // the value against the splitter's live
++                                // size -- the splitter is laid out by
++                                // InitDialog time -- and the next
++                                // SaveControlState() re-banks the heal.
++                                wxLogTrace( wxT( "KICAD_IOS" ),
++                                            wxT( "jobt-shim-sash-band-clamp" ) );
++
++                                int  sash = j.get<int>();
++                                bool horizontal = splitter->GetSplitMode() == wxSPLIT_VERTICAL;
++                                wxSize live = splitter->GetSize();
++                                int    extent = horizontal ? live.x : live.y;
++
++                                if( extent >= 100 )
++                                {
++                                    int minPane = splitter->GetMinimumPaneSize();
++                                    int lo = wxMax( minPane, extent * 15 / 100 );
++                                    int hi = extent * ( horizontal ? 65 : 75 ) / 100;
++
++                                    sash = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++                                }
++
++                                splitter->SetSashPosition( sash );
++                            }
+                         }
+                         else if( wxScrolledWindow* scrolled = dynamic_cast<wxScrolledWindow*>( win ) )
+                         {
