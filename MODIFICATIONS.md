@@ -2102,3 +2102,32 @@ already-displayed cache (trace literals
 `jobu-chooser-layout-heal`, `jobu-fpchooser-layout-heal`).
 In-band user sash drags are preserved exactly; the pass
 validates results, never history.
+
+### KiCad patch 0046 — ios-quasimodal-detach (round 19, Job V)
+
+`libs/kiplatform/port/wxqt/ui.cpp`: implements
+`KIPLATFORM::UI::ReparentModal` for the wxQt port (a no-op
+stub since patch 0006). Root cause: wxQt constructs a
+dialog's QDialog as a Qt child of its parent frame's widget,
+and `DIALOG_SHIM::ShowQuasiModal()` disables that parent
+(WINDOW_DISABLER on the optimal parent) before showing the
+dialog; Qt propagates a widget's disabled state to all its
+descendants — child dialogs included — so every quasi-modal
+dialog rendered with the disabled palette and refused input
+for its whole session (on device: Board Setup opened fully
+painted on the correct page but grey and dead, while the
+editor's custom-painted canvas behind it still looked
+normal). True-modal dialogs were unaffected: wxQt's
+ShowModal goes through QDialog::exec(), whose own modal
+machinery manages enablement, and KiCad never disables the
+parent on that path. The fix detaches the dialog from its
+Qt parent widget inside ReparentModal — ShowQuasiModal's
+own platform fixup hook, called after the disabler is
+created and before Show(true) — re-applying the window
+flags that setParent resets. The wx parent chain (lifetime,
+geometry, settings) is untouched; the parent frame stays
+disabled, preserving the quasi-modal contract. Trace
+literal `jobv-modal-detach`. Covers the whole quasi-modal
+class (Board Setup, Schematic Setup if shown quasi-modally,
+and the many property dialogs in the editors' tools), not
+just the reported dialog.
