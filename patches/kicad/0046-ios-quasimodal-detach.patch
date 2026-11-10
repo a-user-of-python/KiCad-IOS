@@ -1,23 +1,6 @@
---- a/libs/kiplatform/CMakeLists.txt
-+++ b/libs/kiplatform/CMakeLists.txt
-@@ -19,6 +19,14 @@
-         port/wxqt/ui.cpp
-         port/wxqt/webview.cpp
-         )
-+
-+    # [KiCad-IOS port, patch 0046] ui.cpp's ReparentModal works on
-+    # the dialog's QWidget directly (detaching it from the disabled
-+    # parent frame), so the QtWidgets headers must be reachable
-+    # from this target -- same shape as the gtk branch's GTK3
-+    # include_directories below.
-+    find_package( Qt6 REQUIRED COMPONENTS Widgets )
-+    include_directories( SYSTEM ${Qt6Widgets_INCLUDE_DIRS} )
- elseif( KICAD_WX_PORT STREQUAL gtk )
-     set( PLATFORM_SRCS
-         port/wxgtk/ui.cpp
 --- a/libs/kiplatform/port/wxqt/ui.cpp
 +++ b/libs/kiplatform/port/wxqt/ui.cpp
-@@ -29,19 +29,26 @@
+@@ -29,7 +29,11 @@
   * work around native-toolkit behaviour on macOS/GTK (child-window
   * ordering, cmd-key collisions, cell-layout hacks, Wayland pointer
   * confinement, overlay scrolling, IME fixups) are no-ops here, exactly
@@ -26,67 +9,42 @@
 + * exception is ReparentModal, which must undo a real Qt behaviour
 + * (enabled-state propagation from a disabled parent widget into its
 + * child dialogs) that has no equivalent on the other toolkits; see
-+ * KiCad patch 0046.
++ * KiCad patch 0046 and wx patch 0028.
   */
  
  #include <kiplatform/ui.h>
- 
- #include <wx/choice.h>
- #include <wx/dialog.h>
-+#include <wx/log.h>
- #include <wx/nonownedwnd.h>
- #include <wx/settings.h>
- #include <wx/toplevel.h>
+@@ -42,6 +46,8 @@
  #include <wx/utils.h>
  #include <wx/window.h>
  
-+#include <QWidget>
++#include <wx/qt/window.h>
 +
  
  bool KIPLATFORM::UI::IsDarkTheme()
  {
-@@ -101,7 +108,43 @@
+@@ -101,7 +107,24 @@
  
  void KIPLATFORM::UI::ReparentModal( wxNonOwnedWindow* aWindow )
  {
 -    // macOS child-window ordering only; not needed under Qt
-+    // [KiCad-IOS port, patch 0046] Not a no-op under Qt.  wxQt
-+    // constructs a dialog's QDialog as a Qt child of its parent
-+    // frame's widget (wxQtEventSignalHandler passes the parent's
-+    // GetHandle() to the QWidget constructor).  ShowQuasiModal()
-+    // disables that parent (WINDOW_DISABLER on the optimal parent)
-+    // before showing the dialog, and Qt propagates a widget's
-+    // disabled state to all of its descendants -- child dialogs
-+    // included -- so a quasi-modal dialog renders with the disabled
-+    // palette and refuses input for its whole session (on device:
-+    // Board Setup opened fully painted but grey and dead).  On the
-+    // other toolkits a dialog's native window is independent of its
-+    // parent's enabled state, and true-modal QDialog::exec()
-+    // sessions are managed by Qt's own modal machinery, which is
-+    // why only the quasi-modal path is affected.
-+    //
-+    // Detach the dialog from its Qt parent -- the wx parent chain,
-+    // which owns lifetime and geometry, is untouched -- so the
-+    // dialog stays enabled in front of the disabled frame.  Called
-+    // by ShowQuasiModal() after the disabler is created and before
-+    // Show(true), so the widget is still hidden and window flags
-+    // are re-applied after the reparent (setParent resets them).
-+    if( !aWindow )
-+        return;
-+
-+    QWidget* widget = static_cast<QWidget*>( aWindow->GetHandle() );
-+
-+    if( widget && widget->parentWidget() )
-+    {
-+        const Qt::WindowFlags flags = widget->windowFlags();
-+
-+        widget->setParent( nullptr );
-+        widget->setWindowFlags( flags );
-+
-+        wxLogTrace( wxT( "jobv-modal-detach" ),
-+                    wxT( "ReparentModal: detached quasi-modal dialog "
-+                         "from its Qt parent widget" ) );
-+    }
++    // [KiCad-IOS port, patch 0046] Not a no-op under Qt.
++    // ShowQuasiModal() disables the dialog's parent frame
++    // (WINDOW_DISABLER on the optimal parent) before showing the
++    // dialog, and wxQt constructs the dialog's QDialog as a Qt
++    // child of that frame's widget, so Qt's disabled-state
++    // propagation greys the dialog and refuses its input for the
++    // whole modal session (on device: Board Setup opened fully
++    // painted but disabled).  True-modal dialogs are unaffected:
++    // wxQt's ShowModal goes through QDialog::exec(), whose own
++    // modal machinery manages enablement, and the parent is
++    // never disabled on that path.  Detach the dialog from its
++    // Qt parent (wx patch 0028); the wx parent chain, which
++    // owns lifetime and geometry, is untouched, and the frame
++    // stays disabled, preserving the quasi-modal contract.
++    // ShowQuasiModal calls this after creating the disabler and
++    // before Show(true), while the dialog is still hidden.
++    if( aWindow )
++        wxQtDetachFromQtParent( aWindow );
  }
  
  
