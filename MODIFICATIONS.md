@@ -2105,7 +2105,11 @@ validates results, never history.
 
 ### KiCad patch 0046 — ios-quasimodal-detach (round 19, Job V)
 
-`libs/kiplatform/port/wxqt/ui.cpp`: implements
+`libs/kiplatform/port/wxqt/ui.cpp` and the qt branch of
+`libs/kiplatform/CMakeLists.txt` (which gains a
+`find_package(Qt6 Widgets)` + include_directories so the
+QtWidgets headers are reachable from the kiplatform target,
+mirroring the gtk branch's GTK3 handling): implements
 `KIPLATFORM::UI::ReparentModal` for the wxQt port (a no-op
 stub since patch 0006). Root cause: wxQt constructs a
 dialog's QDialog as a Qt child of its parent frame's widget,
