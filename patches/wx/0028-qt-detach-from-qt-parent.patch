@@ -1,0 +1,74 @@
+# KiCad-IOS port patch 0028 (wxWidgets v3.3, wxWindows licence)
+# Round 19, Job V: add wxQtDetachFromQtParent() -- detaches a
+# window's QWidget from its Qt parent widget without touching
+# the wx parent chain. KiCad's ShowQuasiModal() disables the
+# dialog's parent frame for the modal session; wxQt builds a
+# dialog's QDialog as a Qt child of that frame's widget, and Qt
+# propagates the disabled state to all descendants, so every
+# quasi-modal dialog opened fully painted but grey and dead
+# (device report: Board Setup, 2026-11-10). Detaching the
+# dialog's QWidget before it is shown keeps it enabled in
+# front of the disabled frame. Called from KiCad's
+# KIPLATFORM::UI::ReparentModal (KiCad patch 0046).
+# Apply with: patch -p1 (from the wx source root), after
+# patches 0001-0027.
+#
+#
+--- a/include/wx/qt/window.h
++++ b/include/wx/qt/window.h
+@@ -282,4 +282,13 @@
+     wxDECLARE_DYNAMIC_CLASS_NO_COPY( wxWindowQt );
+ };
+ 
++// [KiCad-IOS port, wx patch 0028] Detach a window's QWidget from
++// its Qt parent widget (the wx parent chain is untouched).  Used
++// for quasi-modal dialogs: their parents are disabled for the
++// duration of the modal session, and Qt propagates a disabled
++// widget's state to its descendants -- including child dialogs,
++// which would otherwise render disabled and refuse input.  See
++// src/qt/window.cpp.
++WXDLLIMPEXP_CORE void wxQtDetachFromQtParent( wxWindow* window );
++
+ #endif // _WX_QT_WINDOW_H_
+--- a/src/qt/window.cpp
++++ b/src/qt/window.cpp
+@@ -2094,3 +2094,39 @@
+ 
+     return true;
+ }
++
++// [KiCad-IOS port, wx patch 0028] See the declaration in
++// wx/qt/window.h.  wxQt constructs a dialog's QDialog as a Qt
++// child of its parent frame's widget (wxQtEventSignalHandler
++// passes the parent's handle to the QWidget constructor), and
++// Qt's QWidgetPrivate::setEnabled_helper stamps the disabled
++// state onto every descendant when the parent is disabled --
++// child dialogs included, with no window exemption on the
++// disable path.  KiCad's ShowQuasiModal disables the parent
++// frame for the modal session, so without this detach a
++// quasi-modal dialog (e.g. Board Setup) opens fully painted
++// but disabled and can never be interacted with.  Detaching
++// the dialog's QWidget from its Qt parent -- the wx parent
++// chain, which owns lifetime and geometry, is unchanged --
++// leaves it enabled in front of the disabled frame.  Window
++// flags are re-applied after the reparent because
++// QWidget::setParent resets them.
++void wxQtDetachFromQtParent( wxWindow* window )
++{
++    if( !window )
++        return;
++
++    QWidget* widget = window->GetHandle();
++
++    if( widget && widget->parentWidget() )
++    {
++        const Qt::WindowFlags flags = widget->windowFlags();
++
++        widget->setParent( nullptr );
++        widget->setWindowFlags( flags );
++
++        wxLogTrace( wxT( "jobv-modal-detach" ),
++                    wxT( "detached quasi-modal dialog from its "
++                         "Qt parent widget" ) );
++    }
++}
