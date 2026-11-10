@@ -1,0 +1,128 @@
+# KiCad-IOS port patch 0043 (KiCad 10.0.1, GPL-3.0)
+# Round 18, Job R: Board Setup "seems to freeze" on open.
+# PAGED_DIALOG leaves a childless parent node selected in
+# TransferDataToWindow() and the two setup dialogs rely on a
+# ctor-queued synthetic PAGE_CHANGED event to trigger the
+# redirect to the first sub-page. Board Setup runs quasi-modally
+# in its own wxGUIEventLoop; on this port that single queued
+# event is the dialog's only path to a usable first page, and
+# when it fails to arrive the user faces an empty shell over a
+# disabled parent frame -- an apparent freeze. This patch (1)
+# performs the redirect synchronously in
+# PAGED_DIALOG::TransferDataToWindow() via ChangeSelection(),
+# (2) deletes both ctors' queued synthetic events, and (3) makes
+# DIALOG_BOARD_SETUP::onPageChanged derive the page from the
+# treebook's live selection so a stale event can no longer
+# desync its m_currentPage bookkeeping.
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0042.
+#
+--- a/common/widgets/paged_dialog.cpp
++++ b/common/widgets/paged_dialog.cpp
+@@ -31,6 +31,7 @@
+ #include <wx/treebook.h>
+ #include <wx/treectrl.h>
+ #include <wx/listctrl.h>
++#include <wx/log.h>
+ #include <wx/stc/stc.h>
+ 
+ #include <paths.h>
+@@ -248,6 +249,30 @@
+ 
+     lastPageIndex = std::max( 0, lastPageIndex );
+     m_treebook->SetSelection( lastPageIndex );
++
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job R,
++    // KiCad patch 0043): perform onPageChanged()'s parent-node redirect
++    // synchronously. Upstream leaves a childless parent node selected
++    // here and relies on the setup dialogs queueing a synthetic
++    // PAGE_CHANGED event from their ctors to trigger the redirect to
++    // the first sub-page. On this port that queued event is not a
++    // reliable delivery channel: Board Setup runs quasi-modally in its
++    // own wxGUIEventLoop, where the event can fail to arrive, leaving
++    // an empty dialog shell facing a disabled parent frame -- an
++    // apparent freeze. ChangeSelection() runs the same handler chain
++    // inline, before any modal loop starts, with the true selection;
++    // the setup-dialog ctors no longer queue the synthetic event.
++    wxWindow* currentPage = m_treebook->GetCurrentPage();
++
++    if( currentPage && currentPage->GetChildren().IsEmpty()
++            && lastPageIndex + 1 < (int) m_treebook->GetPageCount()
++            && m_treebook->IsNodeExpanded( lastPageIndex ) )
++    {
++        wxLogTrace( wxT( "KICAD_IOS" ), wxT( "jobr-paged-first-page-sync" ) );
++        m_treebook->ChangeSelection( lastPageIndex + 1 );
++        lastPageIndex = m_treebook->GetSelection();
++    }
++
+     UpdateResetButton( lastPageIndex );
+ 
+     return true;
+--- a/pcbnew/dialogs/dialog_board_setup.cpp
++++ b/pcbnew/dialogs/dialog_board_setup.cpp
+@@ -54,6 +54,7 @@
+ #include <advanced_config.h>
+ #include <dialog_board_setup.h>
+ #include <footprint.h>
++#include <wx/log.h>
+ 
+ 
+ #define RESOLVE_PAGE( T, pageIndex ) static_cast<T*>( m_treebook->ResolvePage( pageIndex ) )
+@@ -274,9 +275,15 @@
+                                 wxICON_WARNING );
+     }
+ 
+-    wxBookCtrlEvent evt( wxEVT_TREEBOOK_PAGE_CHANGED, wxID_ANY, 0 );
+-
+-    wxQueueEvent( m_treebook, evt.Clone() );
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job R,
++    // KiCad patch 0043): upstream queued a synthetic PAGE_CHANGED( 0 )
++    // event here to trigger the first-page redirect in
++    // PAGED_DIALOG::onPageChanged. That redirect now happens
++    // synchronously in PAGED_DIALOG::TransferDataToWindow(), and the
++    // queued event is deleted: on this port its delivery inside the
++    // quasi-modal loop was unreliable (the Board Setup "freeze"), and
++    // its stale selection 0 desynced the m_currentPage bookkeeping in
++    // onPageChanged below.
+ }
+ 
+ 
+@@ -289,7 +296,17 @@
+ {
+     PAGED_DIALOG::onPageChanged( aEvent );
+ 
+-    size_t page = aEvent.GetSelection();
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job R,
++    // KiCad patch 0043): derive the page from the treebook's live
++    // selection, not the event's. A synthetic or stale PAGE_CHANGED
++    // event would otherwise desync m_currentPage and run the stackup
++    // cross-panel sync for the wrong transition.
++    wxLogTrace( wxT( "KICAD_IOS" ), wxT( "jobr-board-setup-live-selection" ) );
++
++    int livePage = m_treebook->GetSelection();
++
++    size_t page = livePage != wxNOT_FOUND ? static_cast<size_t>( livePage )
++                                          : static_cast<size_t>( aEvent.GetSelection() );
+ 
+     if( m_physicalStackupPage > 0 )     // Don't run this during initialization
+     {
+--- a/eeschema/dialogs/dialog_schematic_setup.cpp
++++ b/eeschema/dialogs/dialog_schematic_setup.cpp
+@@ -155,9 +155,14 @@
+                                 wxICON_WARNING );
+     }
+ 
+-    wxBookCtrlEvent evt( wxEVT_TREEBOOK_PAGE_CHANGED, wxID_ANY, 0 );
+-
+-    wxQueueEvent( m_treebook, evt.Clone() );
++    // [KiCad-IOS port] Modified 2026-11-09 for iOS (round 18, Job R,
++    // KiCad patch 0043): upstream queued a synthetic PAGE_CHANGED( 0 )
++    // event here to trigger the first-page redirect in
++    // PAGED_DIALOG::onPageChanged. That redirect now happens
++    // synchronously in PAGED_DIALOG::TransferDataToWindow(); the
++    // queued event is deleted (on this port its delivery was the
++    // Board Setup freeze mechanism, whose structure this dialog
++    // shares).
+ }
+ 
+ 
