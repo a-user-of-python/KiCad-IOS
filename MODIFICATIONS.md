@@ -1957,3 +1957,93 @@ display rather than fixed numbers. Behaviour changes only
 when a best size exceeds the display — precisely the broken
 case, and precisely the limit the clamp already imposes on
 the dialog's size.
+
+### wx patch 0027 — qt-ios-desktop-scale-075 (round 18, Job S)
+
+`src/qt/app.cpp`, iOS only — the `wxQtIosDesktopScaleFactor()`
+helper introduced by patch 0022 and calibrated by patch 0023.
+One constant: `QT_SCALE_FACTOR` 0.6 → **0.75**, set in
+`wxApp::Initialize` before `QApplication` construction, exactly
+as before. The device verdict on the 0.6 build asked for the
+size at 75%: the effective devicePixelRatio is now 2 × 0.75 =
+**1.5**, every UI element renders 25% larger than at 0.6, and
+the logical workspace is still derived live from the display
+by the QPA (display pixels / effective ratio) — no resolution
+is hardcoded anywhere, and the desktop-monitor model is
+unchanged. The shipped-binary proof is the scale gate
+(`QT_SCALE_FACTOR` + `"0.75"` in the helper, executed from
+`wxApp::Initialize`).
+
+### KiCad patch 0043 — ios-paged-dialog-sync-first-page (round 18, Job R)
+
+`common/widgets/paged_dialog.cpp`,
+`pcbnew/dialogs/dialog_board_setup.cpp`,
+`eeschema/dialogs/dialog_schematic_setup.cpp`. Device report:
+opening **Board Setup** in the PCB editor "seems to freeze"
+the app. Forensics (round18-jobr) convicted the delivery
+mechanism of the dialog's first usable page: `PAGED_DIALOG::
+TransferDataToWindow()`'s `SetSelection()` is a no-op when the
+resting selection is already the childless "Board Stackup"
+parent node, so the *only* trigger that ever shows a real page
+is the constructor-queued synthetic `PAGE_CHANGED(0)` event,
+whose handler redirects parent → first sub-page. Board Setup
+is the only paged dialog run quasi-modally (its own
+`wxGUIEventLoop`, parent frame disabled): if that one queued
+wx event is lost, starved or reordered on wxQt, the user sits
+in a live quasi loop facing an empty shell — a freeze with no
+crash. The patch removes the asynchronous dependency: (1)
+`TransferDataToWindow()` now performs `onPageChanged()`'s
+parent-node redirect **synchronously** via `ChangeSelection()`
+(same expanded-node/childless conditions, so lazy resolution
+order and restored-page behaviour are preserved) before any
+modal loop starts; (2) both setup-dialog constructors stop
+queueing the synthetic event — it was also *stale*, its fixed
+selection 0 corrupting `DIALOG_BOARD_SETUP`'s `m_currentPage`
+bookkeeping; (3) `DIALOG_BOARD_SETUP::onPageChanged` derives
+the page from `m_treebook->GetSelection()` instead of the
+event's selection, so no stale event can desync it again.
+`ShowQuasiModal()` itself is untouched — the quasi mode exists
+for the Scintilla auto-complete and is not the defect.
+Schematic Setup shares the queued-event structure (true-modal)
+and is fixed by the same patch. Trace literals
+`jobr-paged-first-page-sync` and
+`jobr-board-setup-live-selection` mark the paths in the
+shipped binaries.
+
+### KiCad patch 0044 — ios-chooser-sash-band-clamp (round 18, Job T)
+
+`eeschema/widgets/panel_symbol_chooser.cpp`,
+`pcbnew/widgets/panel_footprint_chooser.cpp`,
+`common/widgets/panel_design_block_chooser.cpp`,
+`common/dialog_shim.cpp`. Device report: in the symbol
+chooser the symbol and footprint preview areas render but are
+"squished to the side". Forensics (round18-jobt) convicted
+absolute-pixel sash persistence restored verbatim against a
+clamped dialog size: the panels persist sash positions as raw
+pixels (`symbol_chooser.sash_pos_h`, `footprint_chooser.
+sash_h/sash_v`, `design_block_chooser.sash_pos_v`) and restore
+them with no validation beyond `< 0 → default`, while the
+dialog width they divide *is* validated — it passes through
+the port's geometry clamp. This port has recalibrated its
+display scale twice (0.5 → 0.6, now 0.75), and splitter
+gravity manufactures desync even without a scale change; the
+result is a sash at or beyond the live width, which
+`wxSplitterWindow` resolves into a minimum-width sliver for
+the right pane — the pane holding both previews. Worse, the
+panels' destructors unconditionally re-save the pathological
+position, so it never heals; and in dialog hosts
+`DIALOG_SHIM::LoadControlState()` restores a second,
+independent copy of the same sashes *after* the panels' own
+restore, so it has the last word. The patch band-clamps every
+restored sash to a fraction of its splitter's **live** size —
+horizontal sashes to [max(minimum pane, 15%), 65%], vertical
+to [max(minimum pane, 15%), 75%] — at both chokepoints: the
+three chooser panels' `FinishSetup()` (writing the healed
+value back into the settings struct, so the existing
+destructor save re-banks the heal) and the generic splitter
+branch of `DIALOG_SHIM::LoadControlState()` (trace literal
+`jobt-shim-sash-band-clamp`). The band is recomputed from live
+size on every open, so it is proof against any future scale
+recalibration, and legitimate in-band user sash drags are
+preserved exactly — the patch validates the *result* of a
+restore, never its history.
