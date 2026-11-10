@@ -1,3 +1,20 @@
+--- a/libs/kiplatform/CMakeLists.txt
++++ b/libs/kiplatform/CMakeLists.txt
+@@ -19,6 +19,14 @@
+         port/wxqt/ui.cpp
+         port/wxqt/webview.cpp
+         )
++
++    # [KiCad-IOS port, patch 0046] ui.cpp's ReparentModal works on
++    # the dialog's QWidget directly (detaching it from the disabled
++    # parent frame), so the QtWidgets headers must be reachable
++    # from this target -- same shape as the gtk branch's GTK3
++    # include_directories below.
++    find_package( Qt6 REQUIRED COMPONENTS Widgets )
++    include_directories( SYSTEM ${Qt6Widgets_INCLUDE_DIRS} )
+ elseif( KICAD_WX_PORT STREQUAL gtk )
+     set( PLATFORM_SRCS
+         port/wxgtk/ui.cpp
 --- a/libs/kiplatform/port/wxqt/ui.cpp
 +++ b/libs/kiplatform/port/wxqt/ui.cpp
 @@ -29,19 +29,26 @@
