@@ -55,9 +55,10 @@ Every tool in the manager's launcher column is present and opens in its own wind
 
 ## 🖐️ Display & input
 
-- **Real windows with titlebar controls.** Every window and dialog carries a titlebar strip at the top — title on the left, **Minimize** and **Close** on the right, Windows-style — integrated as window chrome, not an overlay.
+- **Real windows with titlebar controls.** Every window and dialog carries a titlebar strip at the top — title on the left, **Minimize** and **Close** on the right, Windows-style.
 - **Draggable windows.** Drag a window by its titlebar strip. A maximised window un-maximises and follows the drag.
-- **Full screen at natural scale.** Windows open maximised and fill the display; the interface renders at the panel's true scale. No black bars, no magnification.
+- **Full screen at desktop scale.** Windows open maximised and fill the display; the interface lays out the way it does on a desktop monitor, sized a step up from the panel's raw pixel grid for readability. No black bars.
+- **Dialogs keep their buttons.** A dialog's titlebar strip never resizes the dialog, so OK and Cancel stay inside the window no matter how many times it opens — and the strip passes taps through to the content beneath it everywhere except its own buttons.
 - **Every window fits its display.** Windows and dialogs are clamped to the live geometry of the display they are on — the app queries the display at runtime and hardcodes no resolution — so Close and OK buttons stay reachable.
 - **Pinch zoom and two-finger pan.** In both the Schematic and PCB editors, a pinch zooms at its centre through KiCad's own view machinery, and a two-finger drag pans.
 - **Smoother window moves.** Drag moves are coalesced and canvas resizes are deferred until the size settles, so moving a window doesn't redraw it a size at a time.

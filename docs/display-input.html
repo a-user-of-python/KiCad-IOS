@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Display &amp; Input — KiCad‑iOS</title>
-<meta name="description" content="Window chrome and input on iPad: per-window titlebar strips, drag-by-titlebar, full-screen natural scale, universal window clamping from live display geometry, pinch zoom and two-finger pan in both editors, an optional virtual cursor, hardware keyboard and mouse fixes, and an external-display Ext control.">
+<meta name="description" content="Window chrome and input on iPad: per-window titlebar strips, drag-by-titlebar, full-screen desktop scale, universal window clamping from live display geometry, pinch zoom and two-finger pan in both editors, an optional virtual cursor, hardware keyboard and mouse fixes, and an external-display Ext control.">
 <style>
   :root{
     --bg:#0a0d12;
@@ -206,8 +206,8 @@
         <p>The strip is the drag surface. A press that moves past a small threshold drags the window — including a maximised editor, which un-maximises and follows — and a press that doesn't is a tap on the buttons. Minimize docks the window to a strip at the left edge; a tap on the dock restores it, titlebar and all.</p>
       </div>
       <div class="card">
-        <h3>Full screen, natural scale</h3>
-        <p>Windows open filling the screen — no black bands, no magnification. The app declares a real launch screen and full-screen presentation, and frames maximise on open regardless of geometry persisted by older builds.</p>
+        <h3>Full screen, desktop scale</h3>
+        <p>Windows open filling the screen — no black bands. The interface lays out at desktop-monitor scale, a step up from the panel's raw pixel grid for readability. The app declares a real launch screen and full-screen presentation, and frames maximise on open regardless of geometry persisted by older builds.</p>
       </div>
       <div class="card">
         <h3>Every window fits its display</h3>
