@@ -2103,44 +2103,117 @@ already-displayed cache (trace literals
 In-band user sash drags are preserved exactly; the pass
 validates results, never history.
 
-### KiCad patch 0046 — ios-quasimodal-detach (round 19, Job V)
+### wx patch 0029 — qt-ios-safe-area-clamp (round 20, Bug 2)
+`src/qt/utils.cpp` — the universal top-level clamp (wx patch
+0017) targeted `QScreen::availableGeometry()` only. This port
+opted into full screen and wx top-levels have no QLayout, so
+nothing reserved the iOS status-bar / safe-area inset for
+dialog content, and large dialogs clamped to the available top
+landed with their top row (the LIB_TREE Filter row in the
+choosers) underneath the system status bar (device report,
+round 20). The clamp now targets the SAFE rect: the per-window
+`QWindow::safeAreaMargins()` expressed as absolute screen
+coordinates and maxed/minned against the available rect, so
+the inset applies exactly once whether or not
+availableGeometry already excludes the bar, and an external
+display (zero margins) is unaffected. Inset lives only inside
+the idempotent clamp — no strip or dialog code changes — so
+the round-17 dialog-growth ratchet cannot relapse. Trace
+literal `round20-safe-area-clamp`.
 
-`libs/kiplatform/port/wxqt/ui.cpp`: implements
-`KIPLATFORM::UI::ReparentModal` for the wxQt port (a no-op
-stub since patch 0006) by calling
-`wxQtDetachFromQtParent()` (wx patch 0028). Root cause:
-wxQt constructs a dialog's QDialog as a Qt child of its
-parent frame's widget, and
-`DIALOG_SHIM::ShowQuasiModal()` disables that parent
-(WINDOW_DISABLER on the optimal parent) before showing the
-dialog; Qt propagates a widget's disabled state to all its
-descendants — child dialogs included — so every quasi-modal
-dialog rendered with the disabled palette and refused input
-for its whole session (on device: Board Setup opened fully
-painted on the correct page but grey and dead, while the
-editor's custom-painted canvas behind it still looked
-normal). True-modal dialogs were unaffected: wxQt's
-ShowModal goes through QDialog::exec(), whose own modal
-machinery manages enablement, and KiCad never disables the
-parent on that path. ReparentModal is ShowQuasiModal's own
-platform fixup hook, called after the disabler is created
-and before Show(true); the detach leaves the wx parent
-chain (lifetime, geometry, settings) untouched and keeps
-the parent frame disabled, preserving the quasi-modal
-contract. Covers the whole quasi-modal class (65 call
-sites; Board Setup is the only quasi-modal paged dialog —
-Schematic Setup and Preferences are true-modal and were
-never affected).
+### wx patch 0030 — qt-detach-preserve-geometry (round 20, Bug 3)
+`src/qt/window.cpp` — wx patch 0028's
+`wxQtDetachFromQtParent()` did setParent(nullptr) + flag
+restore and nothing else. Round 20's diagnosis convicted that
+detach as the only change to the quasi-modal show sequence
+since the same dialogs opened visible in round 18; on device
+the properties dialogs now never appear at all. The detach now
+captures the widget's frame geometry before the reparent and
+re-asserts it afterwards, and traces both rects (literal
+`round20-detach-geometry`).
+
+### KiCad patch 0047 — ios-chooser-sash-snap (round 20, Bug 1)
+Snap, don't clamp. Round 19's band heal clamped a poisoned
+(upgrade-carried, collapsed-close) sash to the band's edge and
+every save path re-banked the edge value, pinning the chooser
+previews in the narrowest allowed column forever. The symbol
+and footprint chooser heal timers now reset a restored sash
+outside the sane restore band (horizontal [20%, 50%],
+vertical [20%, 65%]) to the upstream-intended split of the
+live extent (45% / 65%), and set the hsplitter's sash gravity
+to the healed proportion so resizes stop ratcheting tree-ward.
+`DIALOG_SHIM::Show()`'s final pass and `SaveControlState()`
+apply the conservative poison-signature snap (>60%/<10%
+horizontal, >70%/<10% vertical) on restore and on save for
+every dialog host. The design-block chooser's FinishSetup
+gets the same snap (it is AUI-pane-hosted, not dialog-hosted
+as patch 0045 assumed, so it had no other final-size check),
+and PCM's `SetSashOnIdle()` restore — which ran after the
+host dialog's shim validation and silently defeated it — now
+signature-checks the persisted sash first. Literals:
+`round20-symchooser-sash-snap`, `round20-fpchooser-sash-snap`,
+`round20-shim-sash-snap`, `round20-designblock-sash-snap`,
+`round20-pcm-sash-snap`.
+
+### KiCad patch 0048 — ios-quasimodal-visibility-order (round 20, Bug 3)
+`common/dialog_shim.cpp` — `ShowQuasiModal()` reordered to
+the visibility-before-disablement sequence the working
+`KIWAY_PLAYER::ShowModal` already uses: detach
+(`ReparentModal`) first, then `Show(true)`, then `Raise()`,
+and the `WINDOW_DISABLER` is created only after the dialog is
+visible and raised. Previously the disabler ran first and the
+hidden dialog was detached and shown with no raise anywhere
+on the path; on iOS the modal loop then ran with no dialog on
+screen (double-click a component: buttons dead, canvas alive,
+no properties dialog). Post-Show state is traced (literal
+`round20-quasimodal-show-state`), and a dialog that does not
+report itself shown at a real size sets a status-bar
+breadcrumb on the parent frame. The true-modal
+`ShowModal()`/`QDialog::exec()` path is untouched — it works
+on device through Qt modality.
 
 ### wx patch 0028 — qt-detach-from-qt-parent (round 19, Job V)
+`src/qt/window.cpp` + `include/wx/qt/window.h` — adds
+`wxQtDetachFromQtParent()`: detaches a window's QWidget from
+its Qt parent widget (wx parent chain untouched) so a
+quasi-modal dialog whose parent frame is disabled for the
+modal session is not greyed by Qt's disabled-state propagation
+to child widgets. Full rationale in the patch header. Amended
+by wx patch 0030 (round 20).
 
-`include/wx/qt/window.h`, `src/qt/window.cpp`: adds
-`wxQtDetachFromQtParent( wxWindow* )`, which detaches a
-window's QWidget from its Qt parent widget (re-applying
-the window flags that QWidget::setParent resets) and
-records the trace literal `jobv-modal-detach`. The Qt
-work lives in wx because the KiCad stage's CMake cannot
-find the Qt package (the iOS toolchain roots find_package
-at the sysroot only, and the Qt kit lives outside it),
-while wx's own sources compile against Qt directly.
-Called from KiCad patch 0046's ReparentModal.
+### KiCad patch 0046 — ios-quasimodal-detach (round 19, Job V)
+`libs/kiplatform/port/wxqt/ui.cpp` — `KIPLATFORM::UI::
+ReparentModal()` stops being a no-op on this port and calls
+`wxQtDetachFromQtParent()` (wx patch 0028), so every
+`DIALOG_SHIM::ShowQuasiModal()` / `ShowModal()` detaches its
+dialog from the disabled parent before showing. Full rationale
+in the patch header.
+
+### KiCad patch 0049 — ios-hunt-fixes (round 20, app-wide hunt)
+Six fixes from the round-20 systematic hunt (full dialog
+modal-path census, full persisted-layout census, and a sweep
+of the rounds 1–19 failure families), all inside the round's
+families: (1) the schematic and library fields-table dialogs
+restored their sashes from a ctor-queued `CallAfter` running
+after `DIALOG_SHIM::Show()`'s final validation — the verbatim
+value defeated the heal; the restores now signature-check
+against the live extent (`round20-fields-sash-guard`).
+(2) `KIWAY_PLAYER::ShowModal()` never detached, so a chooser
+frame parented to a dialog opened grey-dead under the
+disabler; it now calls `ReparentModal()` after Show/Raise and
+before the disabler (`round20-kiway-reparent`). (3)
+`SetAuiPaneSize()` forced persisted pane sizes verbatim
+inside the frame, bypassing the top-level clamp; dimensions
+are now clamped to 85% of the managed window's live client
+size (`round20-aui-pane-clamp`). (4) The symbol/footprint
+viewer list-width guard divided before multiplying (integer
+division zeroed one pane's width) and keyed its cap off the
+banked window width; it now uses the live width and
+multiplies first (`round20-viewer-width-guard`). (5) The
+simulator's five persisted sash positions were applied with
+only a `> 0` check; each is now validated against its
+splitter's live extent (`round20-sim-sash-clamp`). (6)
+`LaunchExternal()` failed silently under the iOS sandbox,
+leaving Open-Directory / open-externally controls dead; a
+failed launch now shows a message naming the path
+(`round20-launch-external-note`).
