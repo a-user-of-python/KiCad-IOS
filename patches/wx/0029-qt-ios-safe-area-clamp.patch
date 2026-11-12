@@ -1,0 +1,145 @@
+# KiCad-IOS port patch 0029 (wxWidgets v3.3, wxWindows licence)
+# Round 20, Bug 2: the iOS system status bar overlaps the top
+# content of large dialogs (device report: the LIB_TREE Filter /
+# search row in the choosers sits under the status bar, obscured
+# and untappable). Diagnosis (hidden round-20 notes): no layer of
+# the stack ever reserved the status-bar / safe-area top inset
+# for dialog content -- wx top-levels have no QLayout, so Qt's
+# safe-area contents-margin mechanism never applies, and the
+# universal top-level clamp (wx patch 0017) targeted
+# QScreen::availableGeometry() only, whose top is effectively
+# the screen top on this port at clamp time. Frames escaped
+# because their titlebar strip lives in QMainWindow layout space
+# and reserves 44 units; dialogs' strip is a pure overlay
+# (wx patch 0025) and reserves nothing.
+# This patch makes the 0017 clamp target the SAFE rect: the
+# per-window QWindow::safeAreaMargins() expressed as absolute
+# screen coordinates and maxed/minned against the available
+# rect, so the inset is applied exactly once whether or not
+# availableGeometry() already excludes the bar, on every screen
+# (an external display reports zero margins and is unaffected).
+# One helper, every top-level, no per-dialog changes, and the
+# inset lives only inside the idempotent clamp -- the strip
+# installer is untouched, so the round-17 +44/open ratchet
+# cannot relapse. Trace literal "round20-safe-area-clamp" is
+# the shipped-binary gate marker.
+# Apply with: patch -p1 (from the wx source root), after
+# patches 0001-0028.
+#
+--- a/src/qt/utils.cpp
++++ b/src/qt/utils.cpp
+@@ -233,37 +233,98 @@
+     if ( avail.isEmpty() )
+         return rect;
+ 
++    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20, wx patch
++    // 0029): the clamp target is the SAFE rect, not the raw available
++    // rect. iOS draws its status bar over the app's single root view
++    // and this port opted into full screen, so a dialog clamped to
++    // avail.top() can land with its topmost content -- the LIB_TREE
++    // Filter row in the choosers is the device-reported case --
++    // underneath the system status bar, obscured and untappable
++    // (round 20, bug 2). No layer of the stack reserved that inset:
++    // wx top-levels have no QLayout, so Qt's safe-area contents-
++    // margin mechanism never applies to them. The real inset is
++    // read per window from QWindow::safeAreaMargins() and expressed
++    // as an ABSOLUTE screen coordinate (screen geometry edge +
++    // margin), then maxed/minned against the available rect: if
++    // availableGeometry() already excludes the bar on a given
++    // iPadOS/Qt combination the two agree and nothing is inset
++    // twice; where it does not (the insets are not available before
++    // the root window is shown, and nothing re-read them), the
++    // margin still wins. Bottom/left/right margins are applied the
++    // same way (home indicator, landscape notches). An external
++    // display reports zero margins and is naturally unaffected.
++    // All values are Qt logical units -- QT_SCALE_FACTOR is inside
++    // Qt's own conversions, so no scale factor is applied by hand.
++    // A window whose QWindow handle does not exist yet reports no
++    // margins and clamps to the available rect as before; the
++    // Show()-time clamp re-runs this helper once it does.
++    QRect safeRect = avail;
++
++    if ( QWindow *window = widget->windowHandle() )
++    {
++        const QMargins margins = window->safeAreaMargins();
++        const QRect screenGeo = screen->geometry();
++
++        if ( margins.top() > 0 )
++            safeRect.setTop( qMax( safeRect.top(),
++                                   screenGeo.top() + margins.top() ) );
++        if ( margins.bottom() > 0 )
++            safeRect.setBottom( qMin( safeRect.bottom(),
++                                      screenGeo.bottom() - margins.bottom() ) );
++        if ( margins.left() > 0 )
++            safeRect.setLeft( qMax( safeRect.left(),
++                                    screenGeo.left() + margins.left() ) );
++        if ( margins.right() > 0 )
++            safeRect.setRight( qMin( safeRect.right(),
++                                     screenGeo.right() - margins.right() ) );
++
++        if ( safeRect != avail )
++        {
++            wxLogTrace( "kicad-ios-round20",
++                        "round20-safe-area-clamp: margins (%d, %d, %d, %d), "
++                        "available (%d, %d %dx%d) -> safe (%d, %d %dx%d)",
++                        margins.left(), margins.top(),
++                        margins.right(), margins.bottom(),
++                        avail.x(), avail.y(), avail.width(), avail.height(),
++                        safeRect.x(), safeRect.y(),
++                        safeRect.width(), safeRect.height() );
++        }
++    }
++
++    if ( safeRect.isEmpty() )
++        safeRect = avail;
++
+     const QSize minSize = widget->minimumSize();
+ 
+-    if ( minSize.width() > avail.width() || minSize.height() > avail.height() )
++    if ( minSize.width() > safeRect.width() || minSize.height() > safeRect.height() )
+     {
+-        widget->setMinimumSize( qMin( minSize.width(), avail.width() ),
+-                                qMin( minSize.height(), avail.height() ) );
++        widget->setMinimumSize( qMin( minSize.width(), safeRect.width() ),
++                                qMin( minSize.height(), safeRect.height() ) );
+     }
+ 
+     if ( QWindow *window = widget->windowHandle() )
+     {
+         const QSize winMinSize = window->minimumSize();
+ 
+-        if ( winMinSize.width() > avail.width()
+-                || winMinSize.height() > avail.height() )
++        if ( winMinSize.width() > safeRect.width()
++                || winMinSize.height() > safeRect.height() )
+         {
+-            window->setMinimumSize( QSize( qMin( winMinSize.width(), avail.width() ),
+-                                           qMin( winMinSize.height(), avail.height() ) ) );
++            window->setMinimumSize( QSize( qMin( winMinSize.width(), safeRect.width() ),
++                                           qMin( winMinSize.height(), safeRect.height() ) ) );
+         }
+     }
+ 
+     QRect clamped = rect;
+ 
+-    if ( clamped.width() > avail.width() )
+-        clamped.setWidth( avail.width() );
+-    if ( clamped.height() > avail.height() )
+-        clamped.setHeight( avail.height() );
+-
+-    clamped.moveLeft( qBound( avail.left(), clamped.left(),
+-                              avail.right() - clamped.width() + 1 ) );
+-    clamped.moveTop( qBound( avail.top(), clamped.top(),
+-                             avail.bottom() - clamped.height() + 1 ) );
++    if ( clamped.width() > safeRect.width() )
++        clamped.setWidth( safeRect.width() );
++    if ( clamped.height() > safeRect.height() )
++        clamped.setHeight( safeRect.height() );
++
++    clamped.moveLeft( qBound( safeRect.left(), clamped.left(),
++                              safeRect.right() - clamped.width() + 1 ) );
++    clamped.moveTop( qBound( safeRect.top(), clamped.top(),
++                             safeRect.bottom() - clamped.height() + 1 ) );
+ 
+     if ( clamped != rect )
+     {
