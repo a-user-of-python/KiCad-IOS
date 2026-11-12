@@ -1,0 +1,300 @@
+# KiCad-IOS port patch 0047 (KiCad 10.0.1, GPL v3+)
+# Round 20, Bug 1: on UPGRADE installs the symbol and footprint
+# chooser panes show but stay squished to the side (device
+# report). Diagnosis (hidden round-20 notes) convicted the
+# heal-to-band-edge equilibrium: rounds <= 18 banked a collapsed
+# sash (~ splitter extent - 28); round 19's heal (patch 0045)
+# does not reset such values, it CLAMPS them to the band's edge
+# (65% horizontal / 75% vertical), and the heal timer's
+# write-back, the panel destructors and SaveControlState's
+# save-clamp all re-bank the edge value. From then on the value
+# is "in band", so every validator preserves it forever and the
+# previews live in the narrowest column the band allows. The
+# hsplitter's 0.8 sash gravity ratchets further tree-ward on
+# every post-restore resize. Fresh installs were never affected
+# (defaults are -1, first split is ~50/50).
+# The fix is snap, don't clamp, at every final-size chokepoint:
+#  * PANEL_SYMBOL_CHOOSER / PANEL_FOOTPRINT_CHOOSER heal timers
+#    (the authoritative final-size check; the footprint host is
+#    a frame, the symbol host a dialog): a restored sash outside
+#    the sane restore band -- horizontal [20%, 50%], vertical
+#    [20%, 65%] -- is reset to the upstream-intended split of the
+#    LIVE extent (45% horizontal, 65% vertical); in-band values
+#    are preserved exactly. After healing, the hsplitter's sash
+#    gravity is set to the healed proportion so later resizes
+#    preserve the split instead of ratcheting to the tree.
+#  * DIALOG_SHIM::Show() final pass and SaveControlState():
+#    conservative poison-signature snap for every dialog host
+#    (horizontal > 60% or < 10% -> 45%; vertical > 70% or < 10%
+#    -> 65%), applied on restore AND on save, so no save path
+#    can re-bank an edge value.
+#  * PANEL_DESIGN_BLOCK_CHOOSER::FinishSetup(): same snap.
+#    Corrects patch 0045's rationale: this panel is NOT
+#    dialog-hosted -- it lives in an AUI pane, so no
+#    DIALOG_SHIM::Show() walk ever reaches its splitter and it
+#    had no timer; its FinishSetup clamp was its only check.
+#  * PANEL_PACKAGES_VIEW::SetSashOnIdle() (PCM): the verbatim
+#    upstream restore ran on idle AFTER the host dialog's
+#    DIALOG_SHIM validation and silently defeated it; the
+#    persisted sash is now signature-checked against the live
+#    extent before being applied (> 60% or < 10% -> 45%).
+# Gate literals (UTF-32 in the shipped binaries):
+# "round20-symchooser-sash-snap" (eeschema kiface),
+# "round20-fpchooser-sash-snap" (pcbnew kiface),
+# "round20-shim-sash-snap" (libkicommon),
+# "round20-designblock-sash-snap" (libkicommon),
+# "round20-pcm-sash-snap" (kicad manager).
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0046.
+#
+--- a/common/dialog_shim.cpp
++++ b/common/dialog_shim.cpp
+@@ -490,8 +491,37 @@
+                                     int sash = splitter->GetSashPosition();
+                                     int healed = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
+ 
++                                    // [KiCad-IOS port] Added 2026-11-12 for iOS
++                                    // (round 20, KiCad patch 0047): signature
++                                    // snap. Round 19's band clamp alone left
++                                    // an upgrade install permanently pinned
++                                    // at the band's edge: a sash banked by a
++                                    // collapsed close (~ extent - 28) was
++                                    // clamped to exactly 65% / 75% and then
++                                    // re-banked by every save path, so the
++                                    // chooser previews sat in the narrowest
++                                    // column the band allows (device report:
++                                    // panes show, but squished to the side).
++                                    // A sash carrying the poison signature --
++                                    // hard against an edge -- is not a user
++                                    // drag; reset it to the upstream-intended
++                                    // split (45% horizontal, 65% vertical).
++                                    // Mid-band values are preserved exactly.
++                                    if( horizontal
++                                        && ( healed > extent * 60 / 100
++                                             || healed < extent * 10 / 100 ) )
++                                        healed = extent * 45 / 100;
++                                    else if( !horizontal
++                                             && ( healed > extent * 70 / 100
++                                                  || healed < extent * 10 / 100 ) )
++                                        healed = extent * 65 / 100;
++
+                                     if( healed != sash )
++                                    {
++                                        wxLogTrace( wxT( "KICAD_IOS" ),
++                                                    wxT( "round20-shim-sash-snap" ) );
+                                         splitter->SetSashPosition( healed );
++                                    }
+                                 }
+                             }
+                         }
+@@ -724,6 +754,24 @@
+                             int hi = extent * ( horizontal ? 65 : 75 ) / 100;
+ 
+                             sash = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
++
++                            // [KiCad-IOS port] Added 2026-11-12 for iOS
++                            // (round 20, KiCad patch 0047): never bank a
++                            // poison-signature sash. A value hard against
++                            // an edge (the collapsed ~ extent - 28, or the
++                            // band edge a round-19 heal clamped it to) is
++                            // reset to the upstream-intended split before
++                            // it is saved, so no save path can re-create
++                            // the edge-pinned state the Show() pass and
++                            // the chooser heal timers repair on restore.
++                            if( horizontal
++                                && ( sash > extent * 60 / 100
++                                     || sash < extent * 10 / 100 ) )
++                                sash = extent * 45 / 100;
++                            else if( !horizontal
++                                     && ( sash > extent * 70 / 100
++                                          || sash < extent * 10 / 100 ) )
++                                sash = extent * 65 / 100;
+                         }
+ 
+                         dlgMap[ key ] = sash;
+--- a/eeschema/widgets/panel_symbol_chooser.cpp
++++ b/eeschema/widgets/panel_symbol_chooser.cpp
+@@ -651,6 +651,29 @@
+                     int sash = aSplitter->GetSashPosition();
+                     int healed = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
+ 
++                    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20,
++                    // KiCad patch 0047): snap, don't just clamp. The
++                    // round-19 band heal clamped a poisoned sash to the
++                    // band's edge (65% horizontal) and this write-back
++                    // then re-banked the edge value, pinning upgrade
++                    // installs tree-heavy forever -- the previews showed
++                    // but stayed squished to the side (device report).
++                    // A restored sash outside the sane restore band
++                    // (horizontal [20%, 50%], vertical [20%, 65%]) is a
++                    // poison signature, not a user drag: reset it to
++                    // the upstream-intended split of the LIVE extent
++                    // (45% horizontal, 65% vertical). Sashes inside the
++                    // sane band are preserved exactly.
++                    int saneLo = extent * 20 / 100;
++                    int saneHi = extent * ( aHorizontal ? 50 : 65 ) / 100;
++
++                    if( healed < saneLo || healed > saneHi )
++                    {
++                        healed = extent * ( aHorizontal ? 45 : 65 ) / 100;
++                        wxLogTrace( wxT( "KICAD_IOS" ),
++                                    wxT( "round20-symchooser-sash-snap" ) );
++                    }
++
+                     if( healed != sash )
+                         aSplitter->SetSashPosition( healed );
+ 
+@@ -659,6 +682,22 @@
+ 
+         healSash( m_hsplitter, panelCfg.sash_pos_h, true );
+ 
++        // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20, KiCad
++        // patch 0047): stop the gravity ratchet. The hsplitter's sash
++        // gravity is 0.8, so every post-restore resize handed 80% of
++        // the growth to the tree and the drifted, still-in-band sash
++        // was banked uncorrected. Once the heal has set a proportion,
++        // make gravity that proportion so later resizes preserve the
++        // split instead of feeding the tree.
++        if( m_hsplitter->IsSplit() )
++        {
++            wxSize live = m_hsplitter->GetSize();
++
++            if( live.x >= 100 )
++                m_hsplitter->SetSashGravity(
++                        (double) m_hsplitter->GetSashPosition() / (double) live.x );
++        }
++
+         if( m_vsplitter )
+             healSash( m_vsplitter, panelCfg.sash_pos_v, false );
+     }
+--- a/pcbnew/widgets/panel_footprint_chooser.cpp
++++ b/pcbnew/widgets/panel_footprint_chooser.cpp
+@@ -435,6 +435,30 @@
+                     int sash = aSplitter->GetSashPosition();
+                     int healed = wxMax( lo, wxMin( sash, wxMax( lo, hi ) ) );
+ 
++                    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20,
++                    // KiCad patch 0047): snap, don't just clamp -- the
++                    // footprint half of the symbol chooser's fix. The
++                    // round-19 band heal clamped a poisoned sash to the
++                    // band's edge and the write-back re-banked it,
++                    // pinning upgrade installs tree-heavy with the
++                    // preview squished to the side (device report). A
++                    // restored sash outside the sane restore band
++                    // (horizontal [20%, 50%], vertical [20%, 65%]) is
++                    // reset to the upstream-intended split of the LIVE
++                    // extent (45% horizontal, 65% vertical); sashes
++                    // inside the sane band are preserved exactly. This
++                    // panel's host is a frame, so this timer is the
++                    // authoritative final-size validation.
++                    int saneLo = extent * 20 / 100;
++                    int saneHi = extent * ( aHorizontal ? 50 : 65 ) / 100;
++
++                    if( healed < saneLo || healed > saneHi )
++                    {
++                        healed = extent * ( aHorizontal ? 45 : 65 ) / 100;
++                        wxLogTrace( wxT( "KICAD_IOS" ),
++                                    wxT( "round20-fpchooser-sash-snap" ) );
++                    }
++
+                     if( healed != sash )
+                         aSplitter->SetSashPosition( healed );
+ 
+@@ -443,6 +467,20 @@
+ 
+         healSash( m_hsplitter, cfg.sash_h, true );
+ 
++        // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20, KiCad
++        // patch 0047): stop the gravity ratchet (the hsplitter's 0.8
++        // sash gravity handed 80% of every post-restore resize to
++        // the tree). Once the heal has set a proportion, gravity
++        // becomes that proportion so resizes preserve the split.
++        if( m_hsplitter->IsSplit() )
++        {
++            wxSize live = m_hsplitter->GetSize();
++
++            if( live.x >= 100 )
++                m_hsplitter->SetSashGravity(
++                        (double) m_hsplitter->GetSashPosition() / (double) live.x );
++        }
++
+         if( m_vsplitter )
+             healSash( m_vsplitter, cfg.sash_v, false );
+     }
+--- a/common/widgets/panel_design_block_chooser.cpp
++++ b/common/widgets/panel_design_block_chooser.cpp
+@@ -267,7 +267,31 @@
+                     int lo = wxMax( minPane, extent * 15 / 100 );
+                     int hi = extent * ( aHorizontal ? 65 : 75 ) / 100;
+ 
+-                    return wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
++                    int healed = wxMax( lo, wxMin( aSash, wxMax( lo, hi ) ) );
++
++                    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20,
++                    // KiCad patch 0047): snap, don't just clamp -- and
++                    // correct the round-19 assumption above: this panel
++                    // is NOT dialog-hosted, it lives in an AUI pane
++                    // (DESIGN_BLOCK_PANE), so no DIALOG_SHIM::Show()
++                    // final validation ever walks its splitter and this
++                    // FinishSetup() clamp is the only final-size check
++                    // it gets. A restored sash outside the sane restore
++                    // band (horizontal [20%, 50%], vertical [20%, 65%])
++                    // is reset to the upstream-intended split (45%
++                    // horizontal, 65% vertical) instead of being pinned
++                    // at the band edge.
++                    int saneLo = extent * 20 / 100;
++                    int saneHi = extent * ( aHorizontal ? 50 : 65 ) / 100;
++
++                    if( healed < saneLo || healed > saneHi )
++                    {
++                        healed = extent * ( aHorizontal ? 45 : 65 ) / 100;
++                        wxLogTrace( wxT( "KICAD_IOS" ),
++                                    wxT( "round20-designblock-sash-snap" ) );
++                    }
++
++                    return healed;
+                 };
+ 
+         if( m_vsplitter )
+--- a/kicad/pcm/dialogs/panel_packages_view.cpp
++++ b/kicad/pcm/dialogs/panel_packages_view.cpp
+@@ -34,6 +34,7 @@
+ #include <fstream>
+ #include <wx/filedlg.h>
+ #include <wx/font.h>
++#include <wx/log.h>
+ #include <wx/tokenzr.h>
+ 
+ 
+@@ -783,7 +784,30 @@
+ void PANEL_PACKAGES_VIEW::SetSashOnIdle( wxIdleEvent& aEvent )
+ {
+     COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
+-    m_splitter1->SetSashPosition( cfg->m_PackageManager.sash_pos );
++
++    // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 20, KiCad
++    // patch 0047): validate the persisted sash before applying it.
++    // This restore runs on idle, inside the host dialog's modal
++    // loop -- AFTER DIALOG_SHIM::Show()'s final sash validation --
++    // so the verbatim upstream restore silently defeated that
++    // validation for this splitter, and a poisoned
++    // package_manager.sash_pos (banked by a collapsed close in an
++    // earlier display-scale era) re-collapsed the details pane on
++    // every open. Apply the same poison-signature rule as the
++    // other choosers: a sash hard against an edge of the LIVE
++    // splitter extent resets to the intended split (45%); a
++    // mid-band value is applied verbatim. The destructor saves
++    // GetSashPosition(), so one healed open re-banks the repair.
++    int sash = cfg->m_PackageManager.sash_pos;
++    int extent = m_splitter1->GetSize().x;
++
++    if( extent >= 100 && ( sash > extent * 60 / 100 || sash < extent * 10 / 100 ) )
++    {
++        sash = extent * 45 / 100;
++        wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-pcm-sash-snap" ) );
++    }
++
++    m_splitter1->SetSashPosition( sash );
+ 
+     m_packageListWindow->FitInside();
+ 
