@@ -1,0 +1,100 @@
+# KiCad-IOS port patch 0048 (KiCad 10.0.1, GPL v3+)
+# Round 20, Bug 3: double-clicking a component in the schematic
+# editor freezes the app -- no properties dialog appears, all
+# UI buttons die, the canvas still pans/zooms. Same for field
+# and text properties. Diagnosis (hidden round-20 notes) traced
+# the path: double-click -> SCH_ACTIONS::properties ->
+# DIALOG_SYMBOL_PROPERTIES / DIALOG_FIELD_PROPERTIES /
+# DIALOG_TEXT_PROPERTIES, all DIALOG_SHIM::ShowQuasiModal().
+# The buttons dying proves construction completed and the
+# WINDOW_DISABLER at the top of ShowQuasiModal ran; the app is
+# parked in the quasi-modal event loop with the dialog nowhere
+# on screen. The only change to that sequence since round 18 --
+# when these dialogs opened visible but disabled -- is the
+# round-19 detach (KiCad 0046 / wx 0030's predecessor wx 0028):
+# disabler created, hidden dialog detached from its Qt parent
+# with no geometry preservation and no raise, then Show(true)
+# assumed to sort it out. On iOS there is no window manager to
+# rescue a top-level that comes out of that sequence zero-size,
+# off-screen or unexposed, and nothing on the quasi path ever
+# raises the dialog after exposure.
+# This patch reorders ShowQuasiModal to the ordering this
+# codebase already proves on device (KIWAY_PLAYER::ShowModal,
+# common/kiway_player.cpp: Show + Raise + focus BEFORE the
+# parent disabler): ReparentModal (detach) first, then
+# Show(true), then Raise(), and the WINDOW_DISABLER is created
+# only after the dialog is visible and raised. The wx-side
+# companion (wx patch 0030) preserves the widget's geometry
+# across the detach itself.
+# Instrumentation: after Show, the dialog's shown state and
+# geometry are traced ("round20-quasimodal-show-state"); if the
+# dialog does not report itself shown at a real size, a
+# status-bar breadcrumb ("R20 DIAG: ...") is set on the parent
+# frame so the failure mode is readable on device.
+# ShowModal()/QDialog::exec() is deliberately untouched: the
+# true-modal symbol chooser works on device through Qt
+# modality, which owns showing and raising there.
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0047.
+#
+--- a/common/dialog_shim.cpp
++++ b/common/dialog_shim.cpp
+@@ -40,6 +40,7 @@
+ 
+ #include <wx/display.h>
+ #include <wx/evtloop.h>
++#include <wx/frame.h>
+ #include <wx/log.h>
+ #include <wx/app.h>
+ #include <wx/event.h>
+@@ -1515,17 +1563,47 @@
+ 
+     wxASSERT_MSG( !m_qmodal_parent_disabler, wxT( "Caller using ShowQuasiModal() twice on same window?" ) );
+ 
+-    // quasi-modal: disable only my "optimal" parent
+-    m_qmodal_parent_disabler = new WINDOW_DISABLER( parent );
+-
+     // Apple in its infinite wisdom will raise a disabled window before even passing
+     // us the event, so we have no way to stop it.  Instead, we must set an order on
+     // the windows so that the quasi-modal will be pushed in front of the disabled
+     // window when it is raised.
+     KIPLATFORM::UI::ReparentModal( this );
+ 
++    // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 20, KiCad
++    // patch 0048): visibility BEFORE disablement. Upstream created
++    // the WINDOW_DISABLER first, then detached (0046), then showed.
++    // On device the round-19 order left quasi-modal dialogs
++    // (component / field / text properties) in a running modal loop
++    // with NO dialog on screen: parent disabled, canvas gestures
++    // alive, nothing visible to dismiss (round 20, bug 3). The one
++    // ordering this codebase proves on device -- KIWAY_PLAYER::
++    // ShowModal: Show(true) + Raise() + SetFocus() first, parent
++    // disabler after -- is mirrored here: detach while hidden, show,
++    // raise, and only then disable the parent. The detach already
++    // removed the dialog from the parent's Qt subtree, so the later
++    // disable cannot propagate to it. The trace is the
++    // shipped-binary gate marker; if the dialog still does not
++    // report itself shown at a real size, a status-bar breadcrumb
++    // names the failure on the parent frame, where it can be read.
+     Show( true );
+ 
++    Raise();
++
++    wxLogTrace( wxT( "KICAD_IOS" ),
++                wxT( "round20-quasimodal-show-state shown=%d pos=%d,%d size=%dx%d" ),
++                IsShown() ? 1 : 0, GetPosition().x, GetPosition().y,
++                GetSize().x, GetSize().y );
++
++    if( !IsShown() || GetSize().x <= 0 || GetSize().y <= 0 )
++    {
++        if( wxFrame* frame = dynamic_cast<wxFrame*>( parent ) )
++            frame->SetStatusText(
++                    wxT( "R20 DIAG: quasi-modal dialog did not show" ) );
++    }
++
++    // quasi-modal: disable only my "optimal" parent
++    m_qmodal_parent_disabler = new WINDOW_DISABLER( parent );
++
+     m_qmodal_showing = true;
+ 
+     wxGUIEventLoop event_loop;
