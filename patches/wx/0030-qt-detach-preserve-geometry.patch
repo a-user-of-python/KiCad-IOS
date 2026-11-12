@@ -1,0 +1,69 @@
+# KiCad-IOS port patch 0030 (wxWidgets v3.3, wxWindows licence)
+# Round 20, Bug 3: quasi-modal dialogs shown through the round-19
+# detach (wx patch 0028) never appear on device -- double-clicking
+# a component in the schematic editor runs the modal loop with
+# the parent frame disabled (all UI buttons dead, canvas still
+# pans/zooms) but no properties dialog on screen. Diagnosis
+# (hidden round-20 notes) convicted the family: 0028's detach is
+# the only change to the quasi-modal show sequence since those
+# dialogs opened visible-but-disabled in round 18, and it did
+# setParent(nullptr) + flag restore with no geometry preservation,
+# no re-show and no raise, applied to a hidden QDialog whose
+# QWindow had never been exposed. This patch preserves the
+# widget's frame geometry across the reparent (captured before,
+# re-asserted after) and traces both rects
+# ("round20-detach-geometry", the shipped-binary gate marker).
+# The companion KiCad patch 0048 reorders
+# DIALOG_SHIM::ShowQuasiModal to the visibility-before-disable
+# ordering the working KIWAY_PLAYER path already uses.
+# Apply with: patch -p1 (from the wx source root), after
+# patches 0001-0029.
+#
+--- a/src/qt/window.cpp
++++ b/src/qt/window.cpp
+@@ -2309,11 +2309,45 @@
+     {
+         const Qt::WindowFlags flags = widget->windowFlags();
+ 
++        // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 20,
++        // wx patch 0030): preserve the widget's geometry across the
++        // reparent. Round 19's detach did setParent(nullptr) + flag
++        // restore and nothing else; on device, quasi-modal dialogs
++        // shown through this detach (component properties, field
++        // properties, text properties) then never appeared at all --
++        // the modal loop ran with the parent frame disabled and the
++        // canvas alive, but no dialog on screen (round 20, bug 3).
++        // QWidget::setParent() is documented to hide the widget and
++        // it does not guarantee the geometry survives: a parentless
++        // top-level whose rect was parent-relative can come out of
++        // the reparent with a default/zero rect, and on this
++        // platform there is no window manager to rescue it (the
++        // universal clamp in utils.cpp early-outs on empty rects,
++        // and KIPLATFORM::UI::EnsureVisible is a no-op here).
++        // Capture the frame geometry before the reparent and
++        // re-assert it afterwards, so the dialog the caller shows
++        // next sits exactly where wx put it. The trace records both
++        // rects: it is the shipped-binary gate marker for this
++        // patch and the on-device evidence for the failure mode.
++        const QRect geometryBefore = widget->frameGeometry();
++
+         widget->setParent( nullptr );
+         widget->setWindowFlags( flags );
+ 
++        if( geometryBefore.width() > 0 && geometryBefore.height() > 0 )
++            widget->setGeometry( geometryBefore );
++
+         wxLogTrace( wxT( "jobv-modal-detach" ),
+                     wxT( "detached quasi-modal dialog from its "
+                          "Qt parent widget" ) );
++        wxLogTrace( "kicad-ios-round20",
++                    "round20-detach-geometry: before (%d, %d %dx%d) "
++                    "after (%d, %d %dx%d), visible %d",
++                    geometryBefore.x(), geometryBefore.y(),
++                    geometryBefore.width(), geometryBefore.height(),
++                    widget->frameGeometry().x(), widget->frameGeometry().y(),
++                    widget->frameGeometry().width(),
++                    widget->frameGeometry().height(),
++                    widget->isVisible() ? 1 : 0 );
+     }
+ }
