@@ -1,0 +1,398 @@
+# KiCad-IOS port patch 0049 (KiCad 10.0.1, GPL v3+)
+# Round 20, app-wide hunt fixes. The round-20 systematic hunt
+# (three censuses: every dialog's modal path, every persisted
+# layout key, and a sweep of the rounds 1-19 failure families)
+# found more instances of the families this round already
+# fixes, plus two small honest-behaviour fixes. All changes
+# here are in those families:
+#  (1) Fields-table sashes (hunt L4): DIALOG_SYMBOL_FIELDS_TABLE
+#      and DIALOG_LIB_FIELDS_TABLE restore their persisted
+#      sashes from a ctor-queued CallAfter that runs AFTER
+#      DIALOG_SHIM::Show()'s final sash validation -- the
+#      verbatim value had the last word, defeating patches
+#      0044/0045/0047 for these dialogs. The restores now
+#      signature-check the value against the splitter's live
+#      extent first (> 60% or < 10% -> 45%).
+#      Literal: "round20-fields-sash-guard".
+#  (2) Modal KIWAY_PLAYER frames (hunt A3/C-1): ShowModal()
+#      disables its top-level parent but never detached, so a
+#      chooser frame parented to a dialog (footprint chooser
+#      from the symbol properties field grid) is a Qt child of
+#      the disabled dialog and opens grey-dead -- the round-19
+#      failure one level up. ShowModal() now calls
+#      KIPLATFORM::UI::ReparentModal() after Show/Raise/SetFocus
+#      and before the disabler, mirroring patch 0046's dialog
+#      fix. Literal: "round20-kiway-reparent".
+#  (3) AUI pane sizes (hunt L6): SetAuiPaneSize() forced
+#      persisted pane sizes verbatim with MinSize + Fixed()
+#      inside the frame -- internal AUI layout never passes
+#      through the wx top-level clamp, so an era-stale size
+#      could take the whole frame. Each dimension is now
+#      clamped to 85% of the managed window's live client size.
+#      Literal: "round20-aui-pane-clamp".
+#  (4) Viewer list widths (hunt L7): the symbol and footprint
+#      viewers' rescale guard divided before multiplying
+#      (integer division made the library width 0 and handed
+#      the whole frame to the other list) and keyed the cap off
+#      the banked window width, which other frames cross-write.
+#      The cap now uses the live client width when available
+#      and the rescale multiplies first.
+#      Literal: "round20-viewer-width-guard".
+#  (5) Simulator sashes (hunt L5): SetSubWindowsSashSize()
+#      applied five persisted sash positions with only a > 0
+#      check, in a frame host with no shim walk and no heal
+#      timer. Each is now validated against its splitter's live
+#      extent (outside [10%, 90%] -> middle).
+#      Literal: "round20-sim-sash-clamp".
+#  (6) LaunchExternal (hunt C-3): on iOS the default-app launch
+#      is refused by the sandbox, silently -- PCM Open Package
+#      Directory, project-tree Open Directory / file
+#      double-clicks and theme-folder buttons were dead
+#      controls. A failed launch now shows a message naming the
+#      path so it can be reached in Files.
+#      Literal: "round20-launch-external-note".
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0048.
+#
+--- a/eeschema/dialogs/dialog_symbol_fields_table.cpp
++++ b/eeschema/dialogs/dialog_symbol_fields_table.cpp
+@@ -46,6 +46,7 @@
+ #include <widgets/wx_grid.h>
+ #include <widgets/grid_checkbox.h>
+ #include <wx/debug.h>
++#include <wx/log.h>
+ #include <wx/ffile.h>
+ #include <wx/grid.h>
+ #include <wx/textdlg.h>
+@@ -305,14 +306,44 @@
+ 
+     CallAfter( [this, cfg]()
+                {
++                   // [KiCad-IOS port] Modified 2026-11-12 for iOS (round
++                   // 20, KiCad patch 0049): validate the persisted sashes
++                   // before applying them. This CallAfter runs in the
++                   // event loop AFTER DIALOG_SHIM::Show()'s final sash
++                   // validation, so the verbatim upstream restore had
++                   // the last word and a poisoned value from an earlier
++                   // display-scale era re-collapsed a pane on every
++                   // open. Signature-check against the splitter's LIVE
++                   // extent: hard against an edge (> 60% or < 10%)
++                   // resets to the middle of the extent; mid-band
++                   // values apply verbatim.
++                   auto validSash = []( wxSplitterWindow* aSplitter, int aPos )
++                   {
++                       wxSize live = aSplitter->GetSize();
++                       bool   horiz = aSplitter->GetSplitMode() == wxSPLIT_VERTICAL;
++                       int    extent = horiz ? live.x : live.y;
++
++                       if( extent >= 100
++                           && ( aPos > extent * 60 / 100 || aPos < extent * 10 / 100 ) )
++                       {
++                           wxLogTrace( wxT( "KICAD_IOS" ),
++                                       wxT( "round20-fields-sash-guard" ) );
++                           return extent * 45 / 100;
++                       }
++
++                       return aPos;
++                   };
++
+                    if( cfg.sidebar_collapsed )
+                        m_splitterMainWindow->Unsplit( m_leftPanel );
+                    else
+-                       m_splitterMainWindow->SetSashPosition( cfg.sash_pos );
++                       m_splitterMainWindow->SetSashPosition(
++                               validSash( m_splitterMainWindow, cfg.sash_pos ) );
+ 
+                    setSideBarButtonLook( cfg.sidebar_collapsed );
+ 
+-                   m_splitter_left->SetSashPosition( cfg.variant_sash_pos );
++                   m_splitter_left->SetSashPosition(
++                           validSash( m_splitter_left, cfg.variant_sash_pos ) );
+                } );
+ 
+     if( m_job )
+--- a/eeschema/dialogs/dialog_lib_fields_table.cpp
++++ b/eeschema/dialogs/dialog_lib_fields_table.cpp
+@@ -44,6 +44,7 @@
+ #include <fields_data_model.h>
+ #include <dialog_lib_new_symbol.h>
+ #include <wx/arrstr.h>
++#include <wx/log.h>
+ #include <wx/msgdlg.h>
+ #include <wx/srchctrl.h>
+ 
+@@ -328,10 +329,33 @@
+ 
+     CallAfter( [this, cfg]()
+                {
++                   // [KiCad-IOS port] Modified 2026-11-12 for iOS (round
++                   // 20, KiCad patch 0049): validate the persisted sash
++                   // before applying it -- the library half of the
++                   // fields-table fix in dialog_symbol_fields_table.cpp.
++                   // This CallAfter runs after DIALOG_SHIM::Show()'s
++                   // final sash validation, so the verbatim restore had
++                   // the last word over any heal. Signature-check
++                   // against the LIVE extent: hard against an edge
++                   // (> 60% or < 10%) resets to 45% of the extent;
++                   // mid-band values apply verbatim.
++                   wxSize live = m_splitterMainWindow->GetSize();
++                   bool   horiz = m_splitterMainWindow->GetSplitMode() == wxSPLIT_VERTICAL;
++                   int    extent = horiz ? live.x : live.y;
++                   int    sash = cfg.sash_pos;
++
++                   if( extent >= 100
++                       && ( sash > extent * 60 / 100 || sash < extent * 10 / 100 ) )
++                   {
++                       sash = extent * 45 / 100;
++                       wxLogTrace( wxT( "KICAD_IOS" ),
++                                   wxT( "round20-fields-sash-guard" ) );
++                   }
++
+                    if( cfg.sidebar_collapsed )
+                        m_splitterMainWindow->Unsplit( m_leftPanel );
+                    else
+-                       m_splitterMainWindow->SetSashPosition( cfg.sash_pos );
++                       m_splitterMainWindow->SetSashPosition( sash );
+ 
+                    setSideBarButtonLook( cfg.sidebar_collapsed );
+                } );
+--- a/common/kiway_player.cpp
++++ b/common/kiway_player.cpp
+@@ -33,6 +33,7 @@
+ #include <wx/evtloop.h>
+ #include <wx/socket.h>
+ #include <core/raii.h>
++#include <kiplatform/ui.h>
+ #include <wx/log.h>
+ 
+ 
+@@ -119,6 +120,22 @@
+ 
+     SetFocus();
+ 
++    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20, KiCad
++    // patch 0049): detach from the Qt parent before the disabler
++    // below runs. A modal KIWAY_PLAYER can be parented to a
++    // DIALOG (the footprint chooser opened from the symbol
++    // properties dialog's field grid is the concrete case), which
++    // makes its QMainWindow a Qt child of the dialog's widget;
++    // the WINDOW_DISABLER then disables the dialog and Qt
++    // propagates the disabled state into the chooser frame --
++    // the round-19 Board Setup failure, one level up.
++    // DIALOG_SHIM dialogs got the detach in patch 0046; this
++    // frame path never did. Detaching after Show preserves the
++    // visibility-before-disable ordering this function already
++    // uses.
++    KIPLATFORM::UI::ReparentModal( this );
++    wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-kiway-reparent" ) );
++
+     {
+         // Using wxWindowDisabler() has two issues: it will disable top-level windows that are
+         // our *children* (such as sub-frames), and it will disable all context menus we try to
+--- a/common/widgets/wx_aui_utils.cpp
++++ b/common/widgets/wx_aui_utils.cpp
+@@ -18,11 +18,40 @@
+  */
+ 
+ #include <wx/aui/aui.h>
++#include <wx/log.h>
+ #include <widgets/wx_aui_utils.h>
+ 
+ 
+ void SetAuiPaneSize( wxAuiManager& aManager, wxAuiPaneInfo& aPane, int aWidth, int aHeight )
+ {
++    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20, KiCad
++    // patch 0049): never force a pane larger than the managed
++    // window can hold. Callers pass persisted pane sizes
++    // (aui.* keys in each app's settings) verbatim, and this
++    // function forces them with MinSize + Fixed() inside the
++    // frame -- internal AUI layout never passes through the
++    // wx-level top-level clamp, so a width banked in a wider
++    // display-scale era could take the whole frame on an upgrade
++    // install. Clamp each dimension to 85% of the managed
++    // window's LIVE client size. Negative (unset) dimensions
++    // pass through untouched.
++    if( wxWindow* managed = aManager.GetManagedWindow() )
++    {
++        wxSize client = managed->GetClientSize();
++
++        if( client.x >= 200 && aWidth > client.x * 85 / 100 )
++        {
++            aWidth = client.x * 85 / 100;
++            wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-aui-pane-clamp" ) );
++        }
++
++        if( client.y >= 200 && aHeight > client.y * 85 / 100 )
++        {
++            aHeight = client.y * 85 / 100;
++            wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-aui-pane-clamp" ) );
++        }
++    }
++
+     wxSize minSize = aPane.min_size;
+ 
+     // wxAUI hack: force width by setting MinSize() and then Fixed()
+--- a/eeschema/symbol_viewer_frame.cpp
++++ b/eeschema/symbol_viewer_frame.cpp
+@@ -804,11 +804,25 @@
+         GetRenderSettings()->m_ShowPinNumbers = cfg->m_LibViewPanel.show_pin_numbers;
+ 
+         // Set parameters to a reasonable value.
+-        int maxWidth = cfg->m_LibViewPanel.window.state.size_x - 80;
++        // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 20,
++        // KiCad patch 0049): two fixes to this guard. (1) The cap is
++        // derived from the frame's LIVE client width when one is
++        // available, not the banked window width -- the two are
++        // cross-written by other frames (the symbol chooser frame
++        // writes this window slot), so the banked width need not
++        // belong to the same era as the banked list widths.
++        // (2) The rescale multiplies before dividing: upstream's
++        // maxWidth * ( lib / ( lib + list ) ) is 0 by integer
++        // division whenever lib < lib + list, which handed the
++        // whole width to the symbol list and left the library pane
++        // at its fallback size.
++        int maxWidth = GetClientSize().x >= 200 ? GetClientSize().x - 80
++                                                : cfg->m_LibViewPanel.window.state.size_x - 80;
+ 
+-        if( m_libListWidth + m_symbolListWidth > maxWidth )
++        if( maxWidth > 0 && m_libListWidth + m_symbolListWidth > maxWidth )
+         {
+-            m_libListWidth = maxWidth * ( m_libListWidth / ( m_libListWidth + m_symbolListWidth ) );
++            wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-viewer-width-guard" ) );
++            m_libListWidth = maxWidth * m_libListWidth / ( m_libListWidth + m_symbolListWidth );
+             m_symbolListWidth = maxWidth - m_libListWidth;
+         }
+     }
+--- a/pcbnew/footprint_viewer_frame.cpp
++++ b/pcbnew/footprint_viewer_frame.cpp
+@@ -71,6 +71,7 @@
+ #include <wildcards_and_files_ext.h>
+ #include <lib_tree_model_adapter.h>
+ #include <wx/srchctrl.h>
++#include <wx/log.h>
+ #include <wx/tokenzr.h>
+ #include <wx/choice.h>
+ #include <wx/hyperlink.h>
+@@ -819,11 +820,23 @@
+         m_fpListWidth = cfg->m_FootprintViewerFPListWidth;
+ 
+         // Set parameters to a reasonable value.
+-        int maxWidth = cfg->m_FootprintViewer.state.size_x - 80;
++        // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 20,
++        // KiCad patch 0049): the footprint half of the symbol
++        // viewer's fix -- cap derived from the frame's LIVE client
++        // width when available (this window slot is cross-written
++        // by the footprint chooser frame and the footprint wizard,
++        // so the banked width and the banked list widths need not
++        // share an era), and the rescale multiplies before
++        // dividing (upstream's integer division made the library
++        // width 0 and handed the whole width to the footprint
++        // list).
++        int maxWidth = GetClientSize().x >= 200 ? GetClientSize().x - 80
++                                                : cfg->m_FootprintViewer.state.size_x - 80;
+ 
+-        if( m_libListWidth + m_fpListWidth > maxWidth )
++        if( maxWidth > 0 && m_libListWidth + m_fpListWidth > maxWidth )
+         {
+-            m_libListWidth = maxWidth * ( m_libListWidth / ( m_libListWidth + m_fpListWidth ) );
++            wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-viewer-width-guard" ) );
++            m_libListWidth = maxWidth * m_libListWidth / ( m_libListWidth + m_fpListWidth );
+             m_fpListWidth = maxWidth - m_libListWidth;
+         }
+     }
+--- a/eeschema/sim/simulator_frame_ui.cpp
++++ b/eeschema/sim/simulator_frame_ui.cpp
+@@ -843,20 +843,38 @@
+ 
+ void SIMULATOR_FRAME_UI::SetSubWindowsSashSize()
+ {
+-    if( m_splitterLeftRightSashPosition > 0 )
+-        m_splitterLeftRight->SetSashPosition( m_splitterLeftRightSashPosition );
+-
+-    if( m_splitterPlotAndConsoleSashPosition > 0 )
+-        m_splitterPlotAndConsole->SetSashPosition( m_splitterPlotAndConsoleSashPosition );
+-
+-    if( m_splitterSignalsSashPosition > 0 )
+-        m_splitterSignals->SetSashPosition( m_splitterSignalsSashPosition );
+-
+-    if( m_splitterCursorsSashPosition > 0 )
+-        m_splitterCursors->SetSashPosition( m_splitterCursorsSashPosition );
+-
+-    if( m_splitterTuneValuesSashPosition > 0 )
+-        m_splitterMeasurements->SetSashPosition( m_splitterTuneValuesSashPosition );
++    // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 20, KiCad
++    // patch 0049): validate each persisted sash against its
++    // splitter's LIVE extent before applying it. Upstream's only
++    // check was > 0, and this frame host has no DIALOG_SHIM walk
++    // and no heal timer, so a sash banked in a wider display-scale
++    // era (e.g. plot_panel_width from a desktop session) took the
++    // whole frame on an upgrade install. A position outside
++    // [10%, 90%] of the live extent resets to the middle; in-band
++    // values apply verbatim.
++    auto applySash = []( wxSplitterWindow* aSplitter, int aPos )
++    {
++        if( aPos <= 0 )
++            return;
++
++        wxSize live = aSplitter->GetSize();
++        bool   horiz = aSplitter->GetSplitMode() == wxSPLIT_VERTICAL;
++        int    extent = horiz ? live.x : live.y;
++
++        if( extent >= 100 && ( aPos > extent * 90 / 100 || aPos < extent * 10 / 100 ) )
++        {
++            aPos = extent / 2;
++            wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-sim-sash-clamp" ) );
++        }
++
++        aSplitter->SetSashPosition( aPos );
++    };
++
++    applySash( m_splitterLeftRight, m_splitterLeftRightSashPosition );
++    applySash( m_splitterPlotAndConsole, m_splitterPlotAndConsoleSashPosition );
++    applySash( m_splitterSignals, m_splitterSignalsSashPosition );
++    applySash( m_splitterCursors, m_splitterCursorsSashPosition );
++    applySash( m_splitterMeasurements, m_splitterTuneValuesSashPosition );
+ }
+ 
+ 
+--- a/common/launch_ext.cpp
++++ b/common/launch_ext.cpp
+@@ -19,6 +19,8 @@
+  */
+ 
+ #include <launch_ext.h>
++#include <wx/log.h>
++#include <wx/msgdlg.h>
+ #include <wx/utils.h>
+ 
+ 
+@@ -32,7 +34,28 @@
+ #else
+ 
+     wxString path( aPath );
+-    return wxLaunchDefaultApplication( path );
++    bool     ok = wxLaunchDefaultApplication( path );
++
++    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 20, KiCad
++    // patch 0049): on iOS the default-application launch goes to
++    // QDesktopServices, which the app sandbox refuses -- and it
++    // refuses silently, so every "open externally" control in the
++    // app (PCM Open Package Directory, project-tree Open
++    // Directory and file double-clicks, theme-folder buttons)
++    // was a dead control that did nothing at all. When the
++    // launch fails, say so and name the path, so the control
++    // tells the truth and the file can be reached in Files.
++    if( !ok )
++    {
++        wxLogTrace( wxT( "KICAD_IOS" ), wxT( "round20-launch-external-note" ) );
++        wxMessageBox( wxString::Format(
++                              _( "iOS cannot open this from inside the app.\n\n"
++                                 "Find it in the Files app at:\n%s" ),
++                              aPath ),
++                      _( "Cannot Open Externally" ), wxOK | wxICON_INFORMATION );
++    }
++
++    return ok;
+ 
+ #endif
+ }
