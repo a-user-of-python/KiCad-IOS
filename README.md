@@ -13,9 +13,9 @@ Not a recreation. Not a lookalike. The genuine program, compiled for Apple's tab
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Upstream](https://img.shields.io/badge/upstream-KiCad%2010.0.1-orange.svg)](https://gitlab.com/kicad/code/kicad/-/tree/10.0.1)
 [![Platform](https://img.shields.io/badge/platform-iPadOS%2017%2B-lightgrey.svg)](#-installing)
-[![Status](https://img.shields.io/badge/status-current%20release%200.5-brightgreen.svg)](#-installing)
+[![Status](https://img.shields.io/badge/status-current%20release%200.7-brightgreen.svg)](#-installing)
 
-**[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)** · **[⬇️ Get the release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v0.5)**
+**[🌐 Project website](https://a-user-of-python.github.io/KiCad-IOS/)** · **[⬇️ Get the release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v0.7)**
 
 </div>
 
@@ -62,6 +62,7 @@ Every tool in the manager's launcher column is present and opens in its own wind
 - **Setup dialogs open on a real page.** Board Setup and Schematic Setup select their first page as they open — no waiting on a queued event — so Board Setup lands on its Layers page, ready to use.
 - **Chooser panes keep their proportions.** Splitter positions restored from settings are validated against the live window size at the dialog's final size — and a saved position that arrives collapsed or pinned to an edge, including one banked by an older build on an upgraded install, resets to the intended split on first open, so the symbol and footprint choosers open with their tree, details and preview panes at usable widths.
 - **Every window fits its display — inside the safe area.** Windows and dialogs are clamped to the live geometry of the display they are on — the app queries the display at runtime and hardcodes no resolution — and the clamp target is the display's safe area, so a dialog's top row (the choosers' filter field included) sits below the system status bar, visible and tappable, and Close and OK buttons stay reachable.
+- **Field values take the on-screen keyboard.** Editing a symbol's value — or any custom field — in the field properties dialog uses a standard text field: tap it and the iOS keyboard rises, type, and OK applies the value, exactly like the dialog's other text boxes. The editor-style text fields behind the text and table-cell properties carry an input-method bridge that raises the keyboard for them and delivers its text as keystrokes.
 - **Property dialogs open in front.** Quasi-modal dialogs — the component, field and text properties behind a double-tap — are shown and raised before their parent frame is disabled for the modal session, and chooser frames launched from inside a dialog detach from that dialog first, so a modal opens in front, fully enabled.
 - **An app-wide audit behind it.** Every dialog's modal path, every persisted layout value, and the splitter restores in the fields-table dialogs, the Plugin and Content Manager, the design-block chooser, the simulator and the symbol/footprint viewers are validated against live sizes; "open externally" controls report the file's path when iOS refuses the launch instead of doing nothing.
 - **Pinch zoom and two-finger pan.** In both the Schematic and PCB editors, a pinch zooms at its centre through KiCad's own view machinery, and a two-finger drag pans.
@@ -74,7 +75,7 @@ Every tool in the manager's launcher column is present and opens in its own wind
 
 The build is an unsigned `.ipa` (≈263 MB — the stock libraries ride along), sideloaded with your own signing.
 
-1. **Download the IPA** from the project's [**Releases page**](https://github.com/a-user-of-python/KiCad-IOS/releases) — the [0.5 release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v0.5). The same unsigned package is attached to every green run of the **Spike** workflow as the `kicad-spike-ipa` artifact.
+1. **Download the IPA** from the project's [**Releases page**](https://github.com/a-user-of-python/KiCad-IOS/releases) — the [0.7 release](https://github.com/a-user-of-python/KiCad-IOS/releases/tag/v0.7). The same unsigned package is attached to every green run of the **Spike** workflow as the `kicad-spike-ipa` artifact.
 2. **Sideload it** with a signer such as [Signulous](https://www.signulous.com/), or your own signing setup.
 3. **Launch KiCad.** The first-run wizard walks through setup, and the project manager opens behind it. A fresh install is a supported path, and upgrading over an earlier build keeps projects and settings.
 
