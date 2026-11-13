@@ -1,0 +1,208 @@
+[KiCad-IOS port] Round 23: fix Round 22's own crash -- the
+uninitialized m_preview3DCanvas -- and instrument the chooser
+frame with stage breadcrumbs.
+
+Diagnosis (hidden_files/round23-bug-ledger.md #1,
+SOURCE-CONVICTED and verified three times): Sean device-tested
+the Round 22 build (v0.8) and the footprint library button
+STILL crashed the app, from Symbol Properties. Round 22 patch
+0051 removed the chooser's desktop-OpenGL EDA_3D_CANVAS on iOS
+by compiling out the assignment in build3DCanvas(), and its
+header asserts "m_preview3DCanvas stays null". It does not:
+EDA_3D_CANVAS* m_preview3DCanvas (footprint_chooser_frame.h)
+has NO in-class initializer, and the constructor's initializer
+list does not mention it. Upstream never noticed because
+build3DCanvas() assigned it unconditionally before any read.
+On iOS the sole writer is compiled out, no patch in the series
+ever writes nullptr to it, and the member is INDETERMINATE.
+Every guard 0051 added -- the constructor's guarded Show right
+after build3DCanvas() returns, updatePanelsVisibility() /
+updateViews() later in the same constructor, the destructor's
+guarded teardown -- tests garbage. The frame is heap-allocated
+with plain new (pcbnew.cpp) inside a long session full of
+freed dialog allocations, so the slot in practice holds a
+stale non-null pointer and the first guarded Show() dispatches
+virtually through it: EXC_BAD_ACCESS inside Player(), before
+KiwayMailIn and before ShowModal, on the exact click Sean
+reported. (Both of patch 0052's sites are safe: upstream
+initialises m_previewPane and m_modelViewer to nullptr in
+their init lists. The chooser was the only one of the three
+whose "stays null" claim was never made true.)
+
+Fix (pcbnew/footprint_chooser_frame.h): give the member the
+in-class null initialiser, `= nullptr`. Unconditional (it is a
+no-op on desktop, where build3DCanvas() still assigns before
+any read) and impossible to preprocess out -- the Round 22
+attempt-1 failure mode cannot recur for this fix.
+
+Instrumentation (pcbnew/footprint_chooser_frame.cpp, all under
+KICAD_IOS_PORT, via PATHS::IosBreadcrumb from patch 0054):
+stage markers bracket every remaining suspect stage of the
+chooser's construction and display -- 10-ctor-enter,
+11-panel-done, 12-canvas-aliased, 13-3d-skipped (inside
+build3DCanvas, next to the Round 22 trace; its comment there
+now also corrects the false "stays null" claim),
+14-3dguard-passed (immediately after the guarded Show that
+faulted: 13-present/14-absent in the device log re-convicts
+this span on any future build; 14-present clears it),
+15-tools-done, 16-frame-ready, 17-mailin-enter,
+18-mailin-exit, 19-showmodal-override, 20-dtor-enter,
+21-dtor-3d-done. If the crash persists despite the fix, the
+last line of Documents/kicad-ios-breadcrumb.log names the
+dying stage instead of another round of guessing.
+
+Modified 2026-11-13 by the KiCad-IOS port (GPLv3 section 5
+notice; see MODIFICATIONS.md).
+
+--- a/pcbnew/footprint_chooser_frame.h
++++ b/pcbnew/footprint_chooser_frame.h
+@@ -132,7 +132,15 @@
+     wxCheckBox*              m_show3DViewer;
+ 
+     BOARD_ADAPTER            m_boardAdapter;
+-    EDA_3D_CANVAS*           m_preview3DCanvas;
++    // [KiCad-IOS port] Round 23: the null initialiser upstream never
++    // needed (build3DCanvas() assigned this pointer unconditionally
++    // before any read). Patch 0051 compiles that assignment out on
++    // iOS, which left the member INDETERMINATE while every Round 22
++    // "null guard" tested it -- the guards dispatched through
++    // garbage and crashed the chooser on open (v0.8 device verdict,
++    // round23-bug-ledger.md #1). The initialiser makes the guards'
++    // invariant true on every platform.
++    EDA_3D_CANVAS*           m_preview3DCanvas = nullptr;
+     CAMERA&                  m_currentCamera;
+     TRACK_BALL               m_trackBallCamera;
+     BITMAP_BUTTON*           m_toggleDescription;
+--- a/pcbnew/footprint_chooser_frame.cpp
++++ b/pcbnew/footprint_chooser_frame.cpp
+@@ -27,6 +27,9 @@
+ #include <wx/splitter.h>
+ 
+ #include <pgm_base.h>
++#ifdef KICAD_IOS_PORT
++#include <paths.h>  // [KiCad-IOS port] Round 23: PATHS::IosBreadcrumb stage markers
++#endif
+ #include <kiface_base.h>
+ #include <kiway.h>
+ #include <kiway_mail.h>
+@@ -103,6 +106,9 @@
+         m_pinCount( 0 ),
+         m_firstPaintEvent( true )
+ {
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-10-ctor-enter" );
++#endif
+     SetModal( true );
+ 
+     m_messagePanel->Hide();
+@@ -130,12 +136,18 @@
+             } );
+ 
+     frameSizer->Add( m_chooserPanel, 1, wxEXPAND );
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-11-panel-done" );
++#endif
+ 
+     SetCanvas( m_chooserPanel->GetViewerPanel()->GetPreviewPanel()->GetCanvas() );
+     SetBoard( m_chooserPanel->GetViewerPanel()->GetPreviewPanel()->GetBoard() );
+ 
+     // This board will only be used to hold a footprint for viewing
+     GetBoard()->SetBoardUse( BOARD_USE::FPHOLDER );
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-12-canvas-aliased" );
++#endif
+ 
+     build3DCanvas();    // must be called after creating m_chooserPanel
+ #ifndef KICAD_IOS_PORT
+@@ -147,6 +159,9 @@
+     if( m_preview3DCanvas )
+         m_preview3DCanvas->Show( m_show3DMode );
+ #endif
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-14-3dguard-passed" );
++#endif
+ 
+     // buttonsSizer contains the BITMAP buttons
+     wxBoxSizer* buttonsSizer = new wxBoxSizer( wxHORIZONTAL );
+@@ -252,6 +267,9 @@
+ 
+     setupUIConditions();
+     updatePanelsVisibility();
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-15-tools-done" );
++#endif
+ 
+     // clang-format off
+     // Connect Events
+@@ -284,12 +302,18 @@
+     // Round 21 device crash on the field-properties footprint
+     // button died inside this constructor, at the 3D canvas).
+     wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-fpchooser-frame-ready" ) );
++    // [KiCad-IOS port] Round 23: same landmark on the retrievable
++    // channel (the wxLogTrace above can never be observed on device).
++    PATHS::IosBreadcrumb( "round23-fpchooser-16-frame-ready" );
+ #endif
+ }
+ 
+ 
+ FOOTPRINT_CHOOSER_FRAME::~FOOTPRINT_CHOOSER_FRAME()
+ {
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-20-dtor-enter" );
++#endif
+     Unbind( wxEVT_CHAR_HOOK, &PANEL_FOOTPRINT_CHOOSER::OnChar, m_chooserPanel );
+ 
+     // Shutdown all running tools
+@@ -311,6 +335,9 @@
+         m_preview3DCanvas->OnCloseWindow( dummy );
+     }
+ #endif
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-21-dtor-3d-done" );
++#endif
+ 
+     // Ensure view and data used by the preview panel are cleared before deleting other items
+     static_cast<FOOTPRINT_PREVIEW_PANEL*>( m_chooserPanel->GetViewerPanel()->GetPreviewPanel() )->ClearViewAndData();
+@@ -520,6 +547,9 @@
+ 
+ void FOOTPRINT_CHOOSER_FRAME::KiwayMailIn( KIWAY_MAIL_EVENT& mail )
+ {
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-17-mailin-enter" );
++#endif
+     const std::string& payload = mail.GetPayload();
+ 
+     switch( mail.Command() )
+@@ -647,6 +677,9 @@
+     default:
+         break;
+     }
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-18-mailin-exit" );
++#endif
+ }
+ 
+ 
+@@ -658,6 +691,9 @@
+ 
+ bool FOOTPRINT_CHOOSER_FRAME::ShowModal( wxString* aFootprint, wxWindow* aParent )
+ {
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-19-showmodal-override" );
++#endif
+     if( aFootprint && !aFootprint->IsEmpty() )
+     {
+         LIB_ID fpid;
+@@ -791,6 +827,12 @@
+     // the 3D toggle controls are hidden in the constructor. The
+     // board adapter setup above still runs (it is plain data).
+     wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-chooser-3d-skipped" ) );
++    // [KiCad-IOS port] Round 23: same landmark on the retrievable
++    // channel. NOTE (round23-bug-ledger.md #1): the Round 22 comment
++    // above claims "m_preview3DCanvas stays null" -- that was false
++    // until patch 0055 added the member's null initialiser; the
++    // pointer was indeterminate and the guards below derefed it.
++    PATHS::IosBreadcrumb( "round23-fpchooser-13-3d-skipped" );
+ #else
+     // Build the 3D canvas
+     m_preview3DCanvas = new EDA_3D_CANVAS( m_chooserPanel->m_RightPanel,
