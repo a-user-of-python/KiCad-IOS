@@ -1,0 +1,153 @@
+[KiCad-IOS port] Round 23: stage breadcrumbs on the two
+dialog doors into the footprint chooser.
+
+Sean's actual door (traced this round;
+hidden_files/round23-bug-ledger.md): DIALOG_SYMBOL_PROPERTIES
+is its own class, not the DIALOG_FIELD_PROPERTIES Round 22
+traced. The button he taps is the wxGrid cell-editor control
+TEXT_BUTTON_FP_CHOOSER (a wxComboCtrl) created by
+GRID_CELL_FPID_EDITOR for the Footprint value cell; its
+OnButtonClick (common/widgets/grid_text_button_helpers.cpp)
+runs Player() -> KiwayMailIn -> ShowModal -> Destroy from
+inside an ACTIVE grid edit session. Round 22's only caller-
+side trace (round22-fpchooser-click) sits in the OTHER door
+(dialog_field_properties.cpp), so Sean's path carried no
+instrumentation at all.
+
+This patch adds PATHS::IosBreadcrumb markers (patch 0054) to
+BOTH doors with identical stage names, so whichever door Sean
+uses, the log is readable the same way:
+00-click (handler entry), 01-player-returned (the chooser
+frame now exists -- everything before this line is Kiway /
+kiface / constructor), 02-mail-done, 06-showmodal-enter,
+07-showmodal-exit, 09-return-done (handler completed,
+including Destroy). Read against the frame-side markers from
+patch 0055, the last line in Documents/kicad-ios-breadcrumb.log
+after a crash names the dying stage: e.g. 00 without 01 plus
+10 without 14 = the constructor's guarded-Show span (ledger
+#1); 16/17/18/06 present with 07 absent = inside the modal
+loop (the kill-focus editor-dismissal suspect S1: the grid
+editor's CallAfter(DisableCellEditControl) is executed by the
+chooser's own event loop while OnButtonClick is still on the
+stack); 07 present with 09 absent = the return path into the
+dismissed editor (suspect S2). No behaviour changes: markers
+only, all under KICAD_IOS_PORT.
+
+Modified 2026-11-13 by the KiCad-IOS port (GPLv3 section 5
+notice; see MODIFICATIONS.md).
+
+--- a/common/widgets/grid_text_button_helpers.cpp
++++ b/common/widgets/grid_text_button_helpers.cpp
+@@ -38,6 +38,9 @@
+ #include <dialog_shim.h>
+ #include <common.h>
+ #include <env_paths.h>
++#ifdef KICAD_IOS_PORT
++#include <paths.h>  // [KiCad-IOS port] Round 23: PATHS::IosBreadcrumb stage markers
++#endif
+ #include <pgm_base.h>
+ #include <widgets/wx_grid.h>
+ #include <widgets/filedlg_hook_embed_file.h>
+@@ -138,6 +141,9 @@
+ 
+     void OnButtonClick() override
+     {
++#ifdef KICAD_IOS_PORT
++        PATHS::IosBreadcrumb( "round23-fpchooser-00-click" );
++    #endif
+         if( m_buttonFpChooserLock ) // The button to show the FP chooser is clicked, but
+                                     // a previous click is currently in progress.
+             return;
+@@ -155,20 +161,33 @@
+ 
+         if( KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, m_dlg ) )
+         {
++#ifdef KICAD_IOS_PORT
++            PATHS::IosBreadcrumb( "round23-fpchooser-01-player-returned" );
++        #endif
+             if( !m_symbolNetlist.empty() )
+             {
+                 KIWAY_MAIL_EVENT event( FRAME_FOOTPRINT_CHOOSER, MAIL_SYMBOL_NETLIST,
+                                      m_symbolNetlist );
+                 frame->KiwayMailIn( event );
+             }
+-
++#ifdef KICAD_IOS_PORT
++            PATHS::IosBreadcrumb( "round23-fpchooser-02-mail-done" );
++        #endif
++#ifdef KICAD_IOS_PORT
++            PATHS::IosBreadcrumb( "round23-fpchooser-06-showmodal-enter" );
++        #endif
+             if( frame->ShowModal( &fpid, m_dlg ) )
+                 SetValue( fpid );
+-
++#ifdef KICAD_IOS_PORT
++            PATHS::IosBreadcrumb( "round23-fpchooser-07-showmodal-exit" );
++        #endif
+             frame->Destroy();
+         }
+ 
+         m_buttonFpChooserLock = false;
++#ifdef KICAD_IOS_PORT
++        PATHS::IosBreadcrumb( "round23-fpchooser-09-return-done" );
++    #endif
+     }
+ 
+ protected:
+--- a/eeschema/dialogs/dialog_field_properties.cpp
++++ b/eeschema/dialogs/dialog_field_properties.cpp
+@@ -45,6 +45,9 @@
+ #include <sch_text.h>
+ #include <scintilla_tricks.h>
+ #include <wx/log.h>
++#ifdef KICAD_IOS_PORT
++#include <paths.h>  // [KiCad-IOS port] Round 23: PATHS::IosBreadcrumb stage markers
++#endif
+ #include <wildcards_and_files_ext.h>
+ 
+ 
+@@ -434,6 +437,9 @@
+     // chooser ctor, names the faulting stage if a crash remains.
+     wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-fpchooser-click" ) );
+ #endif
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-00-click" );
++#endif
+     // pick a footprint using the footprint picker.
+     wxString fpid;
+ 
+@@ -444,9 +450,17 @@
+ 
+     if( KIWAY_PLAYER* frame = Kiway().Player( FRAME_FOOTPRINT_CHOOSER, true, this ) )
+     {
++#ifdef KICAD_IOS_PORT
++        PATHS::IosBreadcrumb( "round23-fpchooser-01-player-returned" );
++    #endif
+         KIWAY_MAIL_EVENT event( FRAME_FOOTPRINT_CHOOSER, MAIL_SYMBOL_NETLIST, m_netlist );
+         frame->KiwayMailIn( event );
+-
++#ifdef KICAD_IOS_PORT
++        PATHS::IosBreadcrumb( "round23-fpchooser-02-mail-done" );
++    #endif
++#ifdef KICAD_IOS_PORT
++        PATHS::IosBreadcrumb( "round23-fpchooser-06-showmodal-enter" );
++    #endif
+         if( frame->ShowModal( &fpid, this ) )
+         {
+             if( m_StyledTextCtrl->IsShown() )
+@@ -454,9 +468,14 @@
+             else
+                 m_TextCtrl->SetValue( fpid );
+         }
+-
++#ifdef KICAD_IOS_PORT
++        PATHS::IosBreadcrumb( "round23-fpchooser-07-showmodal-exit" );
++    #endif
+         frame->Destroy();
+     }
++#ifdef KICAD_IOS_PORT
++    PATHS::IosBreadcrumb( "round23-fpchooser-09-return-done" );
++#endif
+ }
+ 
+ 
