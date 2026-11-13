@@ -2320,3 +2320,62 @@ it activates the 0051/0052 literals (`round22-fpchooser-click`,
 `round22-chooser-3d-skipped`, `round22-fpchooser-frame-ready`,
 `round22-3dpreview-skipped`, `round22-3dmodelviewer-skipped`,
 `round22-3dviewer-unavailable`).
+
+### KiCad patch 0054 — round23-breadcrumb-channel (round 23)
+`include/paths.h`, `common/paths.cpp`, `kicad/kicad.cpp` —
+a crash-surviving stage breadcrumb channel:
+`PATHS::IosBreadcrumb( const char* )` appends
+"<unix-time> <stage>" to `Documents/kicad-ios-breadcrumb.log`
+(open/write/fflush/fsync/close per call; no-op off iOS). It
+exists because every port stage trace so far used wxLogTrace
+on the "KICAD_IOS" channel, which is never unmasked at
+runtime (no AddTraceMask anywhere; advanced-config default
+empty) and whose target is stderr — Round 22's chooser traces
+were unobservable on device even if reached. The file sits at
+the Documents root (file sharing is enabled in the bundle),
+retrievable via Files -> On My iPad -> KiCad. paths.cpp is
+compiled into libkicommon (KICAD_IOS_PORT already defined for
+that target by patch 0032), which every kiface links, so one
+implementation serves all callers. `kicad.cpp` writes
+`round23-session-start` at startup next to patch 0034's
+Documents fix. Literals (ASCII): `kicad-ios-breadcrumb.log`,
+`round23-session-start`.
+
+### KiCad patch 0055 — round23-chooser-null-init-and-breadcrumbs (round 23)
+`pcbnew/footprint_chooser_frame.h`,
+`pcbnew/footprint_chooser_frame.cpp` — **corrects a false
+claim in patch 0051's entry below**: 0051 removed the only
+assignment to `m_preview3DCanvas` on iOS and asserted the
+member "stays null"; it was never initialised (no in-class
+initialiser, absent from the constructor's init list), so
+0051's null guards dereferenced indeterminate heap memory
+and the chooser crashed on open on the Round 22 build
+(device-verified; round23-bug-ledger.md #1). Fix: the member
+now has an in-class `= nullptr` initialiser (a no-op on
+desktop; impossible to preprocess out). Patch 0052's two
+sites were NOT affected (upstream initialises `m_previewPane`
+and `m_modelViewer` to nullptr in their init lists). The same
+patch instruments the chooser frame with patch 0054
+breadcrumbs bracketing every remaining suspect stage:
+`round23-fpchooser-10-ctor-enter`, `11-panel-done`,
+`12-canvas-aliased`, `13-3d-skipped`, `14-3dguard-passed`
+(immediately after the guarded Show that faulted),
+`15-tools-done`, `16-frame-ready`, `17-mailin-enter`,
+`18-mailin-exit`, `19-showmodal-override`, `20-dtor-enter`,
+`21-dtor-3d-done` (ASCII, in _pcbnew.kiface).
+
+### KiCad patch 0056 — round23-chooser-door-breadcrumbs (round 23)
+`common/widgets/grid_text_button_helpers.cpp`,
+`eeschema/dialogs/dialog_field_properties.cpp` — the same
+breadcrumb stages on BOTH dialog doors into the footprint
+chooser: Sean's actual door (the fields-grid cell-editor
+button, TEXT_BUTTON_FP_CHOOSER::OnButtonClick — a path Round
+22 never traced; DIALOG_SYMBOL_PROPERTIES is its own class,
+not a DIALOG_FIELD_PROPERTIES wrapper) and the field-
+properties door Round 22 traced. Markers only, no behaviour
+change: `round23-fpchooser-00-click`, `01-player-returned`,
+`02-mail-done`, `06-showmodal-enter`, `07-showmodal-exit`,
+`09-return-done` (ASCII). Read together with 0055's frame
+markers, the breadcrumb file's last line after any future
+crash names the dying stage (constructor span, modal loop,
+or the return path into the grid editor).
