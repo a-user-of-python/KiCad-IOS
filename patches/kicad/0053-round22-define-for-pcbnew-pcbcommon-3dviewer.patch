@@ -1,0 +1,132 @@
+[KiCad-IOS port] Round 22 build fix: define KICAD_IOS_PORT for
+the pcbnew_kiface_objects, pcbcommon and 3d-viewer targets so
+patches 0051/0052 actually compile in.
+
+Diagnosis: the first round-22 CI build (run 43428316530,
+SUCCESS) produced an IPA whose round22_gate FAILED: the
+eeschema literal round22-fpchooser-click was present, but
+every pcbnew/3d-viewer literal was absent from the shipped
+binaries in every encoding, while the upstream wxLogTrace
+control string from the same footprint_chooser_frame.cpp TU
+was present. Root cause: this port defines KICAD_IOS_PORT
+PER TARGET (patches 0026/0032/0035 and the gal/eeschema
+snippets), and before this patch the define sat only on the
+kicad, common, kicommon, gal and eeschema_kiface_objects
+targets. Patches 0051/0052 put their #ifdef KICAD_IOS_PORT
+blocks in sources compiled by three other targets --
+footprint_chooser_frame.cpp (pcbnew_kiface_objects),
+pcb_base_frame.cpp and tools/pcb_viewer_tools.cpp
+(pcbcommon), panel_preview_3d_model.cpp and
+dialog_select_3d_model.cpp (3d-viewer) -- so the blocks were
+preprocessed out and the shipped build still contained the
+crash. This is the exact failure mode patch 0032 documents
+for rounds 10-11; the round-22 gate caught it before
+delivery, which is what the gate is for.
+
+Fix: add the define to the three targets, in the established
+idiom (an iOS-only if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
+target_compile_definitions block with an inventory comment).
+Safety inventory, verified against the applied tree: the
+only KICAD_IOS_PORT blocks in each target's source list are
+round 22's own (pcbcommon's 97 sources were checked
+individually; the only hits are the two round-22 files), so
+enabling the define activates nothing else.
+
+Gate: hidden_files/round22_gate.py must now PASS on the new
+build (all six literals), with the Round 21 IPA still
+FAILING as negative control. The first round-22 build (md5
+034bd607b8b9c8c2e11ff101aee1ad54) is NOT delivered.
+
+Modified files:
+  pcbnew/CMakeLists.txt
+  common/CMakeLists.txt
+  3d-viewer/CMakeLists.txt
+
+GPL v3 section 5 notice: this file is part of the KiCad-iOS
+port's modifications to KiCad 10.0.1 (commit 2db9e5a7). The
+modified files carry the corresponding [KiCad-IOS port]
+comments; the port is unofficial and is not affiliated with
+the KiCad project. See MODIFICATIONS.md for the full change
+list and the corresponding-source offer.
+
+Apply with: patch -p1 < patches/kicad/0053-round22-define-for-pcbnew-pcbcommon-3dviewer.patch
+(after patches 0001-0052)
+
+--- a/pcbnew/CMakeLists.txt
++++ b/pcbnew/CMakeLists.txt
+@@ -810,6 +810,25 @@
+     ${PCBNEW_SCRIPTING_SRCS}
+     )
+ 
++# [KiCad-IOS port] Added 2026-11-13 for iOS (round 22): define
++# KICAD_IOS_PORT for the pcbnew kiface objects, the same
++# per-target define patches 0026/0032/0035 place on the kicad,
++# common, kicommon, gal and eeschema_kiface_objects targets.
++# Of the sources compiled into this target, the only
++# KICAD_IOS_PORT blocks are round 22's in
++# footprint_chooser_frame.cpp (patch 0051: the chooser's
++# skipped 3D canvas and its null guards); no other blocks
++# exist in this target's sources, so the define activates
++# nothing else. (Round 22's other patched sources compile
++# into pcbcommon and 3d-viewer, which get the same define
++# from this patch.) Without it those blocks are preprocessed
++# out of the shipped kiface -- the failure mode patch 0032
++# documents for rounds 10-11, and exactly what the first
++# round-22 build's gate caught.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( pcbnew_kiface_objects PRIVATE KICAD_IOS_PORT )
++endif()
++
+ if( KICAD_USE_PCH )
+     target_precompile_headers( pcbnew_kiface_objects
+         PRIVATE
+--- a/3d-viewer/CMakeLists.txt
++++ b/3d-viewer/CMakeLists.txt
+@@ -110,6 +110,22 @@
+ add_library(3d-viewer STATIC ${3D-VIEWER_SRCS})
+ add_dependencies( 3d-viewer pcbcommon )
+ 
++# [KiCad-IOS port] Added 2026-11-13 for iOS (round 22): define
++# KICAD_IOS_PORT for the 3d-viewer target, the same per-target
++# define patches 0026/0032/0035 place on the kicad, common,
++# kicommon, gal and eeschema_kiface_objects targets. The
++# 3d-viewer sources' only KICAD_IOS_PORT blocks are round
++# 22's (patch 0052: the skipped GL canvases in
++# dialogs/panel_preview_3d_model.cpp and
++# dialogs/dialog_select_3d_model.cpp); no other blocks exist
++# in the 3d-viewer sources, so the define activates nothing
++# else. Without it those blocks are preprocessed out of the
++# shipped binaries -- the failure mode patch 0032 documents
++# for rounds 10-11.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( 3d-viewer PRIVATE KICAD_IOS_PORT )
++endif()
++
+ if( KICAD_USE_PCH )
+     target_precompile_headers( 3d-viewer
+         PRIVATE
+--- a/common/CMakeLists.txt
++++ b/common/CMakeLists.txt
+@@ -1104,6 +1104,22 @@
+ 
+ target_compile_definitions(pcbcommon PRIVATE PCBNEW)
+ 
++# [KiCad-IOS port] Added 2026-11-13 for iOS (round 22): define
++# KICAD_IOS_PORT for the pcbcommon target as well, the same
++# per-target define patches 0026/0032/0035 place on the kicad,
++# common, kicommon, gal and eeschema_kiface_objects targets.
++# Two of round 22's patched sources compile into pcbcommon,
++# not into the pcbnew kiface objects: pcbnew/pcb_base_frame.cpp
++# (the 3D viewer fail-safe) and pcbnew/tools/pcb_viewer_tools.cpp
++# (its null guard). They are the only KICAD_IOS_PORT blocks in
++# pcbcommon's source list, so the define activates nothing
++# else. Without it those blocks are preprocessed out of the
++# shipped binaries -- the failure mode patch 0032 documents
++# for rounds 10-11.
++if( CMAKE_SYSTEM_NAME STREQUAL "iOS" )
++    target_compile_definitions( pcbcommon PRIVATE KICAD_IOS_PORT )
++endif()
++
+ target_include_directories( pcbcommon PRIVATE
+     )
+ 
