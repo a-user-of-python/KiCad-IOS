@@ -1,0 +1,356 @@
+[KiCad-IOS port] Round 22 crash hunt #3/#4/#5: the remaining
+desktop-OpenGL canvas constructions outside the footprint
+chooser are removed or made fail-safe on iOS.
+
+Diagnosis (hidden_files/round22-bug-ledger.md #3/#4/#5, census
+in round22-hunt-crash.md): patch 0051 covers the footprint
+chooser. The whole-tree census of raw wxGLCanvas constructions
+(EDA_3D_CANVAS / EDA_3D_MODEL_VIEWER — the class of canvas that
+bypasses the Cairo forcing at SwitchBackend, patches 0035/
+0036) found three more reachable sites, all with the same
+hard-fault mechanism on wxQt/iOS (GL context creation cannot
+fail cleanly; no desktop OpenGL exists on iOS):
+
+- #3 Footprint Properties (DIALOG_FOOTPRINT_PROPERTIES, opened
+  by double-clicking a footprint in the PCB or Footprint
+  editor) builds its 3D Models page eagerly, and
+  PANEL_PREVIEW_3D_MODEL's constructor creates an EDA_3D_CANVAS
+  — so the dialog itself would crash on open.
+- #4 DIALOG_SELECT_3D_MODEL (opened from that page to pick a
+  model file) creates an EDA_3D_MODEL_VIEWER (a raw
+  HIDPI_GL_CANVAS) in its constructor.
+- #5 The 3D viewer frame (EDA_3D_VIEWER_FRAME) creates the
+  same canvas in its constructor; every entry point (PCB
+  editor / footprint viewer / footprint wizard "3D Viewer"
+  action, the footprint chooser's external viewer) funnels
+  through PCB_BASE_FRAME::CreateAndShow3D_Frame. The 3D viewer
+  is a long-standing named limitation of this port — the bug
+  is that it fails DEADLY instead of safe.
+
+Fix (all under #ifdef KICAD_IOS_PORT, desktop builds
+byte-unchanged):
+- panel_preview_3d_model.cpp: skip the canvas (and the
+  space-mouse plugin that drives it); the preview pane stays
+  empty while the model list and scale/rotation/offset
+  controls keep working. Guard the loadSettings() call (it
+  asserts on a null canvas), the dispatcher/infobar/sizer
+  wiring, the viewer-control tool invocation, and the three
+  ReloadRequest/Refresh update sites. Trace:
+  "round22-3dpreview-skipped".
+- dialog_select_3d_model.cpp: skip the model viewer; the file
+  tree and filename controls are unaffected. Guard the
+  constructor's Refresh/SetFocus (the other two uses were
+  already null-guarded upstream). Trace:
+  "round22-3dmodelviewer-skipped".
+- pcb_base_frame.cpp: CreateAndShow3D_Frame() on iOS shows
+  "The 3D viewer is not available in this port..." and returns
+  nullptr instead of constructing the frame. Trace:
+  "round22-3dviewer-unavailable".
+- Null-guard the two ReparentModal( draw3DFrame ) call sites
+  that would otherwise deref the new nullptr return
+  (pcb_viewer_tools.cpp Show3DViewer, footprint_chooser_
+  frame.cpp Show3DViewerFrame). PCB_BASE_FRAME::Update3DView
+  already null-guards upstream.
+
+Gate: hidden_files/round22_gate.py requires the UTF-32LE
+literals "round22-3dpreview-skipped", "round22-3dmodelviewer-
+skipped" and "round22-3dviewer-unavailable" in the shipped
+binaries; the Round 21 IPA must FAIL all three.
+
+Modified files:
+  3d-viewer/dialogs/panel_preview_3d_model.cpp
+  3d-viewer/dialogs/dialog_select_3d_model.cpp
+  pcbnew/pcb_base_frame.cpp
+  pcbnew/tools/pcb_viewer_tools.cpp
+  pcbnew/footprint_chooser_frame.cpp
+
+GPL v3 section 5 notice: this file is part of the KiCad-iOS
+port's modifications to KiCad 10.0.1 (commit 2db9e5a7). The
+modified files carry the corresponding [KiCad-IOS port]
+comments; the port is unofficial and is not affiliated with
+the KiCad project. See MODIFICATIONS.md for the full change
+list and the corresponding-source offer.
+
+Apply with: patch -p1 < patches/kicad/0052-round22-3d-canvases-fail-safe.patch
+(after patches 0001-0051)
+
+--- a/3d-viewer/dialogs/panel_preview_3d_model.cpp
++++ b/3d-viewer/dialogs/panel_preview_3d_model.cpp
+@@ -194,6 +194,21 @@
+ 
+     m_dummyBoard->Add( m_dummyFootprint );
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22 (ledger #3): do NOT create the 3D
++    // preview canvas on this port. EDA_3D_CANVAS is a desktop-OpenGL
++    // wxGLCanvas; wxQt's GL context creation can never fail cleanly
++    // and iOS has no desktop OpenGL, so building it here — eagerly,
++    // as part of DIALOG_FOOTPRINT_PROPERTIES — hard-faults the app
++    // when Footprint Properties opens (same family as the footprint
++    // chooser crash, patch 0051). m_previewPane stays null; the
++    // space-mouse plugin (which drives the canvas) is skipped too,
++    // and every m_previewPane use below is null-guarded under this
++    // define. The model list and the scale/rotation/offset controls
++    // on the 3D Models page are plain data and keep working; only
++    // the rendered preview is absent.
++    wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-3dpreview-skipped" ) );
++#else
+     // Create the 3D canvas
+     m_previewPane = new EDA_3D_CANVAS( this, OGL_ATT_LIST::GetAttributesList( ANTIALIASING_MODE::AA_8X ),
+                                        m_boardAdapter, m_currentCamera,
+@@ -212,6 +227,7 @@
+     {
+         wxLogTrace( wxT( "KI_TRACE_NAVLIB" ), e.what() );
+     }
++#endif
+ 
+     m_boardAdapter.SetBoard( m_dummyBoard );
+     m_boardAdapter.m_IsBoardView = false;
+@@ -219,7 +235,14 @@
+     // Force display 3D models, regardless the 3D viewer options.
+     m_boardAdapter.m_IsPreviewer = true;
+ 
++#ifndef KICAD_IOS_PORT
+     loadSettings();
++#else
++    // [KiCad-IOS port] Round 22: loadSettings() opens with a
++    // wxCHECK_RET on the canvas; only call it when a canvas exists.
++    if( m_previewPane )
++        loadSettings();
++#endif
+ 
+     // Create the manager
+     m_toolManager = new TOOL_MANAGER;
+@@ -227,20 +250,44 @@
+ 
+     m_actions = new EDA_3D_ACTIONS();
+     m_toolDispatcher = new TOOL_DISPATCHER( m_toolManager );
++#ifndef KICAD_IOS_PORT
+     m_previewPane->SetEventDispatcher( m_toolDispatcher );
++#else
++    // [KiCad-IOS port] Round 22: no preview canvas on this port
++    // (see the constructor note); wire it up only when it exists.
++    if( m_previewPane )
++        m_previewPane->SetEventDispatcher( m_toolDispatcher );
++#endif
+ 
+     // Register tools
+     m_toolManager->RegisterTool( new EDA_3D_CONTROLLER );
+     m_toolManager->InitTools();
+ 
++#ifndef KICAD_IOS_PORT
+     // Run the viewer control tool, it is supposed to be always active
+     m_toolManager->InvokeTool( "3DViewer.Control" );
++#else
++    // [KiCad-IOS port] Round 22: the viewer control tool drives the
++    // preview canvas; without a canvas there is nothing to control.
++    if( m_previewPane )
++        m_toolManager->InvokeTool( "3DViewer.Control" );
++#endif
+ 
+     m_infobar = new WX_INFOBAR( this );
++#ifndef KICAD_IOS_PORT
+     m_previewPane->SetInfoBar( m_infobar );
++#else
++    if( m_previewPane )
++        m_previewPane->SetInfoBar( m_infobar );
++#endif
+ 
+     m_SizerPanelView->Add( m_infobar, 0, wxEXPAND, 0 );
++#ifndef KICAD_IOS_PORT
+     m_SizerPanelView->Add( m_previewPane, 1, wxEXPAND, 5 );
++#else
++    if( m_previewPane )
++        m_SizerPanelView->Add( m_previewPane, 1, wxEXPAND, 5 );
++#endif
+ 
+     for( wxEventType eventType : { wxEVT_MENU_OPEN, wxEVT_MENU_CLOSE, wxEVT_MENU_HIGHLIGHT } )
+         Connect( eventType, wxMenuEventHandler( PANEL_PREVIEW_3D_MODEL::OnMenuEvent ), nullptr, this );
+@@ -442,8 +489,18 @@
+ 
+     cfg->m_Render.preview_show_board_body = !cfg->m_Render.preview_show_board_body;
+ 
++#ifndef KICAD_IOS_PORT
+     m_previewPane->ReloadRequest();
+     m_previewPane->Refresh();
++#else
++    // [KiCad-IOS port] Round 22: refresh the preview only when a
++    // preview canvas exists (it never does on this port).
++    if( m_previewPane )
++    {
++        m_previewPane->ReloadRequest();
++        m_previewPane->Refresh();
++    }
++#endif
+ }
+ 
+ 
+@@ -465,8 +522,18 @@
+ 
+     UpdateDummyFootprint( true );
+ 
++#ifndef KICAD_IOS_PORT
+     m_previewPane->ReloadRequest();
+     m_previewPane->Refresh();
++#else
++    // [KiCad-IOS port] Round 22: see setBodyStyleView — no preview
++    // canvas exists on this port.
++    if( m_previewPane )
++    {
++        m_previewPane->ReloadRequest();
++        m_previewPane->Refresh();
++    }
++#endif
+ }
+ 
+ 
+@@ -681,10 +748,22 @@
+             m_dummyFootprint->Models().push_back( model );
+     }
+ 
++#ifndef KICAD_IOS_PORT
+     if( aReloadRequired )
+         m_previewPane->ReloadRequest();
+ 
+     m_previewPane->Request_refresh();
++#else
++    // [KiCad-IOS port] Round 22: see setBodyStyleView — no preview
++    // canvas exists on this port.
++    if( m_previewPane )
++    {
++        if( aReloadRequired )
++            m_previewPane->ReloadRequest();
++
++        m_previewPane->Request_refresh();
++    }
++#endif
+ }
+ 
+ 
+--- a/3d-viewer/dialogs/dialog_select_3d_model.cpp
++++ b/3d-viewer/dialogs/dialog_select_3d_model.cpp
+@@ -37,6 +37,9 @@
+ #include <wx_filename.h>
+ 
+ #include <wx/filedlg.h>
++#ifdef KICAD_IOS_PORT
++#include <wx/log.h>   // [KiCad-IOS port] Round 22: for the wxLogTrace stage marker below
++#endif
+ 
+ #include <kiplatform/ui.h>
+ 
+@@ -51,10 +54,23 @@
+         m_previousDir( prevModelSelectDir ),
+         m_modelViewer( nullptr )
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22 (ledger #4): do NOT create the model
++    // viewer on this port. EDA_3D_MODEL_VIEWER is a raw wxGLCanvas
++    // (desktop OpenGL); wxQt's GL context creation can never fail
++    // cleanly and iOS has no desktop OpenGL, so building it in this
++    // dialog's constructor hard-faults the app when the dialog
++    // opens (same family as patches 0051/0052). m_modelViewer stays
++    // null; the file tree and filename controls — the dialog's
++    // actual job — are unaffected, and the remaining m_modelViewer
++    // uses are null-guarded (two were already guarded upstream).
++    wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-3dmodelviewer-skipped" ) );
++#else
+     m_modelViewer = new EDA_3D_MODEL_VIEWER(
+             m_pane3Dviewer, OGL_ATT_LIST::GetAttributesList( ANTIALIASING_MODE::AA_8X ), m_cache );
+     m_modelViewer->SetMinSize( wxSize( 400, -1 ) );
+     m_Sizer3Dviewer->Add( m_modelViewer, 1, wxEXPAND|wxRIGHT, 5 );
++#endif
+ 
+     // create the filter list
+     if( NULL != m_cache )
+@@ -131,8 +147,18 @@
+     m_FileTree->SetPath( m_previousDir );
+     updateDirChoiceList();
+ 
++#ifndef KICAD_IOS_PORT
+     m_modelViewer->Refresh();
+     m_modelViewer->SetFocus();
++#else
++    // [KiCad-IOS port] Round 22: no model viewer exists on this
++    // port (see the constructor note).
++    if( m_modelViewer )
++    {
++        m_modelViewer->Refresh();
++        m_modelViewer->SetFocus();
++    }
++#endif
+ 
+     finishDialogSettings();
+ }
+--- a/pcbnew/pcb_base_frame.cpp
++++ b/pcbnew/pcb_base_frame.cpp
+@@ -679,8 +679,31 @@
+ {
+     EDA_3D_VIEWER_FRAME* draw3DFrame = Get3DViewerFrame();
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22 (ledger #5): fail SAFE instead of
++    // constructing the 3D viewer on this port. EDA_3D_VIEWER_FRAME's
++    // constructor builds an EDA_3D_CANVAS (desktop-OpenGL
++    // wxGLCanvas); wxQt's GL context creation can never fail cleanly
++    // and iOS has no desktop OpenGL, so creating the frame
++    // hard-faults the app — the same family as the footprint
++    // chooser crash (patch 0051). This function is the single
++    // creation choke point for every "3D Viewer" entry (PCB editor,
++    // footprint viewer, footprint wizard, footprint chooser), so
++    // the port's named 3D limitation is surfaced here as a message
++    // and nullptr. Callers must tolerate nullptr: PCB_BASE_FRAME::
++    // Update3DView already does, and the two ReparentModal() call
++    // sites are null-guarded by this same patch.
++    if( !draw3DFrame )
++    {
++        wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-3dviewer-unavailable" ) );
++        DisplayInfoMessage( this, _( "The 3D viewer is not available in this port: "
++                                     "it requires desktop OpenGL, which iOS does not provide." ) );
++        return nullptr;
++    }
++#else
+     if( !draw3DFrame )
+         draw3DFrame = new EDA_3D_VIEWER_FRAME( &Kiway(), this, _( "3D Viewer" ) );
++#endif
+ 
+     // Raising the window does not show the window on Windows if iconized. This should work
+     // on any platform.
+--- a/pcbnew/tools/pcb_viewer_tools.cpp
++++ b/pcbnew/tools/pcb_viewer_tools.cpp
+@@ -90,8 +90,16 @@
+     if( frame()->IsType( FRAME_FOOTPRINT_VIEWER )
+      || frame()->IsType( FRAME_FOOTPRINT_WIZARD ) )
+     {
++#ifndef KICAD_IOS_PORT
+         // A stronger version of Raise() which promotes the window to its parent's level.
+         KIPLATFORM::UI::ReparentModal( draw3DFrame );
++#else
++        // [KiCad-IOS port] Round 22: CreateAndShow3D_Frame() returns
++        // nullptr on this port (3D viewer unavailable — see
++        // pcb_base_frame.cpp); only reparent a frame that exists.
++        if( draw3DFrame )
++            KIPLATFORM::UI::ReparentModal( draw3DFrame );
++#endif
+     }
+ 
+     // And load or update the current board (if needed)
+--- a/pcbnew/footprint_chooser_frame.cpp
++++ b/pcbnew/footprint_chooser_frame.cpp
+@@ -382,8 +382,16 @@
+ 
+     EDA_3D_VIEWER_FRAME* draw3DFrame = CreateAndShow3D_Frame();
+ 
++#ifndef KICAD_IOS_PORT
+     // A stronger version of Raise() which promotes the window to its parent's level.
+     KIPLATFORM::UI::ReparentModal( draw3DFrame );
++#else
++    // [KiCad-IOS port] Round 22: CreateAndShow3D_Frame() returns
++    // nullptr on this port (3D viewer unavailable — see
++    // pcb_base_frame.cpp); only reparent a frame that exists.
++    if( draw3DFrame )
++        KIPLATFORM::UI::ReparentModal( draw3DFrame );
++#endif
+ 
+     // And load or update the current board (if needed)
+     if( do_reload_board )
