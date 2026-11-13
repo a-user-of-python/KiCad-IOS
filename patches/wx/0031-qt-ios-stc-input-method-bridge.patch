@@ -23,12 +23,19 @@
 #    byte-identical to before this patch;
 #  - inputMethodQuery answers ImEnabled (true) and
 #    ImCursorRectangle (a rect at the widget origin; approximate
-#    is fine for keyboard placement), invalid QVariant otherwise;
+#    is fine for keyboard placement);
 #  - inputMethodEvent delivers commitString characters as
 #    wxEVT_CHAR events via ProcessWindowEvent -- the channel
 #    hardware keys already use (STC::OnChar -> DoAddChar);
 #  - focus gain/loss on an STC window calls
 #    QInputMethod::show()/hide().
+# The query handler takes the Qt::InputMethodQuery value as a
+# plain int and returns through a QVariant out-pointer: the
+# public wx/qt/window.h is included by KiCad translation units
+# that compile without any Qt include path, so it may not name
+# Qt types beyond forward declarations (first version of this
+# patch included <QtCore/Qt> there and the kicad stage failed
+# with 'QtCore/Qt' file not found, CI run 43355465930).
 # v1 limitation, noted honestly: the preedit (composition)
 # string is ignored; only committed text is delivered, which is
 # what the iOS keyboard sends for plain typing.
@@ -39,29 +46,16 @@
 #
 --- a/include/wx/qt/window.h
 +++ b/include/wx/qt/window.h
-@@ -11,6 +11,13 @@
- 
- #include <memory>
- 
-+// [KiCad-IOS port] Added 2026-11-12 for iOS (round 21, wx patch
-+// 0031): Qt::InputMethodQuery and QVariant are named in the
-+// QtHandleInputMethodQuery() declaration below; both headers are
-+// lightweight, self-contained QtCore headers.
-+#include <QtCore/Qt>
-+#include <QtCore/QVariant>
-+
- class QShortcut;
- 
- class QAbstractScrollArea;
-@@ -23,6 +30,7 @@
+@@ -23,6 +23,8 @@
  class QContextMenuEvent;
  class QEvent;
  class QFocusEvent;
 +class QInputMethodEvent;
++class QVariant;
  class QKeyEvent;
  class QPaintEvent;
  class QResizeEvent;
-@@ -175,6 +183,22 @@
+@@ -175,6 +177,28 @@
      virtual bool QtHandleContextMenuEvent  ( QWidget *handler, QContextMenuEvent *event );
      virtual bool QtHandleFocusEvent  ( QWidget *handler, QFocusEvent *event );
  
@@ -71,11 +65,17 @@
 +    // custom-painted STC widget never raises the iOS virtual
 +    // keyboard and has no channel for the text it produces.
 +    // These handlers are invoked from wxQtEventSignalHandler
-+    // (winevent.h) and are inert (return false / an invalid
-+    // QVariant) for every non-STC window, leaving all other
-+    // widgets on the default Qt behaviour.
++    // (winevent.h) and are inert for every non-STC window,
++    // leaving all other widgets on the default Qt behaviour.
++    // The query handler takes the Qt::InputMethodQuery value as
++    // a plain int and returns through a QVariant out-pointer:
++    // this public header is included by translation units (in
++    // KiCad) that compile without any Qt include path, so it
++    // must not name Qt types beyond forward declarations
++    // (proven by CI run 43355465930: 'QtCore/Qt' file not found
++    // in a KiCad TU including this header).
 +    virtual bool QtHandleInputMethodEvent ( QWidget *handler, QInputMethodEvent *event );
-+    virtual QVariant QtHandleInputMethodQuery ( QWidget *handler, Qt::InputMethodQuery query );
++    virtual bool QtHandleInputMethodQuery ( QWidget *handler, int query, QVariant *result );
 +
 +    // True only for wxStyledTextCtrl windows (identified by
 +    // class name, so wxCore needs no STC-layer dependency).
@@ -100,7 +100,7 @@
  
 +    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 21, wx
 +    // patch 0031): forward input-method events to the wxWindowQt
-+    // handlers. Those handlers are inert for every window except
++    // handlers. Those handlers decline for every window except
 +    // wxStyledTextCtrl, in which case we accept the event and do
 +    // NOT fall through to the Widget default; all other widgets
 +    // keep exactly the default Qt behaviour they had before.
@@ -119,11 +119,11 @@
 +    {
 +        if ( this->GetHandler() )
 +        {
-+            QVariant result =
-+                this->GetHandler()->QtHandleInputMethodQuery(
-+                    const_cast<wxQtEventSignalHandler*>(this), query );
++            QVariant result;
 +
-+            if ( result.isValid() )
++            if ( this->GetHandler()->QtHandleInputMethodQuery(
++                    const_cast<wxQtEventSignalHandler*>(this),
++                    static_cast<int>( query ), &result ) )
 +                return result;
 +        }
 +
@@ -169,7 +169,7 @@
      // Set the default color so Paint Event default handler clears the DC:
      wxWindowBase::SetBackgroundColour(wxColour(GetHandle()->palette().window().color()));
      wxWindowBase::SetForegroundColour(wxColour(GetHandle()->palette().windowText().color()));
-@@ -2002,8 +2014,101 @@
+@@ -2002,8 +2014,106 @@
      return WXSendContextMenuEvent(pos);
  }
  
@@ -222,35 +222,40 @@
 +    return true;
 +}
 +
-+QVariant wxWindowQt::QtHandleInputMethodQuery ( QWidget *WXUNUSED( handler ),
-+                                                Qt::InputMethodQuery query )
-+{
++bool wxWindowQt::QtHandleInputMethodQuery ( QWidget *WXUNUSED( handler ),
++                                            int query, QVariant *result )
+ {
 +    // [KiCad-IOS port] Added 2026-11-12 for iOS (round 21, wx
 +    // patch 0031): answer the two queries Qt's iOS input context
 +    // needs before it will show the keyboard for an STC window.
-+    // An invalid QVariant for everything else (and for every
-+    // non-STC window) makes the caller in winevent.h fall back
-+    // to the widget's default Qt behaviour, unchanged.
-+    if ( !QtIsStyledTextCtrlWindow() )
-+        return QVariant();
++    // Returns false (and leaves *result untouched) for every
++    // other query and every non-STC window, so the caller in
++    // winevent.h falls back to the widget's default Qt
++    // behaviour, unchanged. The query arrives as a plain int
++    // (a Qt::InputMethodQuery value) because this class's
++    // public header cannot name Qt types -- see window.h.
++    if ( !QtIsStyledTextCtrlWindow() || !result )
++        return false;
 +
-+    switch ( query )
++    switch ( static_cast<Qt::InputMethodQuery>( query ) )
 +    {
 +        case Qt::ImEnabled:
-+            return QVariant( true );
++            *result = QVariant( true );
++            return true;
 +
 +        case Qt::ImCursorRectangle:
 +            // Approximate cursor rect at the widget origin: good
 +            // enough for keyboard placement in v1.
-+            return QVariant( QRectF( 0, 0, 1, 1 ) );
++            *result = QVariant( QRectF( 0, 0, 1, 1 ) );
++            return true;
 +
 +        default:
-+            return QVariant();
++            return false;
 +    }
 +}
 +
 +bool wxWindowQt::QtHandleFocusEvent ( QWidget *handler, QFocusEvent *event )
- {
++{
 +    // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 21, wx
 +    // patch 0031): for wxStyledTextCtrl windows only, (re)assert
 +    // the input-method attribute and drive the iOS virtual
