@@ -2217,3 +2217,36 @@ splitter's live extent (`round20-sim-sash-clamp`). (6)
 leaving Open-Directory / open-externally controls dead; a
 failed launch now shows a message naming the path
 (`round20-launch-external-note`).
+
+### KiCad patch 0050 — ios-field-properties-plain-textctrl (round 21)
+`eeschema/dialogs/dialog_field_properties.cpp` — on the iOS
+build, `DIALOG_FIELD_PROPERTIES::init()` now forces the plain
+wxTextCtrl path for ALL field types. Upstream routes VALUE and
+every custom field to the wxStyledTextCtrl (Scintilla) and
+hides the wxTextCtrl; on wxQt the STC has no input-method
+plumbing, so tapping the value box never raised the iOS
+virtual keyboard and the field could not be edited (device
+report, round 20). The wxTextCtrl is backed by a real
+QLineEdit, which Qt for iOS treats as a text input. Fields
+that had a FIELD_VALIDATOR keep exactly that validator;
+fields that lacked one get none. All value transfer in the
+dialog already branches on `IsShown()`. Accepted loss on iOS:
+the STC {}-variable/pin autocomplete for the field text.
+Literal: `round21-field-plain-textctrl`.
+
+### wx patch 0031 — qt-ios-stc-input-method-bridge (round 21)
+`include/wx/qt/window.h`, `include/wx/qt/private/winevent.h`,
+`src/qt/window.cpp` — an input-method bridge scoped to
+wxStyledTextCtrl windows only (identified by RTTI class name,
+so wxCore needs no STC dependency). The STC widget gets
+`Qt::WA_InputMethodEnabled` at creation and on focus;
+`wxQtEventSignalHandler` now forwards `inputMethodEvent` /
+`inputMethodQuery` to new `wxWindowQt` handlers, which answer
+ImEnabled and an approximate ImCursorRectangle, deliver the
+commit string as `wxEVT_CHAR` events (the channel hardware
+keys already use), and show/hide the iOS keyboard on focus
+gain/loss. Every non-STC window's handler declines and the
+widget keeps its default Qt behaviour, unchanged. v1
+limitation: the preedit (composition) string is ignored; only
+committed text is delivered. Literal:
+`round21-stc-input-method-bridge`.
