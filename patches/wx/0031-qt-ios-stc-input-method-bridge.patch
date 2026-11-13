@@ -214,7 +214,7 @@
 +        wxKeyEvent e( wxEVT_CHAR );
 +        e.SetEventObject( this );
 +        e.m_keyCode = ch.unicode();
-+        e.SetUnicodeKey( static_cast<wxChar>( ch.unicode() ) );
++        e.m_uniChar = static_cast<wxChar>( ch.unicode() );
 +
 +        ProcessWindowEvent( e );
 +    }
