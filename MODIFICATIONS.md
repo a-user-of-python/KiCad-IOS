@@ -2301,3 +2301,22 @@ null-guarded against that return. The 3D viewer remains a
 named limitation of the port; it now fails safe instead of
 crashing. Literals: `round22-3dpreview-skipped`,
 `round22-3dmodelviewer-skipped`, `round22-3dviewer-unavailable`.
+
+### KiCad patch 0053 — round22-define-for-pcbnew-pcbcommon-3dviewer (round 22)
+`pcbnew/CMakeLists.txt`, `common/CMakeLists.txt`,
+`3d-viewer/CMakeLists.txt` — define `KICAD_IOS_PORT` for the
+`pcbnew_kiface_objects`, `pcbcommon` and `3d-viewer` targets
+(iOS only, established per-target idiom). The port's define
+is per-target, and patches 0051/0052 placed their blocks in
+sources compiled by these three targets, which did not carry
+it — so the first round-22 build preprocessed the blocks out
+and shipped the crash unchanged (caught by the round-22 gate
+before delivery: eeschema literal present, all pcbnew/3D
+literals absent; the rounds 10–11 failure mode patch 0032
+documents). Inventory-verified: the only `KICAD_IOS_PORT`
+blocks in each target's sources are round 22's own, so the
+define activates nothing else. Literals: none of its own —
+it activates the 0051/0052 literals (`round22-fpchooser-click`,
+`round22-chooser-3d-skipped`, `round22-fpchooser-frame-ready`,
+`round22-3dpreview-skipped`, `round22-3dmodelviewer-skipped`,
+`round22-3dviewer-unavailable`).
