@@ -1,0 +1,130 @@
+[KiCad-IOS port] Round 23: a crash-surviving stage breadcrumb
+channel -- PATHS::IosBreadcrumb() appends one line per stage to
+Documents/kicad-ios-breadcrumb.log.
+
+Why (hidden_files/round23-bug-ledger.md, diagnostic-channel
+finding): every stage trace this port has shipped uses
+wxLogTrace on the "KICAD_IOS" channel. That mask is never
+enabled at runtime -- no AddTraceMask call exists in KiCad's
+init or in any port patch, the advanced-config TraceMasks
+default is empty, and the WXTRACE route needs a debug build
+plus an environment variable a sideloaded iOS app cannot have.
+The default log target on this wxQt build forwards trace
+records to stderr, i.e. the iOS unified log, which nobody
+retrieved. Round 22's chooser stage traces
+(round22-chooser-3d-skipped / round22-fpchooser-frame-ready)
+were therefore unobservable on device even if reached: the
+round flew blind and the gate could only prove the literals
+were compiled in, not where execution died.
+
+Fix: a direct file channel that bypasses wxLog entirely.
+PATHS::IosBreadcrumb(const char*) is declared in include/paths.h
+and implemented in common/paths.cpp (both compiled into
+libkicommon, which already carries KICAD_IOS_PORT via patch
+0032 and is linked by every kiface, so eeschema, pcbnew and
+common callers share one implementation). On iOS it appends
+"<unix-time> <stage>\n" to
+KIPLATFORM::ENV::GetDocumentsPath() +
+"/kicad-ios-breadcrumb.log" -- the root of the app's Documents
+folder, user-retrievable via Files -> On My iPad -> KiCad
+(file sharing is enabled in the bundle by
+scripts/package_ios.py). Every call opens, writes, fflushes,
+fsyncs and closes: a buffered line in a long-lived handle
+would die with the process in a hard crash; a closed line
+survives. Off iOS the function is a no-op. kicad/kicad.cpp
+writes "round23-session-start" at startup (next to patch
+0034's Documents working-directory fix) to delimit runs in
+the append-only file.
+
+Stage call sites live in patches 0055 (chooser frame) and
+0056 (the two dialog doors). Literals are plain ASCII
+(const char*), so round23_gate.py searches ASCII, unlike the
+UTF-32LE wxString literals of earlier gates.
+
+Modified 2026-11-13 by the KiCad-IOS port (GPLv3 section 5
+notice; see MODIFICATIONS.md).
+
+--- a/include/paths.h
++++ b/include/paths.h
+@@ -66,6 +66,18 @@
+     static wxString GetDefaultUserProjectsPath();
+ 
+     /**
++     * [KiCad-IOS port] Round 23: append one stage breadcrumb line to
++     * Documents/kicad-ios-breadcrumb.log. iOS only; a no-op on other
++     * platforms. Each call opens, writes, flushes and closes the
++     * file, so the last line on disk survives a hard crash and names
++     * the stage that was reached. Added because the port's
++     * wxLogTrace channel ("KICAD_IOS") is never unmasked at runtime
++     * and its default target is stderr, so Round 22's stage traces
++     * were unobservable on device.
++     */
++    static void IosBreadcrumb( const char* aStage );
++
++    /**
+      * Gets the default path we point users to create projects
+      */
+     static wxString GetDefaultUserSymbolsPath();
+--- a/common/paths.cpp
++++ b/common/paths.cpp
+@@ -30,6 +30,13 @@
+ #include <build_version.h>
+ #include <macros.h>
+ #include <wx_filename.h>
++#ifdef KICAD_IOS_PORT
++// [KiCad-IOS port] Round 23: for PATHS::IosBreadcrumb below.
++#include <wx/filefn.h>
++#include <cstdio>
++#include <ctime>
++#include <unistd.h>
++#endif
+ 
+ 
+ void PATHS::getUserDocumentPath( wxFileName& aPath )
+@@ -145,6 +152,33 @@
+ }
+ 
+ 
++void PATHS::IosBreadcrumb( const char* aStage )
++{
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 23: see the declaration in paths.h.
++    // Deliberately NOT routed through wxLog: the port's trace mask
++    // is never enabled at runtime and the default log target is
++    // stderr, which cannot be retrieved from a sideloaded app after
++    // a crash. The file sits at the root of the app's Documents
++    // folder (Files -> On My iPad -> KiCad ->
++    // kicad-ios-breadcrumb.log); file sharing is enabled in the
++    // bundle by scripts/package_ios.py. Open/write/flush/fsync/
++    // close on EVERY call: a buffered line in an open handle would
++    // die with the process, a closed line does not.
++    const wxString path = KIPLATFORM::ENV::GetDocumentsPath()
++                          + wxS( "/kicad-ios-breadcrumb.log" );
++
++    if( FILE* f = wxFopen( path, wxS( "a" ) ) )
++    {
++        std::fprintf( f, "%lld %s\n", (long long) std::time( nullptr ), aStage );
++        std::fflush( f );
++        fsync( fileno( f ) );
++        std::fclose( f );
++    }
++#endif
++}
++
++
+ #if !defined( __WXMAC__ ) && !defined( __WXMSW__ )
+ /**
+  * Get the CMake build root directory for the current executable
+--- a/kicad/kicad.cpp
++++ b/kicad/kicad.cpp
+@@ -751,6 +751,10 @@
+         // Python) is addressed by absolute paths and is unaffected.
+         wxSetWorkingDirectory( KIPLATFORM::ENV::GetDocumentsPath() );
+ 
++        // [KiCad-IOS port] Round 23: delimit runs in the breadcrumb
++        // log (see PATHS::IosBreadcrumb in common/paths.cpp).
++        PATHS::IosBreadcrumb( "round23-session-start" );
++
+         // [KiCad-IOS port] Added 2026-11-07 for iOS (launch fix
+         // round 13, KiCad-Spike-v15): pin the stored canvas type
+         // to the Cairo software canvas. A few previews read
