@@ -2250,3 +2250,54 @@ widget keeps its default Qt behaviour, unchanged. v1
 limitation: the preedit (composition) string is ignored; only
 committed text is delivered. Literal:
 `round21-stc-input-method-bridge`.
+
+### KiCad patch 0051 — round22-footprint-chooser-no-gl-canvas (round 22)
+`pcbnew/footprint_chooser_frame.cpp`,
+`eeschema/dialogs/dialog_field_properties.cpp` — the footprint
+chooser no longer builds its desktop-OpenGL 3D preview canvas
+on iOS. Device report (Round 21 build): Field Properties ->
+FOOTPRINT field's library button crashed the app. The chooser
+frame's constructor called `build3DCanvas()` unconditionally,
+constructing an `EDA_3D_CANVAS` (a wxGLCanvas requesting an
+8x-MSAA desktop-GL context) — the only raw GL canvas on any
+chooser path, bypassing the Cairo forcing (patches 0035/0036)
+that covers every GAL canvas. On wxQt a GL context cannot
+fail cleanly and iOS has no desktop OpenGL, so construction
+hard-faults (round-14 S1 mechanism). All other doors into the
+chooser (symbol properties grid, both fields tables, Exchange
+Footprints, Assign Component Classes, Insert Footprint) share
+this one constructor. On iOS the canvas stays null and every
+use is null-guarded (constructor Show, updateViews,
+updatePanelsVisibility, the destructor's GL-teardown hack);
+the 3D toggle button and "Show 3D viewer in own window"
+checkbox are hidden and `on3DviewReq` returns early. The 2D
+preview (GAL, already Cairo) is unaffected. Stage traces for
+any residual fault: the dialog handler traces
+`round22-fpchooser-click` before Player(), the skipped
+construction traces `round22-chooser-3d-skipped`, and the
+completed constructor traces `round22-fpchooser-frame-ready`.
+Literals: `round22-fpchooser-click`,
+`round22-chooser-3d-skipped`, `round22-fpchooser-frame-ready`.
+
+### KiCad patch 0052 — round22-3d-canvases-fail-safe (round 22)
+`3d-viewer/dialogs/panel_preview_3d_model.cpp`,
+`3d-viewer/dialogs/dialog_select_3d_model.cpp`,
+`pcbnew/pcb_base_frame.cpp`, `pcbnew/tools/pcb_viewer_tools.cpp`,
+`pcbnew/footprint_chooser_frame.cpp` — the crash sweep's
+remaining raw GL canvas constructions fail safe on iOS.
+Footprint Properties builds its 3D Models page eagerly, and
+`PANEL_PREVIEW_3D_MODEL`'s constructor created an
+`EDA_3D_CANVAS`; on iOS the canvas (and the space-mouse plugin
+that drives it) is skipped, the preview pane stays empty, and
+every `m_previewPane` use is null-guarded — the model list
+and scale/rotation/offset controls keep working. The Select
+3D Model dialog likewise skips its `EDA_3D_MODEL_VIEWER`; its
+file tree and filename controls are unaffected. The 3D viewer
+frame itself is not constructed on iOS: the single choke
+point `PCB_BASE_FRAME::CreateAndShow3D_Frame()` shows "The
+3D viewer is not available in this port" and returns nullptr,
+and the two `ReparentModal( draw3DFrame )` call sites are
+null-guarded against that return. The 3D viewer remains a
+named limitation of the port; it now fails safe instead of
+crashing. Literals: `round22-3dpreview-skipped`,
+`round22-3dmodelviewer-skipped`, `round22-3dviewer-unavailable`.
