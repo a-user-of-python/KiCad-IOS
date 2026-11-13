@@ -1,0 +1,100 @@
+# KiCad-IOS port patch 0050 (KiCad 10.0.1, GPL v3+)
+# Round 21: the VALUE text box in DIALOG_FIELD_PROPERTIES raises
+# no iOS keyboard (device report on the round-20 build: the
+# dialog's other text boxes raise it, the value box does not).
+# Diagnosis (hidden round-21 notes): init() routes VALUE and
+# every custom field to the wxStyledTextCtrl (Scintilla) and
+# hides the plain wxTextCtrl; on wxQt the STC is a
+# custom-painted QWidget with no input-method plumbing (wxQt
+# implements no wxTextInputClient, nothing sets
+# WA_InputMethodEnabled or forwards inputMethodEvent for a
+# generic QWidget), so Qt's iOS input context never shows the
+# keyboard for it and there is no commit channel for its text.
+# The wxTextCtrl is backed by a real QLineEdit, which Qt for
+# iOS does treat as a text input.
+# This patch forces the plain wxTextCtrl path for ALL field
+# types on the iOS build (KICAD_IOS_PORT): show m_TextCtrl,
+# hide the STC and its border, SetInitialFocus(m_TextCtrl).
+# All value transfer in the dialog already branches on
+# IsShown(), and OnSetFocusText already carries a VALUE branch
+# for m_TextCtrl. Fields that had a FIELD_VALIDATOR keep
+# exactly that validator; fields that lacked one get NONE --
+# validation semantics are unchanged. Accepted loss on iOS:
+# the STC {}-variable/pin autocomplete for the field text
+# (fields are single-line by design; no other STC feature is
+# used here). The companion wx patch 0031 bridges the keyboard
+# to STC windows generally (text/table-cell properties), but
+# this patch does not depend on it.
+# Gate literal: "round21-field-plain-textctrl" (wxLogTrace,
+# mask "kicad-ios-round21").
+# Apply with: patch -p1 (from the KiCad source root), after
+# patches 0001-0049.
+#
+--- a/eeschema/dialogs/dialog_field_properties.cpp
++++ b/eeschema/dialogs/dialog_field_properties.cpp
+@@ -44,6 +44,7 @@
+ #include <dialog_field_properties.h>
+ #include <sch_text.h>
+ #include <scintilla_tricks.h>
++#include <wx/log.h>
+ #include <wildcards_and_files_ext.h>
+ 
+ 
+@@ -323,6 +324,49 @@
+ 
+     // Predefined fields cannot contain some chars and cannot be empty, so they need a
+     // SCH_FIELD_VALIDATOR (m_StyledTextCtrl cannot use a SCH_FIELD_VALIDATOR).
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Modified 2026-11-12 for iOS (round 21,
++    // KiCad patch 0050): force the plain wxTextCtrl path for ALL
++    // field types on this port. Upstream routes VALUE and every
++    // custom field to the wxStyledTextCtrl (Scintilla) and hides
++    // the wxTextCtrl; on wxQt the STC is a custom-painted QWidget
++    // with no input-method plumbing at all (wxQt implements no
++    // wxTextInputClient), so tapping the value box never raises
++    // the iOS virtual keyboard and the field cannot be edited
++    // (device report, round 20 build: the dialog's wxTextCtrl
++    // boxes raise the keyboard, the value box does not). The
++    // wxTextCtrl is backed by a real QLineEdit, which Qt for iOS
++    // treats as a text input. Every value-transfer site in this
++    // dialog already branches on IsShown()
++    // (TransferDataToWindow, TransferDataFromWindow,
++    // OnTextValueSelectButtonClick), and OnSetFocusText already
++    // has a VALUE branch doing m_TextCtrl->SetSelection(-1,-1),
++    // so the plain control serves VALUE unchanged. Fields that
++    // had a FIELD_VALIDATOR keep exactly that validator; fields
++    // that did not have one get NONE (validation semantics
++    // identical to upstream). Accepted loss on iOS: the STC
++    // {}-variable / pin autocomplete (SCINTILLA_TRICKS) for the
++    // field text -- fields are single-line by design, so no
++    // other STC feature is used here. Trace literal
++    // "round21-field-plain-textctrl" is the shipped-binary gate
++    // marker for this patch (wxLogTrace mask "kicad-ios-round21").
++    if( m_fieldId == FIELD_T::REFERENCE
++            || m_fieldId == FIELD_T::FOOTPRINT
++            || m_fieldId == FIELD_T::DATASHEET
++            || m_fieldId == FIELD_T::SHEET_NAME
++            || m_fieldId == FIELD_T::SHEET_FILENAME )
++    {
++        m_TextCtrl->SetValidator( FIELD_VALIDATOR( m_fieldId, &m_text ) );
++    }
++
++    wxLogTrace( wxT( "kicad-ios-round21" ),
++                wxT( "round21-field-plain-textctrl" ) );
++
++    SetInitialFocus( m_TextCtrl );
++
++    m_StyledTextCtrl->Show( false );
++    m_StyledTextCtrlBorder->Show( false );
++#else
+     if( m_fieldId == FIELD_T::REFERENCE
+             || m_fieldId == FIELD_T::FOOTPRINT
+             || m_fieldId == FIELD_T::DATASHEET
+@@ -341,6 +385,7 @@
+ 
+         m_TextCtrl->Show( false );
+     }
++#endif
+ 
+     // Show the unit selector for reference fields on multi-unit schematic symbols
+     bool showUnitSelector = m_fieldId == FIELD_T::REFERENCE
