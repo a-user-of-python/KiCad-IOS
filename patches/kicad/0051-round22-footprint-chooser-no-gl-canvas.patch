@@ -1,0 +1,235 @@
+[KiCad-IOS port] Round 22 crash hunt #1/#2: the footprint chooser
+no longer builds its desktop-OpenGL 3D preview canvas on iOS, and
+the field-properties footprint button carries stage traces.
+
+Diagnosis (hidden_files/round22-bug-ledger.md #1/#2, census in
+round22-hunt-crash.md): on the Round 21 build, Sean tapped a
+schematic symbol's field properties, then the FOOTPRINT field's
+library button, and the app crashed. The handler
+(DIALOG_FIELD_PROPERTIES::OnTextValueSelectButtonClick) creates
+FOOTPRINT_CHOOSER_FRAME via Kiway().Player(); that frame's
+constructor calls build3DCanvas() unconditionally, which
+constructs an EDA_3D_CANVAS — a desktop-OpenGL wxGLCanvas with
+an 8x-MSAA attribute list. It is the only raw GL canvas
+construction on any chooser path: every GAL editor canvas on
+this port is forced to Cairo at the SwitchBackend choke point
+(patches 0035/0036), but this canvas bypasses that funnel.
+wxQt's GL support cannot fail cleanly (wxGLContext reports
+m_isOk=true unconditionally; SetCurrent calls
+QOpenGLWidget::makeCurrent regardless), and iOS has no desktop
+OpenGL (the build's GL shim maps the headers to OpenGLES/ES3),
+so the canvas's context/paint machinery hard-faults — the
+round-14 S1 mechanism. The other two suspects were cleared by
+reading: KIWAY_PLAYER::ShowModal carries the 0049(2) detach
+since Round 20 and serves the device-working symbol chooser,
+and the MAIL_SYMBOL_NETLIST payload is built null-guarded and
+parsed defensively in KiwayMailIn. Every other door into the
+chooser (symbol properties grid, both fields tables, Exchange
+Footprints, Assign Component Classes, Insert Footprint) shares
+this one constructor, so one fix covers them all.
+
+Fix (all under #ifdef KICAD_IOS_PORT, desktop builds
+byte-unchanged):
+- build3DCanvas(): on iOS, skip the EDA_3D_CANVAS construction
+  (the board-adapter setup above it is plain data and still
+  runs); m_preview3DCanvas stays null. The 2D preview is a GAL
+  panel already on Cairo and is unaffected.
+- Null-guard every remaining m_preview3DCanvas use: the
+  constructor's initial Show, updatePanelsVisibility(),
+  updateViews(), and the destructor's GL-teardown hack.
+- Hide the 3D toggle button and the "Show 3D viewer in own
+  window" checkbox in the constructor (3D is a named
+  non-working feature on this port), and make on3DviewReq
+  return early as belt and braces.
+- Stage traces (the exact faulting instruction inside the
+  Qt/GL stack cannot be read off source, and no device crash
+  log was available this round): the dialog handler traces
+  "round22-fpchooser-click" before Player(); build3DCanvas
+  traces "round22-chooser-3d-skipped"; the frame constructor
+  traces "round22-fpchooser-frame-ready" on completion. If a
+  crash remains on the next device verdict, the last trace in
+  the log names the stage.
+
+Gate: hidden_files/round22_gate.py requires the UTF-32LE
+literals "round22-fpchooser-click" (libeeschema_kiface),
+"round22-chooser-3d-skipped" and "round22-fpchooser-frame-ready"
+(libpcbnew_kiface) in the shipped binaries; the Round 21 IPA
+must FAIL all three.
+
+Modified files:
+  eeschema/dialogs/dialog_field_properties.cpp
+  pcbnew/footprint_chooser_frame.cpp
+
+GPL v3 section 5 notice: this file is part of the KiCad-iOS
+port's modifications to KiCad 10.0.1 (commit 2db9e5a7). The
+modified files carry the corresponding [KiCad-IOS port]
+comments; the port is unofficial and is not affiliated with
+the KiCad project. See MODIFICATIONS.md for the full change
+list and the corresponding-source offer.
+
+Apply with: patch -p1 < patches/kicad/0051-round22-footprint-chooser-no-gl-canvas.patch
+(after patches 0001-0050)
+
+--- a/eeschema/dialogs/dialog_field_properties.cpp
++++ b/eeschema/dialogs/dialog_field_properties.cpp
+@@ -425,6 +425,15 @@
+ 
+ void DIALOG_FIELD_PROPERTIES::OnTextValueSelectButtonClick( wxCommandEvent& aEvent )
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22 crash-hunt stage trace: the device
++    // crash on this button (Round 21 build) is convicted to the
++    // footprint chooser frame's constructor (its desktop-OpenGL
++    // 3D canvas, removed by patch 0051); this breadcrumb, traced
++    // before Player() runs, plus the frame-side trace in the
++    // chooser ctor, names the faulting stage if a crash remains.
++    wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-fpchooser-click" ) );
++#endif
+     // pick a footprint using the footprint picker.
+     wxString fpid;
+ 
+--- a/pcbnew/footprint_chooser_frame.cpp
++++ b/pcbnew/footprint_chooser_frame.cpp
+@@ -138,7 +138,15 @@
+     GetBoard()->SetBoardUse( BOARD_USE::FPHOLDER );
+ 
+     build3DCanvas();    // must be called after creating m_chooserPanel
++#ifndef KICAD_IOS_PORT
+     m_preview3DCanvas->Show( m_show3DMode );
++#else
++    // [KiCad-IOS port] Round 22: on this port build3DCanvas() leaves
++    // m_preview3DCanvas null (no desktop OpenGL on iOS — see the note
++    // there), so only show the canvas when one was actually created.
++    if( m_preview3DCanvas )
++        m_preview3DCanvas->Show( m_show3DMode );
++#endif
+ 
+     // buttonsSizer contains the BITMAP buttons
+     wxBoxSizer* buttonsSizer = new wxBoxSizer( wxHORIZONTAL );
+@@ -178,6 +186,17 @@
+     m_show3DViewer = new wxCheckBox( m_bottomPanel, wxID_ANY, _( "Show 3D viewer in own window" ) );
+     buttonsSizer->Add( m_show3DViewer, 0, wxALL | wxALIGN_CENTER_VERTICAL, 3 );
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22: the 3D preview canvas and the
++    // external 3D viewer need desktop OpenGL, which does not exist
++    // on iOS, so both controls are hidden in this port rather than
++    // left as dead controls (their handlers are also guarded:
++    // on3DviewReq returns early, and CreateAndShow3D_Frame fails
++    // safe via patch 0052).
++    m_grButton3DView->Hide();
++    m_show3DViewer->Hide();
++#endif
++
+     wxStdDialogButtonSizer* sdbSizer = new wxStdDialogButtonSizer();
+     wxButton*               okButton = new wxButton( m_bottomPanel, wxID_OK );
+     wxButton*               cancelButton = new wxButton( m_bottomPanel, wxID_CANCEL );
+@@ -258,6 +277,14 @@
+ 
+     // Needed on Linux to fix the position of widgets in bottomPanel
+     PostSizeEvent();
++
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22 crash-hunt stage trace: reaching this
++    // line proves the chooser frame's constructor completed (the
++    // Round 21 device crash on the field-properties footprint
++    // button died inside this constructor, at the 3D canvas).
++    wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-fpchooser-frame-ready" ) );
++#endif
+ }
+ 
+ 
+@@ -271,8 +298,19 @@
+ 
+     // Work around assertion firing when we try to LockCtx on a hidden 3D canvas during dtor
+     wxCloseEvent dummy;
++#ifndef KICAD_IOS_PORT
+     m_preview3DCanvas->Show();
+     m_preview3DCanvas->OnCloseWindow( dummy );
++#else
++    // [KiCad-IOS port] Round 22: no 3D canvas exists on this port
++    // (m_preview3DCanvas stays null — see build3DCanvas), so the
++    // GL-canvas teardown hack above has nothing to run on.
++    if( m_preview3DCanvas )
++    {
++        m_preview3DCanvas->Show();
++        m_preview3DCanvas->OnCloseWindow( dummy );
++    }
++#endif
+ 
+     // Ensure view and data used by the preview panel are cleared before deleting other items
+     static_cast<FOOTPRINT_PREVIEW_PANEL*>( m_chooserPanel->GetViewerPanel()->GetPreviewPanel() )->ClearViewAndData();
+@@ -730,6 +768,22 @@
+ 
+     m_boardAdapter.m_Cfg = GetAppSettings<EDA_3D_VIEWER_SETTINGS>( "3d_viewer" );
+ 
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22 (ledger #1/#2): do NOT build the 3D
++    // preview canvas on this port. EDA_3D_CANVAS is a desktop-OpenGL
++    // wxGLCanvas; wxQt's GL context creation can never fail cleanly
++    // (wxGLContext reports m_isOk=true unconditionally) and there
++    // is no desktop OpenGL on iOS, so constructing the canvas in
++    // the chooser's constructor hard-faults the app the moment the
++    // footprint chooser is opened from any dialog (device-reported
++    // from Field Properties on the Round 21 build). The 2D preview
++    // is unaffected: it is a GAL panel already forced to Cairo by
++    // patches 0035/0036. m_preview3DCanvas stays null and every use
++    // of it in this frame is null-guarded under the same define;
++    // the 3D toggle controls are hidden in the constructor. The
++    // board adapter setup above still runs (it is plain data).
++    wxLogTrace( wxS( "KICAD_IOS" ), wxS( "round22-chooser-3d-skipped" ) );
++#else
+     // Build the 3D canvas
+     m_preview3DCanvas = new EDA_3D_CANVAS( m_chooserPanel->m_RightPanel,
+                                            OGL_ATT_LIST::GetAttributesList( ANTIALIASING_MODE::AA_8X ),
+@@ -738,6 +792,7 @@
+ 
+     m_chooserPanel->m_RightPanelSizer->Add( m_preview3DCanvas, 1, wxEXPAND, 5 );
+     m_chooserPanel->m_RightPanel->Layout();
++#endif
+ 
+     BOARD_DESIGN_SETTINGS& dummy_bds = dummyBoard->GetDesignSettings();
+     dummy_bds.SetBoardThickness( pcbIUScale.mmToIU( 1.6 ) );
+@@ -785,6 +840,13 @@
+ 
+ void FOOTPRINT_CHOOSER_FRAME::on3DviewReq( wxCommandEvent& event )
+ {
++#ifdef KICAD_IOS_PORT
++    // [KiCad-IOS port] Round 22: the 3D preview canvas does not
++    // exist on this port and its toggle button is hidden in the
++    // constructor; return early so no path can reach the canvas
++    // or the external 3D viewer from here.
++    return;
++#endif
+     if( m_show3DMode == true )
+     {
+         if( m_showFpMode == true )
+@@ -840,7 +902,13 @@
+ {
+     EDA_3D_VIEWER_FRAME* viewer3D = Get3DViewerFrame();
+ 
++#ifndef KICAD_IOS_PORT
+     if( m_preview3DCanvas->IsShown() )
++#else
++    // [KiCad-IOS port] Round 22: the 3D canvas does not exist on
++    // this port (see build3DCanvas); skip its refresh.
++    if( m_preview3DCanvas && m_preview3DCanvas->IsShown() )
++#endif
+     {
+         m_preview3DCanvas->ReloadRequest();
+         m_preview3DCanvas->Request_refresh();
+@@ -860,7 +928,14 @@
+ {
+     FOOTPRINT_PREVIEW_WIDGET* viewFpPanel = m_chooserPanel->GetViewerPanel();
+     viewFpPanel->Show( m_showFpMode );
++#ifndef KICAD_IOS_PORT
+     m_preview3DCanvas->Show( m_show3DMode );
++#else
++    // [KiCad-IOS port] Round 22: no 3D canvas on this port (see
++    // build3DCanvas); only show it when one was created.
++    if( m_preview3DCanvas )
++        m_preview3DCanvas->Show( m_show3DMode );
++#endif
+ 
+     updateViews();
+ }
